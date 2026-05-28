@@ -1,0 +1,92 @@
+schema_version = 1
+
+[model]
+id = "16GB bf16 transformer homogeneous serving"
+layers = 4
+hidden_size = 4096
+attention_heads = 32
+kv_heads = 8
+vocab_size = 32000
+parameters_gb = 16.0
+dtype = "bf16"
+
+[request]
+batch_size = 2
+prompt_tokens = 128
+decode_tokens = 16
+max_sequence_tokens = 512
+phase = "end_to_end"
+
+[calibration]
+compute_efficiency = 0.35
+prefill_compute_scale = 1.0
+decode_compute_scale = 1.1
+decode_memory_bandwidth_scale = 0.85
+collective_bandwidth_scale = 0.85
+kv_transfer_scale = 1.0
+scheduler_overhead_us = 20.0
+serving_pipeline_depth = 4
+allow_compute_comm_overlap = true
+
+[search]
+tensor_ranks = [1]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]
+
+[serving]
+mode = "colocated"
+objective = "e2el"
+prefill_nodes = [0]
+decode_nodes = [0]
+max_e2el_ms = 100000.0
+
+[serving.traffic]
+request_count = 3
+arrival = "fixed"
+arrival_gap_ms = 1.0
+routing_policy = "topology_aware"
+shape_seed = 5
+prefill_batching = "continuous"
+max_prefill_batch_tokens = 2048
+max_prefill_tokens = 4096
+max_prefill_tokens_per_node = 4096
+max_prefill_tokens_per_gpu = 2048
+max_prefill_worker_slots_per_gpu = 2
+decode_batching = "continuous"
+decode_capacity_policy = "request_reject"
+max_decode_batch_tokens = 16
+max_decode_sequences = 8
+max_resident_tokens = 8192
+max_decode_sequences_per_node = 8
+max_resident_tokens_per_node = 8192
+max_decode_sequences_per_gpu = 4
+max_decode_worker_slots_per_gpu = 2
+max_resident_tokens_per_gpu = 4096
+kv_block_tokens = 16
+max_kv_blocks = 1024
+max_kv_blocks_per_node = 1024
+max_kv_blocks_per_gpu = 256
+ttft_slo_ms = 500.0
+tpot_slo_ms = 100.0
+itl_slo_ms = 100.0
+e2el_slo_ms = 5000.0
+max_queue_delay_ms = 500.0
+max_decode_queue_delay_ms = 500.0
+max_decode_iteration_queue_delay_ms = 500.0
+request_timeout_ms = 10000.0
+batch_sizes = [1, 2]
+prompt_tokens = [128, 256]
+decode_tokens = [8, 16]
+
+[serving.prefill_search]
+tensor_ranks = [1]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]
+
+[serving.decode_search]
+tensor_ranks = [1]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]

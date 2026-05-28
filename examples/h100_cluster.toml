@@ -1,0 +1,16 @@
+schema_version = 1
+
+[cluster]
+preset = "h100_sxm"
+node_count = 2
+
+[interconnect]
+kind = "ib"
+variant = "ndr"
+oversubscription = 1.0
+
+[nics]
+count = 8
+affinity = "dedicated"
+bandwidth_gbps = 400.0
+rail_count = 8

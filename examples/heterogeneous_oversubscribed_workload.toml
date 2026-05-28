@@ -1,0 +1,107 @@
+schema_version = 1
+
+[model]
+id = "16GB bf16 transformer oversubscribed uplink demo"
+layers = 4
+hidden_size = 4096
+attention_heads = 32
+kv_heads = 8
+vocab_size = 32000
+parameters_gb = 16.0
+dtype = "bf16"
+
+[request]
+batch_size = 1
+prompt_tokens = 1024
+decode_tokens = 32
+max_sequence_tokens = 2048
+phase = "end_to_end"
+
+[calibration]
+compute_efficiency = 0.35
+prefill_compute_scale = 1.0
+decode_compute_scale = 1.1
+decode_memory_bandwidth_scale = 0.85
+collective_bandwidth_scale = 0.85
+kv_transfer_scale = 1.0
+scheduler_overhead_us = 20.0
+serving_pipeline_depth = 4
+allow_compute_comm_overlap = true
+
+[search]
+tensor_ranks = [1]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]
+
+[serving]
+mode = "fully_disaggregated"
+objective = "e2el"
+require_routable_pools = true
+topology_risk_penalty_weight = 0.25
+max_e2el_ms = 100000.0
+min_kv_route_rail_count = 1
+require_kv_route_rail_metadata = true
+
+[[serving.pool_candidates]]
+label = "oversubscribed-rack-uplink"
+prefill_groups = ["prefill_rack"]
+decode_groups = ["decode_rack"]
+prefill_rack = "rack-prefill"
+decode_rack = "rack-decode"
+prefill_island = "island-prefill"
+decode_island = "island-decode"
+min_prefill_failure_domains = 1
+min_decode_failure_domains = 1
+
+[serving.traffic]
+request_count = 4
+arrival = "fixed"
+arrival_gap_ms = 0.0
+routing_policy = "topology_aware"
+shape_seed = 31
+prefill_batching = "continuous"
+max_prefill_batch_tokens = 4096
+max_prefill_tokens = 8192
+max_prefill_tokens_per_node = 8192
+max_prefill_tokens_per_gpu = 4096
+max_prefill_worker_slots_per_gpu = 4
+decode_batching = "continuous"
+decode_capacity_policy = "request_reject"
+max_decode_batch_tokens = 64
+max_decode_sequences = 16
+max_resident_tokens = 65536
+max_decode_sequences_per_node = 16
+max_resident_tokens_per_node = 65536
+max_decode_sequences_per_gpu = 8
+max_decode_worker_slots_per_gpu = 4
+max_resident_tokens_per_gpu = 32768
+max_kv_transfer_worker_slots_per_gpu = 8
+kv_block_tokens = 16
+max_kv_blocks = 4096
+max_kv_blocks_per_node = 4096
+max_kv_blocks_per_gpu = 1024
+ttft_slo_ms = 5000.0
+tpot_slo_ms = 250.0
+itl_slo_ms = 250.0
+e2el_slo_ms = 20000.0
+max_queue_delay_ms = 10000.0
+max_kv_queue_delay_ms = 10000.0
+max_decode_queue_delay_ms = 10000.0
+max_decode_iteration_queue_delay_ms = 10000.0
+request_timeout_ms = 30000.0
+batch_sizes = [1]
+prompt_tokens = [1024]
+decode_tokens = [32]
+
+[serving.prefill_search]
+tensor_ranks = [1]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]
+
+[serving.decode_search]
+tensor_ranks = [1]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]

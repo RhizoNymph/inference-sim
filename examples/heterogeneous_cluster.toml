@@ -1,0 +1,52 @@
+schema_version = 1
+
+[cluster]
+preset = "custom"
+
+[interconnect]
+kind = "ib"
+variant = "ndr"
+
+[[interconnect.links]]
+from_group = "h100"
+to_group = "h100"
+kind = "ib"
+variant = "ndr"
+
+[[interconnect.links]]
+from = 0
+to = 2
+kind = "ib"
+variant = "hdr"
+
+[[interconnect.links]]
+from = 1
+to = 2
+kind = "ethernet"
+variant = "400g"
+
+[[node_groups]]
+label = "h100"
+start_id = 0
+count = 2
+node_tags = ["prefill", "rack-a"]
+rack = "rack-a"
+island = "h100-island"
+failure_domain = "az-a"
+gpu = "h100_sxm"
+gpu_count = 8
+intra = "nvlink_v4"
+nics = { count = 8, affinity = "dedicated", bandwidth_gbps = 400.0, rail_count = 8 }
+
+[[node_groups]]
+label = "a100"
+start_id = 2
+count = 1
+node_tags = ["decode", "rack-b"]
+rack = "rack-b"
+island = "a100-island"
+failure_domain = "az-b"
+gpu = "a100_80gb"
+gpu_count = 8
+intra = "nvlink_v3"
+nics = { count = 4, affinity = "shared", gpus_per_nic = 2, bandwidth_gbps = 200.0, rail_count = 4, nic_rail_map = [{ nic = 0, rail = 0 }, { nic = 1, rail = 2 }, { nic = 2, rail = 1 }, { nic = 3, rail = 3 }], gpu_nic_paths = [{ gpu = 0, nic = 0, label = "same_pcie", bandwidth_gbps = 128.0, latency_us = 1.5, gpudirect = true }, { gpu = 2, nic = 1, label = "cross_socket", bandwidth_gbps = 64.0, latency_us = 8.0, gpudirect = false }] }

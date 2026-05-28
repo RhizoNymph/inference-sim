@@ -1,0 +1,43 @@
+schema_version = 1
+
+[cluster]
+preset = "custom"
+
+[interconnect]
+kind = "ib"
+variant = "ndr"
+
+[[interconnect.links]]
+from_group = "mixed_prefill"
+to_group = "decode"
+from_gpu_tag = "high-bandwidth"
+kind = "ib"
+variant = "hdr"
+rails = [0, 1]
+
+[[interconnect.links]]
+from_group = "mixed_prefill"
+to_group = "decode"
+from_gpu_tag = "capacity"
+kind = "ethernet"
+variant = "400g"
+rails = [2, 3]
+
+[[nodes]]
+id = 0
+group = "mixed_prefill"
+intra = "pcie_gen5"
+nics = { count = 4, affinity = "shared", gpus_per_nic = 2, bandwidth_gbps = 400.0, rail_count = 4, gpu_nic_map = [{ gpu = 0, nics = [0, 1] }, { gpu = 4, nics = [2, 3] }] }
+gpus = [
+  { start_id = 0, count = 2, gpu = "h200_sxm", labels = ["high-bandwidth", "socket-0"] },
+  { start_id = 2, count = 2, gpu = "h100_sxm", labels = ["high-bandwidth", "socket-0"] },
+  { start_id = 4, count = 4, gpu = "a100_80gb", labels = ["capacity", "socket-1"] },
+]
+
+[[nodes]]
+id = 1
+group = "decode"
+gpu = "a100_80gb"
+gpu_count = 8
+intra = "nvlink_v3"
+nics = { count = 4, affinity = "shared", gpus_per_nic = 2, bandwidth_gbps = 200.0, rail_count = 4 }

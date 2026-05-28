@@ -1,0 +1,73 @@
+schema_version = 1
+cluster = "heterogeneous_cluster.toml"
+workload = "disaggregated_workload.toml"
+
+[output]
+format = "json"
+top_k = 1
+request_limit = 1
+
+[search]
+max_prefill_candidates = 8
+max_decode_candidates = 8
+max_serving_pairs = 16
+
+[[scenarios]]
+name = "baseline"
+request_count = 4
+arrival_rate_scale = 1.0
+
+[[scenarios]]
+name = "burst-2x"
+request_count = 8
+arrival_rate_scale = 2.0
+
+[[scenarios]]
+name = "long-context"
+request_count = 4
+prompt_tokens_scale = 2.0
+decode_tokens_scale = 1.5
+calibration_profile = "calibration_h100_a100.toml"
+
+[scenarios.calibration]
+decode_compute_scale = 1.5
+decode_memory_bandwidth_scale = 0.8
+kv_transfer_scale = 1.2
+
+[scenarios.topology]
+interconnect_bandwidth_scale = 0.5
+interconnect_latency_scale = 2.0
+nic_bandwidth_scale = 0.75
+
+[[scenarios.topology.disabled_gpus]]
+node = 1
+gpus = [7]
+
+[[scenarios.topology.disabled_nics]]
+group = "a100"
+nics = [3]
+
+[[scenarios.topology.degraded_gpus]]
+group = "a100"
+gpus = [0]
+compute_scale = 0.5
+hbm_bandwidth_scale = 0.75
+hbm_capacity_scale = 0.9
+
+[[scenarios.topology.degraded_nics]]
+group = "a100"
+nics = [2]
+bandwidth_scale = 0.5
+latency_scale = 1.25
+
+[[scenarios.topology.degraded_rails]]
+group = "a100"
+rails = [1]
+bandwidth_scale = 0.6
+latency_scale = 1.4
+
+[[scenarios.topology.degraded_links]]
+from = 0
+to = 2
+bandwidth_scale = 0.5
+latency_scale = 1.5

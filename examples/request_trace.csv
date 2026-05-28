@@ -1,0 +1,5 @@
+request_id,tenant,model_id,cache_key,arrival_ms,priority,batch_size,prompt_tokens,decode_tokens,max_sequence_tokens,prefix_cache_hit_tokens,ttft_slo_ms,tpot_slo_ms,itl_slo_ms,e2el_slo_ms,deadline_after_ms
+req-000,tenant-a,llama-70b,chat-a,0.0,2,1,512,8,2048,0,150.0,80.0,80.0,900.0,900.0
+req-001,tenant-b,llama-70b,chat-b,1.5,0,2,768,16,2048,128,200.0,120.0,120.0,1400.0,1400.0
+req-002,tenant-a,llama-70b,chat-a,2.0,1,1,1024,24,2048,512,175.0,90.0,90.0,1800.0,1800.0
+req-003,tenant-c,llama-70b,,4.0,-1,1,384,12,1024,0,250.0,150.0,150.0,1200.0,1200.0

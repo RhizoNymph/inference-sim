@@ -1,0 +1,22 @@
+schema_version = 1
+
+[run]
+cluster = "heterogeneous_cluster.toml"
+workload = "trace_workload.toml"
+
+[output]
+format = "json"
+top_k = 3
+request_limit = 5
+trace = false
+occupancy = true
+occupancy_buckets = 8
+occupancy_resource_limit = 4
+critical_path = true
+critical_path_limit = 25
+
+[search]
+max_parallelism_candidates = 8
+max_prefill_candidates = 4
+max_decode_candidates = 4
+max_serving_pairs = 12

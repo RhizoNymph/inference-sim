@@ -1,0 +1,126 @@
+schema_version = 1
+
+[model]
+id = "140GB bf16 transformer"
+layers = 80
+hidden_size = 8192
+attention_heads = 64
+kv_heads = 8
+vocab_size = 128256
+parameters_gb = 140.0
+dtype = "bf16"
+
+[request]
+batch_size = 4
+prompt_tokens = 1024
+decode_tokens = 128
+max_sequence_tokens = 2048
+phase = "end_to_end"
+
+[calibration]
+compute_efficiency = 0.35
+prefill_compute_scale = 1.0
+decode_compute_scale = 1.25
+decode_memory_bandwidth_scale = 0.85
+collective_latency_scale = 1.0
+collective_bandwidth_scale = 0.82
+kv_transfer_scale = 1.1
+scheduler_overhead_us = 25.0
+serving_pipeline_depth = 8
+request_arrival_gap_s = 0.0
+allow_compute_comm_overlap = true
+
+[search]
+tensor_ranks = [1, 2, 4, 8]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]
+
+[serving]
+mode = "fully_disaggregated"
+objective = "e2el"
+require_routable_pools = true
+slo_miss_penalty_weight = 0.25
+ttft_slo_miss_penalty_weight = 1.00
+e2el_slo_miss_penalty_weight = 0.50
+topology_risk_penalty_weight = 0.25
+
+[serving.pool_search]
+prefill_groups = ["h100"]
+decode_groups = ["a100"]
+prefill_node_counts = [1, 2]
+decode_node_counts = [1]
+allow_overlap = false
+max_candidates = 8
+
+[serving.traffic]
+request_count = 4
+arrival = "poisson"
+arrival_rate_per_s = 700.0
+arrival_seed = 42
+routing_policy = "topology_aware"
+shape_seed = 7
+prefill_batching = "continuous"
+max_prefill_batch_tokens = 4096
+max_prefill_chunk_tokens = 512
+max_prefill_tokens = 8192
+max_prefill_tokens_per_node = 8192
+max_prefill_tokens_per_gpu = 4096
+max_prefill_worker_slots_per_gpu = 2
+decode_batching = "continuous"
+decode_capacity_policy = "request_reject"
+max_decode_batch_tokens = 16
+max_decode_sequences = 8
+max_resident_tokens = 32768
+max_decode_sequences_per_node = 8
+max_resident_tokens_per_node = 32768
+max_decode_sequences_per_gpu = 4
+max_decode_worker_slots_per_gpu = 2
+max_resident_tokens_per_gpu = 8192
+max_kv_transfer_worker_slots_per_gpu = 2
+kv_block_tokens = 16
+max_kv_blocks = 4096
+max_kv_blocks_per_node = 4096
+max_kv_blocks_per_gpu = 1024
+ttft_slo_ms = 200.0
+tpot_slo_ms = 50.0
+itl_slo_ms = 50.0
+e2el_slo_ms = 1000.0
+max_queue_delay_ms = 500.0
+max_kv_queue_delay_ms = 500.0
+max_decode_queue_delay_ms = 500.0
+max_decode_iteration_queue_delay_ms = 500.0
+request_timeout_ms = 10000.0
+prefix_cache_hit_rate = 0.10
+batch_sizes = [1, 2]
+prompt_tokens = [512, 1024]
+decode_tokens = [8, 16]
+
+[serving.traffic.batch_size_distribution]
+kind = "weighted"
+values = [1, 2, 4]
+weights = [0.60, 0.30, 0.10]
+
+[serving.traffic.prompt_tokens_distribution]
+kind = "lognormal"
+median = 768.0
+sigma = 0.7
+min = 256
+max = 2048
+
+[serving.traffic.decode_tokens_distribution]
+kind = "uniform"
+min = 8
+max = 32
+
+[serving.prefill_search]
+tensor_ranks = [4, 8]
+pipeline_ranks = [1, 2]
+expert_ranks = [1]
+data_ranks = [1]
+
+[serving.decode_search]
+tensor_ranks = [1, 2, 4]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]

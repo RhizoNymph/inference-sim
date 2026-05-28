@@ -1,0 +1,62 @@
+schema_version = 1
+
+[cluster]
+preset = "custom"
+
+[interconnect]
+kind = "ib"
+variant = "ndr"
+
+[[interconnect.links]]
+from_group = "prefill"
+to_group = "decode_fast"
+kind = "ib"
+variant = "ndr"
+rails = [0, 1]
+
+[[interconnect.links]]
+from_group = "prefill"
+to_group = "decode_slow"
+kind = "ethernet"
+variant = "100g"
+rail = 0
+oversubscription = 4.0
+
+[[node_groups]]
+label = "prefill"
+start_id = 0
+count = 1
+node_tags = ["prefill", "rail-rich"]
+rack = "rack-east"
+island = "island-east"
+failure_domain = "az-a"
+gpu = "h100_sxm"
+gpu_count = 4
+intra = "nvlink_v4"
+nics = { count = 4, affinity = "dedicated", bandwidth_gbps = 400.0, rail_count = 4 }
+
+[[node_groups]]
+label = "decode_fast"
+start_id = 1
+count = 1
+node_tags = ["decode", "fast-rail"]
+rack = "rack-west"
+island = "island-west"
+failure_domain = "az-b"
+gpu = "a100_80gb"
+gpu_count = 4
+intra = "nvlink_v3"
+nics = { count = 4, affinity = "dedicated", bandwidth_gbps = 400.0, rail_count = 4 }
+
+[[node_groups]]
+label = "decode_slow"
+start_id = 2
+count = 1
+node_tags = ["decode", "slow-ethernet"]
+rack = "rack-cold"
+island = "island-cold"
+failure_domain = "az-c"
+gpu = "a100_80gb"
+gpu_count = 4
+intra = "nvlink_v3"
+nics = { count = 2, affinity = "shared", gpus_per_nic = 2, bandwidth_gbps = 100.0, rail_count = 2 }
