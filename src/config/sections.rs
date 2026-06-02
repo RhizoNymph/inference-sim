@@ -993,7 +993,13 @@ pub(super) struct ModelSection {
     pub(super) attention_heads: u32,
     pub(super) kv_heads: u32,
     pub(super) vocab_size: u32,
-    pub(super) parameters_gb: f64,
+    #[serde(
+        alias = "intermediate_size",
+        alias = "feed_forward_hidden_size",
+        alias = "mlp_hidden_size"
+    )]
+    pub(super) ffn_hidden_size: Option<u32>,
+    pub(super) parameters_gb: Option<f64>,
     #[serde(
         alias = "parameter_count_b",
         alias = "params_billion",

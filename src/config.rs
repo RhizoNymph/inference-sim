@@ -879,15 +879,26 @@ fn parse_workload_with_base_dir(
     )?;
     let request_phase = inference_phase(&file.request.phase)?;
     validate_request_section(&file.request, request_phase)?;
+    let model_dtype = dtype("model.dtype", &file.model.dtype)?;
+    let derived_parameter_count = derive_model_parameter_count(&file.model);
+    let model_parameter_count = file
+        .model
+        .parameter_count_billion
+        .map(|count| count * 1e9)
+        .unwrap_or(derived_parameter_count);
+    let parameters_gb = file
+        .model
+        .parameters_gb
+        .unwrap_or_else(|| model_parameter_count * model_dtype.bytes_per_element() as f64 / 1e9);
     let model = ModelSpec {
         layers: file.model.layers,
         hidden_size: file.model.hidden_size,
         attention_heads: file.model.attention_heads,
         kv_heads: file.model.kv_heads,
         vocab_size: file.model.vocab_size,
-        parameters: Bytes::from_gigabytes(file.model.parameters_gb),
-        parameter_count: file.model.parameter_count_billion.map(|count| count * 1e9),
-        dtype: dtype("model.dtype", &file.model.dtype)?,
+        parameters: Bytes::from_gigabytes(parameters_gb),
+        parameter_count: Some(model_parameter_count),
+        dtype: model_dtype,
         kv_dtype: file
             .model
             .kv_dtype
@@ -977,6 +988,31 @@ fn parse_workload_with_base_dir(
         require_routable_serving_pools,
         serving,
     })
+}
+
+fn derive_model_parameter_count(model: &ModelSection) -> f64 {
+    let hidden_size = model.hidden_size as f64;
+    let head_dim = hidden_size / model.attention_heads as f64;
+    let kv_dim = model.kv_heads as f64 * head_dim;
+    let ffn_hidden_size = model
+        .ffn_hidden_size
+        .unwrap_or(model.hidden_size.saturating_mul(4)) as f64;
+    let expert_count = model
+        .experts
+        .as_ref()
+        .map(|experts| experts.expert_count as f64)
+        .unwrap_or(1.0);
+
+    let attention_per_layer =
+        hidden_size * hidden_size + hidden_size * kv_dim * 2.0 + hidden_size * hidden_size;
+    let ffn_per_layer = 3.0 * hidden_size * ffn_hidden_size * expert_count;
+    let norm_per_layer = 4.0 * hidden_size;
+    let embedding = model.vocab_size as f64 * hidden_size;
+    let final_norm = hidden_size;
+
+    model.layers as f64 * (attention_per_layer + ffn_per_layer + norm_per_layer)
+        + embedding
+        + final_norm
 }
 
 fn validate_schema_version(kind: &str, version: Option<u32>) -> Result<(), ConfigError> {
@@ -1147,7 +1183,8 @@ fn validate_model_section(model: &ModelSection) -> Result<(), ConfigError> {
             "model.vocab_size must be greater than zero",
         ));
     }
-    validate_positive_optional_f64("model.parameters_gb", Some(model.parameters_gb))?;
+    validate_positive_optional_u32("model.ffn_hidden_size", model.ffn_hidden_size)?;
+    validate_positive_optional_f64("model.parameters_gb", model.parameters_gb)?;
 
     if !model.hidden_size.is_multiple_of(model.attention_heads) {
         return Err(ConfigError::new(

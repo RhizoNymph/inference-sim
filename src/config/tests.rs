@@ -96,6 +96,63 @@ fn derives_search_space_when_search_is_omitted() {
 }
 
 #[test]
+fn derives_model_parameters_when_parameters_gb_is_omitted() {
+    let workload = parse_workload(
+        r#"
+            [model]
+            layers = 2
+            hidden_size = 16
+            attention_heads = 4
+            kv_heads = 2
+            vocab_size = 100
+            ffn_hidden_size = 64
+            dtype = "bf16"
+
+            [request]
+            batch_size = 1
+            prompt_tokens = 128
+            decode_tokens = 16
+            max_sequence_tokens = 256
+            phase = "end_to_end"
+            "#,
+    )
+    .unwrap();
+
+    let expected_parameter_count = 9_424.0;
+    let expected_parameters_gb = expected_parameter_count * 2.0 / 1e9;
+    assert!((workload.model.parameter_count() - expected_parameter_count).abs() < 1e-9);
+    assert!((workload.model.parameters.as_gigabytes() - expected_parameters_gb).abs() < 1e-12);
+}
+
+#[test]
+fn explicit_parameters_gb_overrides_derived_model_memory() {
+    let workload = parse_workload(
+        r#"
+            [model]
+            layers = 2
+            hidden_size = 16
+            attention_heads = 4
+            kv_heads = 2
+            vocab_size = 100
+            ffn_hidden_size = 64
+            parameters_gb = 1.5
+            dtype = "bf16"
+
+            [request]
+            batch_size = 1
+            prompt_tokens = 128
+            decode_tokens = 16
+            max_sequence_tokens = 256
+            phase = "end_to_end"
+            "#,
+    )
+    .unwrap();
+
+    assert!((workload.model.parameter_count() - 9_424.0).abs() < 1e-9);
+    assert!((workload.model.parameters.as_gigabytes() - 1.5).abs() < 1e-9);
+}
+
+#[test]
 fn derives_serving_pool_search_when_pools_are_omitted() {
     let cluster = parse_cluster(
         r#"
