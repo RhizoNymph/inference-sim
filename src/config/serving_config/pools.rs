@@ -1709,7 +1709,7 @@ pub(in crate::config) fn valid_pool_search_counts(
     available_nodes: usize,
 ) -> Result<Vec<u32>, ConfigError> {
     let mut counts = if configured.is_empty() {
-        vec![available_nodes as u32]
+        (1..=available_nodes as u32).collect()
     } else {
         configured.to_vec()
     };

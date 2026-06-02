@@ -355,7 +355,7 @@ fn nodes_with_gpu_labels(
 
 fn effective_counts(configured: &[u32], available: usize) -> Vec<u32> {
     let mut counts = if configured.is_empty() {
-        vec![available as u32]
+        (1..=available as u32).collect()
     } else {
         configured.to_vec()
     };

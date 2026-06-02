@@ -866,43 +866,6 @@ fn parse_workload_with_base_dir(
             .and_then(|serving| nonempty_metadata(serving.serving_stack.clone()))
     });
     let serving_runtime_features = parse_serving_runtime_features(&file)?;
-    let search_space = match file.search {
-        Some(search) => parse_search("search", search)?,
-        None => {
-            let serving = file
-                .serving
-                .as_ref()
-                .ok_or_else(|| ConfigError::new("either [search] or [serving] must be provided"))?;
-            parse_search(
-                "serving.prefill_search",
-                serving.prefill_search.clone().ok_or_else(|| {
-                    ConfigError::new("serving.prefill_search is required when [search] is absent")
-                })?,
-            )?
-        }
-    };
-    let placement = parse_optional_placement("placement", file.placement.as_ref())?;
-    let serving_prefill_placement = parse_optional_placement(
-        "serving.prefill_placement",
-        file.serving
-            .as_ref()
-            .and_then(|serving| serving.prefill_placement.as_ref()),
-    )?;
-    let serving_decode_placement = parse_optional_placement(
-        "serving.decode_placement",
-        file.serving
-            .as_ref()
-            .and_then(|serving| serving.decode_placement.as_ref()),
-    )?;
-    let require_routable_serving_pools = file
-        .serving
-        .as_ref()
-        .and_then(|serving| serving.require_routable_pools)
-        .unwrap_or(false);
-    let serving = file
-        .serving
-        .map(|serving| parse_serving(serving, &search_space, base_dir))
-        .transpose()?;
     let calibration_overrides = calibration_overrides_from_section(file.calibration.as_ref());
     let calibration_profile = load_calibration_profile(file.calibration_profile, base_dir)?;
     let calibration_defaults = calibration_profile
@@ -943,6 +906,32 @@ fn parse_workload_with_base_dir(
         max_sequence_tokens: file.request.max_sequence_tokens,
         phase: request_phase,
     };
+    let search_space = match file.search {
+        Some(search) => parse_search("search", search)?,
+        None => auto_search_space_for_model(&model),
+    };
+    let placement = parse_optional_placement("placement", file.placement.as_ref())?;
+    let serving_prefill_placement = parse_optional_placement(
+        "serving.prefill_placement",
+        file.serving
+            .as_ref()
+            .and_then(|serving| serving.prefill_placement.as_ref()),
+    )?;
+    let serving_decode_placement = parse_optional_placement(
+        "serving.decode_placement",
+        file.serving
+            .as_ref()
+            .and_then(|serving| serving.decode_placement.as_ref()),
+    )?;
+    let require_routable_serving_pools = file
+        .serving
+        .as_ref()
+        .and_then(|serving| serving.require_routable_pools)
+        .unwrap_or(false);
+    let serving = file
+        .serving
+        .map(|serving| parse_serving(serving, &search_space, base_dir))
+        .transpose()?;
     let calibration_profile = calibration_profile.map(|profile| profile.metadata);
     let calibration_policy = parse_calibration_policy(file.calibration_policy)?;
     let approximation_policy = parse_approximation_policy(file.approximation_policy)?;
@@ -1014,6 +1003,43 @@ fn parse_search(name: &str, search: SearchSection) -> Result<SearchSpace, Config
         expert_ranks: require_nonempty(&format!("{name}.expert_ranks"), search.expert_ranks)?,
         data_ranks: require_nonempty(&format!("{name}.data_ranks"), search.data_ranks)?,
     })
+}
+
+fn auto_search_space_for_model(model: &ModelSpec) -> SearchSpace {
+    let tensor_limit = model.attention_heads.max(1);
+    let tensor_ranks = divisors_up_to(tensor_limit, tensor_limit)
+        .into_iter()
+        .filter(|rank| model.hidden_size % *rank == 0)
+        .collect::<Vec<_>>();
+    let pipeline_ranks = integers_up_to(model.layers.max(1));
+    let expert_ranks = model
+        .experts
+        .as_ref()
+        .map(|experts| divisors_up_to(experts.expert_count, experts.expert_count))
+        .unwrap_or_else(|| vec![1]);
+    let data_ranks = integers_up_to(64);
+
+    SearchSpace {
+        tensor_ranks: nonempty_or_one(tensor_ranks),
+        pipeline_ranks,
+        expert_ranks: nonempty_or_one(expert_ranks),
+        data_ranks,
+    }
+}
+
+fn divisors_up_to(value: u32, max: u32) -> Vec<u32> {
+    let upper = value.min(max).max(1);
+    (1..=upper)
+        .filter(|candidate| value % *candidate == 0)
+        .collect()
+}
+
+fn integers_up_to(max: u32) -> Vec<u32> {
+    (1..=max.max(1)).collect()
+}
+
+fn nonempty_or_one(values: Vec<u32>) -> Vec<u32> {
+    if values.is_empty() { vec![1] } else { values }
 }
 
 fn parse_optional_placement(

@@ -243,30 +243,19 @@ impl Solver {
         options: SolverOptions,
     ) -> Vec<ScoredParallelismConfig> {
         let mut results = Vec::new();
+        let configs = ordered_parallelism_candidates(search_space);
 
-        'search: for &tensor_ranks in &search_space.tensor_ranks {
-            for &pipeline_ranks in &search_space.pipeline_ranks {
-                for &expert_ranks in &search_space.expert_ranks {
-                    for &data_ranks in &search_space.data_ranks {
-                        if options
-                            .max_candidates
-                            .is_some_and(|max_candidates| results.len() >= max_candidates)
-                            || search_deadline_expired(options.search_deadline)
-                        {
-                            break 'search;
-                        }
-                        let config = ParallelismConfig {
-                            tensor_ranks,
-                            pipeline_ranks,
-                            expert_ranks,
-                            data_ranks,
-                        };
-                        results.push(Self::score_config_with_options(
-                            cluster, model, request, config, options,
-                        ));
-                    }
-                }
+        for config in configs {
+            if options
+                .max_candidates
+                .is_some_and(|max_candidates| results.len() >= max_candidates)
+                || search_deadline_expired(options.search_deadline)
+            {
+                break;
             }
+            results.push(Self::score_config_with_options(
+                cluster, model, request, config, options,
+            ));
         }
 
         results.sort_by(|a, b| {
@@ -818,6 +807,90 @@ impl Solver {
 
 fn search_deadline_expired(deadline: Option<Instant>) -> bool {
     deadline.is_some_and(|deadline| Instant::now() >= deadline)
+}
+
+fn ordered_parallelism_candidates(search_space: &SearchSpace) -> Vec<ParallelismConfig> {
+    let mut by_total_ranks = BTreeMap::<u32, Vec<ParallelismConfig>>::new();
+    for &tensor_ranks in &search_space.tensor_ranks {
+        for &pipeline_ranks in &search_space.pipeline_ranks {
+            for &expert_ranks in &search_space.expert_ranks {
+                for &data_ranks in &search_space.data_ranks {
+                    let config = ParallelismConfig {
+                        tensor_ranks,
+                        pipeline_ranks,
+                        expert_ranks,
+                        data_ranks,
+                    };
+                    by_total_ranks
+                        .entry(config.total_ranks())
+                        .or_default()
+                        .push(config);
+                }
+            }
+        }
+    }
+
+    for configs in by_total_ranks.values_mut() {
+        configs.sort_by_key(|config| {
+            (
+                dimension_spread(*config),
+                config.tensor_ranks,
+                config.pipeline_ranks,
+                config.expert_ranks,
+                config.data_ranks,
+            )
+        });
+    }
+
+    let rank_order = diverse_rank_order(by_total_ranks.keys().copied().collect());
+    let mut ordered = Vec::new();
+    loop {
+        let mut advanced = false;
+        for total_ranks in &rank_order {
+            let Some(configs) = by_total_ranks.get_mut(total_ranks) else {
+                continue;
+            };
+            if configs.is_empty() {
+                continue;
+            }
+            ordered.push(configs.remove(0));
+            advanced = true;
+        }
+        if !advanced {
+            break;
+        }
+    }
+    ordered
+}
+
+fn diverse_rank_order(ranks: Vec<u32>) -> Vec<u32> {
+    if ranks.is_empty() {
+        return Vec::new();
+    }
+
+    let mut ordered = Vec::with_capacity(ranks.len());
+    let mut low = 0usize;
+    let mut high = ranks.len() - 1;
+    while low < high {
+        ordered.push(ranks[low]);
+        ordered.push(ranks[high]);
+        low += 1;
+        high -= 1;
+    }
+    if low == high {
+        ordered.push(ranks[low]);
+    }
+    ordered
+}
+
+fn dimension_spread(config: ParallelismConfig) -> u32 {
+    let dims = [
+        config.tensor_ranks,
+        config.pipeline_ranks,
+        config.expert_ranks,
+        config.data_ranks,
+    ];
+    dims.iter().copied().max().unwrap_or(1) - dims.iter().copied().min().unwrap_or(1)
 }
 
 fn div_ceil(value: u64, divisor: u64) -> u64 {
@@ -1837,6 +1910,46 @@ mod tests {
         );
 
         assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn rank_config_candidate_order_covers_small_and_large_configs() {
+        let search_space = SearchSpace {
+            tensor_ranks: vec![1, 4],
+            pipeline_ranks: vec![1, 2],
+            expert_ranks: vec![1],
+            data_ranks: vec![1, 8],
+        };
+
+        let ordered = ordered_parallelism_candidates(&search_space);
+
+        assert_eq!(ordered[0].total_ranks(), 1);
+        assert_eq!(ordered[1].total_ranks(), 64);
+        assert_eq!(ordered[2].total_ranks(), 2);
+    }
+
+    #[test]
+    fn rank_config_budget_uses_diverse_candidate_order() {
+        let search_space = SearchSpace {
+            tensor_ranks: vec![1, 4],
+            pipeline_ranks: vec![1, 2],
+            expert_ranks: vec![1],
+            data_ranks: vec![1, 8],
+        };
+
+        let results = Solver::rank_configs_with_options(
+            &cluster(8),
+            &model(),
+            &request(),
+            &search_space,
+            SolverOptions {
+                max_candidates: Some(2),
+                ..SolverOptions::default()
+            },
+        );
+
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|score| score.config.total_ranks() == 64));
     }
 
     #[test]
