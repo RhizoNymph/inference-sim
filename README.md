@@ -35,6 +35,37 @@ Run commands from this directory.
 cargo test
 ```
 
+Start the local GUI server and open the printed URL:
+
+```sh
+node gui/server.mjs
+```
+
+The GUI builds cluster and workload TOML, visualizes the selected topology,
+generates bounded solver-owned searches for parallelism and prefill/decode
+pools, runs the simulator through the local server, and shows ranked candidate
+configs with key metric estimates and a metric-vs-metric Pareto scatter plot.
+The generated rank search is derived from the model shape and topology: tensor
+ranks follow valid attention/hidden-size divisors, pipeline ranks span feasible
+layer/GPU stage counts, and data ranks span available GPU replica counts.
+Serving workloads use synthetic arrivals, request-shape distributions, and
+continuous batching controls rather than a single static batch size. It also
+renders the serving process from simulator JSON. You can open
+`gui/index.html`
+directly in a browser for offline editing; in that mode, paste CLI JSON into
+the Process tab.
+
+After downloading `cluster.toml` and `workload.toml` from the GUI, the same run
+can be reproduced manually:
+
+```sh
+cargo run -- --cluster cluster.toml --workload workload.toml \
+  --json --trace --request-limit 8
+```
+
+Paste the JSON output into the GUI's Process tab to inspect request lifecycle
+timelines against the configured topology.
+
 Run the smallest colocated serving example and print JSON:
 
 ```sh
