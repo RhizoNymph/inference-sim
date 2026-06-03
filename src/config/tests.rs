@@ -134,15 +134,32 @@ fn derives_serving_pool_search_when_pools_are_omitted() {
     )
     .unwrap();
 
-    let pool_search = workload
-        .serving
-        .as_ref()
-        .and_then(|serving| serving.pool_search.as_ref())
-        .expect("default pool search");
+    let serving = workload.serving.as_ref().expect("serving config");
+    let pool_search = serving.pool_search.as_ref().expect("default pool search");
     assert_eq!(pool_search.prefill_groups, vec!["all"]);
     assert_eq!(pool_search.decode_groups, vec!["all"]);
     assert!(pool_search.prefill_node_counts.is_empty());
     assert!(pool_search.decode_node_counts.is_empty());
+    assert_eq!(
+        serving.traffic.prefill_batching,
+        ServingPrefillBatching::Continuous {
+            max_batch_tokens: Some(4096),
+            chunk_tokens: Some(512)
+        }
+    );
+    assert_eq!(
+        serving.traffic.decode_batching,
+        ServingDecodeBatching::Continuous {
+            max_batch_tokens: Some(16)
+        }
+    );
+    assert_eq!(serving.traffic.max_decode_sequences, Some(8));
+    assert_eq!(serving.traffic.max_resident_tokens, Some(32768));
+    assert_eq!(serving.traffic.kv_block_tokens, Some(16));
+    assert_eq!(serving.traffic.max_kv_blocks, Some(4096));
+    assert_eq!(serving.traffic.ttft_slo_s, None);
+    assert_eq!(serving.traffic.max_queue_delay_s, None);
+    assert_eq!(serving.traffic.request_timeout_s, None);
 
     validate_workload_for_cluster(&cluster, &workload).unwrap();
 }
