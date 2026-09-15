@@ -637,10 +637,14 @@ impl Solver {
 
         match request.phase {
             InferencePhase::Prefill => {
-                let active_tokens = request.prompt_tokens as f64 * request.batch_size as f64;
-                let baseline =
-                    Self::flop_latency_s(parameter_count, active_tokens, shard_factor, peak_flops)
-                        * calibration.prefill_compute_scale;
+                let baseline = Self::prefill_baseline_s(
+                    model,
+                    request,
+                    config,
+                    shard_factor,
+                    peak_flops,
+                    calibration,
+                );
                 if let Some(evaluation) = Self::fitted_phase_latency(
                     calibration_profile,
                     "prefill",
@@ -672,10 +676,14 @@ impl Solver {
                 (decode_s, application.into_iter().collect())
             }
             InferencePhase::EndToEnd => {
-                let prefill_tokens = request.prompt_tokens as f64 * request.batch_size as f64;
-                let prefill_baseline =
-                    Self::flop_latency_s(parameter_count, prefill_tokens, shard_factor, peak_flops)
-                        * calibration.prefill_compute_scale;
+                let prefill_baseline = Self::prefill_baseline_s(
+                    model,
+                    request,
+                    config,
+                    shard_factor,
+                    peak_flops,
+                    calibration,
+                );
                 let mut applications = Vec::new();
                 let prefill_s = if let Some(evaluation) = Self::fitted_phase_latency(
                     calibration_profile,
@@ -725,11 +733,18 @@ impl Solver {
     ) -> (f64, Option<CalibrationFitApplication>) {
         let decode_tokens = request.decode_tokens as f64;
         let flop_tokens = decode_tokens * request.batch_size as f64;
+        let attention_shard_factor = Self::attention_shard_factor(config);
         let flop_latency_s =
-            Self::flop_latency_s(parameter_count, flop_tokens, shard_factor, peak_flops);
+            Self::flop_latency_s(parameter_count, flop_tokens, shard_factor, peak_flops)
+                + Self::decode_attention_flops(model, request)
+                    / attention_shard_factor
+                    / peak_flops;
         let parameter_bytes_per_rank = model.parameters.as_bytes() as f64 / shard_factor;
         let hbm_bandwidth = Self::effective_hbm_bandwidth(cluster, placement, calibration);
-        let memory_latency_s = parameter_bytes_per_rank * decode_tokens / hbm_bandwidth;
+        let kv_read_latency_s =
+            Self::decode_kv_read_bytes(model, request) / attention_shard_factor / hbm_bandwidth;
+        let memory_latency_s =
+            parameter_bytes_per_rank * decode_tokens / hbm_bandwidth + kv_read_latency_s;
 
         let baseline = flop_latency_s.max(memory_latency_s) * calibration.decode_compute_scale;
         if let Some(evaluation) = Self::fitted_phase_latency(
@@ -757,6 +772,74 @@ impl Solver {
         let total_flops = 2.0 * parameter_count * active_tokens;
         let flops_per_rank = total_flops / shard_factor;
         flops_per_rank / peak_flops
+    }
+
+    // Attention score/value work shards across tensor ranks (heads) and
+    // pipeline ranks (layers) but not expert ranks, which only partition MLP
+    // expert weights.
+    fn attention_shard_factor(config: ParallelismConfig) -> f64 {
+        (config.tensor_ranks * config.pipeline_ranks).max(1) as f64
+    }
+
+    // Causal QK^T and AV bilinear FLOPs for prefilling the prompt. The
+    // attention projection GEMMs are already covered by the parameter-count
+    // FLOP term.
+    fn prefill_attention_flops(model: &ModelSpec, request: &InferenceRequest) -> f64 {
+        let prompt_tokens = request.prompt_tokens as f64;
+        2.0 * model.layers as f64
+            * model.hidden_size as f64
+            * prompt_tokens
+            * prompt_tokens
+            * request.batch_size as f64
+    }
+
+    // Decode steps see contexts prompt+1 ..= prompt+decode; per-request cost
+    // terms use the mean context so total decode work stays closed-form.
+    fn average_decode_context_tokens(request: &InferenceRequest) -> f64 {
+        request.prompt_tokens as f64 + (request.decode_tokens as f64 + 1.0) / 2.0
+    }
+
+    fn decode_attention_flops(model: &ModelSpec, request: &InferenceRequest) -> f64 {
+        4.0 * model.layers as f64
+            * model.hidden_size as f64
+            * Self::average_decode_context_tokens(request)
+            * request.decode_tokens as f64
+            * request.batch_size as f64
+    }
+
+    // Bytes of KV cache streamed from HBM across all decode iterations: every
+    // step re-reads each sequence's K and V for its current context length.
+    fn decode_kv_read_bytes(model: &ModelSpec, request: &InferenceRequest) -> f64 {
+        let head_dim = (model.hidden_size / model.attention_heads.max(1)) as f64;
+        let bytes_per_element = model.kv_dtype().bytes_per_element() as f64;
+        2.0 * model.layers as f64
+            * model.kv_heads as f64
+            * head_dim
+            * bytes_per_element
+            * Self::average_decode_context_tokens(request)
+            * request.decode_tokens as f64
+            * request.batch_size as f64
+    }
+
+    fn prefill_baseline_s(
+        model: &ModelSpec,
+        request: &InferenceRequest,
+        config: ParallelismConfig,
+        shard_factor: f64,
+        peak_flops: f64,
+        calibration: SimulationCalibration,
+    ) -> f64 {
+        let active_tokens = request.prompt_tokens as f64 * request.batch_size as f64;
+        let dense_s = Self::flop_latency_s(
+            model.parameter_count(),
+            active_tokens,
+            shard_factor,
+            peak_flops,
+        );
+        let attention_s = Self::prefill_attention_flops(model, request)
+            / Self::attention_shard_factor(config)
+            / peak_flops;
+        (dense_s + attention_s) * calibration.prefill_compute_scale
     }
 
     fn effective_peak_flops(
@@ -1864,5 +1947,175 @@ mod tests {
                 .unwrap()
                 .contains("have enough HBM and dtype support")
         );
+    }
+
+    fn single_rank_config() -> ParallelismConfig {
+        ParallelismConfig {
+            tensor_ranks: 1,
+            pipeline_ranks: 1,
+            expert_ranks: 1,
+            data_ranks: 1,
+        }
+    }
+
+    fn default_options() -> SolverOptions<'static> {
+        SolverOptions {
+            calibration: SimulationCalibration::default(),
+            calibration_profile: None,
+            max_candidates: None,
+            search_deadline: None,
+            explicit_placement: None,
+        }
+    }
+
+    #[test]
+    fn prefill_attention_flops_follow_causal_quadratic_formula() {
+        let spec = model();
+        let request = InferenceRequest {
+            batch_size: 4,
+            prompt_tokens: 128,
+            decode_tokens: 16,
+            max_sequence_tokens: 256,
+            phase: InferencePhase::Prefill,
+        };
+
+        let expected = 2.0 * 4.0 * 4096.0 * 128.0 * 128.0 * 4.0;
+        assert!((Solver::prefill_attention_flops(&spec, &request) - expected).abs() < 1.0);
+    }
+
+    #[test]
+    fn decode_kv_read_bytes_scale_with_context_and_kv_heads() {
+        let spec = model();
+        let request = InferenceRequest {
+            batch_size: 4,
+            prompt_tokens: 128,
+            decode_tokens: 16,
+            max_sequence_tokens: 256,
+            phase: InferencePhase::Decode,
+        };
+
+        let average_context = 128.0 + (16.0 + 1.0) / 2.0;
+        let head_dim = 4096.0 / 32.0;
+        let expected = 2.0 * 4.0 * 8.0 * head_dim * 2.0 * average_context * 16.0 * 4.0;
+        let baseline = Solver::decode_kv_read_bytes(&spec, &request);
+        assert!((baseline - expected).abs() < 1.0);
+
+        let mut gqa = model();
+        gqa.kv_heads = 4;
+        let halved = Solver::decode_kv_read_bytes(&gqa, &request);
+        assert!((halved - baseline / 2.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn attention_terms_ignore_expert_sharding() {
+        let config = ParallelismConfig {
+            tensor_ranks: 2,
+            pipeline_ranks: 2,
+            expert_ranks: 8,
+            data_ranks: 1,
+        };
+
+        assert!((Solver::attention_shard_factor(config) - 4.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn prefill_latency_grows_superlinearly_with_prompt_tokens() {
+        let mut spec = model();
+        spec.layers = 32;
+        let short_request = InferenceRequest {
+            batch_size: 1,
+            prompt_tokens: 16_384,
+            decode_tokens: 1,
+            max_sequence_tokens: 40_000,
+            phase: InferencePhase::Prefill,
+        };
+        let long_request = InferenceRequest {
+            prompt_tokens: 32_768,
+            ..short_request
+        };
+
+        let short_score = Solver::score_config_with_options(
+            &cluster(1),
+            &spec,
+            &short_request,
+            single_rank_config(),
+            default_options(),
+        );
+        let long_score = Solver::score_config_with_options(
+            &cluster(1),
+            &spec,
+            &long_request,
+            single_rank_config(),
+            default_options(),
+        );
+
+        assert!(short_score.feasible);
+        assert!(long_score.feasible);
+        assert!(long_score.estimated_latency_s > short_score.estimated_latency_s * 2.1);
+    }
+
+    #[test]
+    fn decode_latency_increases_with_context_length() {
+        let spec = model();
+        let short_context = InferenceRequest {
+            batch_size: 16,
+            prompt_tokens: 512,
+            decode_tokens: 32,
+            max_sequence_tokens: 1_024,
+            phase: InferencePhase::Decode,
+        };
+        let long_context = InferenceRequest {
+            prompt_tokens: 16_384,
+            max_sequence_tokens: 16_512,
+            ..short_context
+        };
+
+        let short_score = Solver::score_config_with_options(
+            &cluster(1),
+            &spec,
+            &short_context,
+            single_rank_config(),
+            default_options(),
+        );
+        let long_score = Solver::score_config_with_options(
+            &cluster(1),
+            &spec,
+            &long_context,
+            single_rank_config(),
+            default_options(),
+        );
+
+        assert!(short_score.feasible);
+        assert!(long_score.feasible);
+        assert!(long_score.estimated_latency_s > short_score.estimated_latency_s * 1.05);
+    }
+
+    #[test]
+    fn decode_memory_latency_includes_weight_and_kv_reads() {
+        let spec = model();
+        let request = InferenceRequest {
+            batch_size: 16,
+            prompt_tokens: 16_384,
+            decode_tokens: 32,
+            max_sequence_tokens: 16_512,
+            phase: InferencePhase::Decode,
+        };
+
+        let score = Solver::score_config_with_options(
+            &cluster(1),
+            &spec,
+            &request,
+            single_rank_config(),
+            default_options(),
+        );
+
+        let profile = Gpu::H100_SXM.profile();
+        let bandwidth = profile.hbm_bandwidth.as_bytes_per_sec();
+        let weight_read_s = spec.parameters.as_bytes() as f64 * 32.0 / bandwidth;
+        let kv_read_s = Solver::decode_kv_read_bytes(&spec, &request) / bandwidth;
+        let expected = weight_read_s + kv_read_s;
+
+        assert!(score.feasible);
+        assert!((score.estimated_latency_s - expected).abs() < expected * 1e-9);
     }
 }

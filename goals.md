@@ -375,6 +375,11 @@ in user-facing output.
 - [ ] Replace coarse FLOP estimates with layer-aware prefill and decode models
   for attention, MLP, MoE routing, logits, sampling, normalization, KV kernels,
   fused kernels, launch overhead, CUDA graphs, and backend effects.
+- [x] Add v1 causal-attention FLOP terms for prefill and decode plus a
+  KV-cache-read bandwidth term in the decode roofline, sharded across
+  tensor/pipeline ranks only, so long-context prefill and large-batch
+  long-context decode affect phase latency ahead of full layer-aware kernel
+  modeling.
 - [ ] Model tensor-core utilization by dtype, batch shape, sequence length,
   hidden size, backend, serving stack, and GPU generation.
 - [ ] Model GQA/MQA, KV dtype, quantized KV, quantized weights, mixed
