@@ -1,0 +1,17 @@
+kernel_source,allreduce_dtype,num_gpus,message_size,latency,backend
+vLLM_custom_eager,bfloat16,2,1024,0.020847039222717283,vllm_eager
+vLLM_custom_eager,bfloat16,2,2048,0.0205948805809021,vllm_eager
+vLLM_custom_eager,bfloat16,2,4096,0.020626559257507324,vllm_eager
+vLLM_custom_eager,bfloat16,2,131072,0.019945919513702393,vllm_eager
+vLLM_custom_eager,bfloat16,2,262144,0.020110719203948975,vllm_eager
+vLLM_custom_eager,bfloat16,2,524288,0.020124480724334717,vllm_eager
+vLLM_custom_eager,bfloat16,2,1048576,0.020221760272979734,vllm_eager
+vLLM_custom_eager,bfloat16,2,2097152,0.0274617600440979,vllm_eager
+vLLM_custom_graph,bfloat16,2,1024,0.0042137598991394045,vllm_graph
+vLLM_custom_graph,bfloat16,2,2048,0.004299519956111908,vllm_graph
+vLLM_custom_graph,bfloat16,2,4096,0.004375999867916107,vllm_graph
+vLLM_custom_graph,bfloat16,2,131072,0.005179520249366761,vllm_graph
+vLLM_custom_graph,bfloat16,2,262144,0.006315199732780457,vllm_graph
+vLLM_custom_graph,bfloat16,2,524288,0.008339840173721313,vllm_graph
+vLLM_custom_graph,bfloat16,2,1048576,0.012379839420318603,vllm_graph
+vLLM_custom_graph,bfloat16,2,2097152,0.020241599082946777,vllm_graph

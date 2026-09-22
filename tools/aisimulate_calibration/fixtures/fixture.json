@@ -1,0 +1,28 @@
+{
+  "_comment": "Self-test inputs. The date and commit are pinned so the golden profile is byte-stable.",
+  "system": "h100_sxm",
+  "backend": "vllm",
+  "version": "0.24.0",
+  "commit": "0000000000000000000000000000000000000000",
+  "date": "2026-01-01",
+  "model": {
+    "name": "fixture-tiny-dense",
+    "layers": 2,
+    "hidden_size": 1024,
+    "attention_heads": 8,
+    "kv_heads": 2,
+    "head_dim": 128,
+    "intermediate_size": 2048,
+    "vocab_size": 2048,
+    "dtype": "bfloat16",
+    "kv_dtype": "bfloat16",
+    "parameters_gb": 0.1
+  },
+  "tensor_ranks": [2],
+  "batch_sizes": [1, 2, 4],
+  "prompt_tokens": [128, 256, 512],
+  "decode_tokens": [2, 4, 8],
+  "holdout_fraction": 0.25,
+  "seed": 7,
+  "benchmark_limit": 6
+}

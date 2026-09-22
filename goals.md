@@ -653,6 +653,11 @@ in user-facing output.
   solver objective to its base metric, score convention, SLO/backpressure/
   topology penalties, uncertainty-adjusted score, and largest nominal objective
   term so ranking decisions are inspectable.
+- [x] Add a v1 converter that composes AISimulate's measured per-op GPU
+  performance tables (GEMM, context/generation attention, custom allreduce) into
+  phase-level prefill/decode calibration fits with holdout validation stats,
+  honest feature ranges, derived efficiency scalars, and benchmark residual
+  entries.
 
 ### Operations, Reliability, And Testing
 

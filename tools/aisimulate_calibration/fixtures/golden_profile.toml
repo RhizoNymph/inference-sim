@@ -1,0 +1,170 @@
+schema_version = 1
+
+[profile]
+name = "h100_sxm-vllm-fixture-tiny-dense"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "fixture-tiny-dense"
+dtype = "bfloat16"
+serving_stack = "vllm"
+backend_version = "0.24.0"
+nccl_version = "2.27.3"
+environment_hash = "sha256:0b57af8388a0d69629c948c00527ca12816d54dc61a90085107821f2c1540f59"
+source = "aisimulate@0000000000000000000000000000000000000000 h100_sxm/vllm/0.24.0; composed from measured op tables"
+date = "2026-01-01"
+notes = "Phase latencies composed from AISimulate measured GEMM, context/generation attention and custom-allreduce tables; dense decoder, pipeline ranks pinned to 1."
+
+[calibration]
+compute_efficiency = 0.442816
+decode_memory_bandwidth_scale = 0.8
+
+[[fits]]
+name = "h100_sxm-vllm-prefill-latency-fit"
+target = "prefill_ms"
+phase = "prefill"
+kind = "latency"
+model = "linear"
+unit = "ms"
+intercept = 0.132974
+features = ["batch_prompt_tokens_per_tensor_rank", "batch_prompt_tokens_squared_per_tensor_rank"]
+coefficients = [0.000143335, 6.06431e-08]
+feature_ranges = [
+  { feature = "batch_prompt_tokens_per_tensor_rank", min = 128.0, max = 512.0 },
+  { feature = "batch_prompt_tokens_squared_per_tensor_rank", min = 16384.0, max = 262144.0 },
+]
+r_squared = 0.997749
+adjusted_r_squared = 0.996623
+rmse = 0.00121156
+rmse_pct = 0.670372
+mean_abs_pct_error = 0.598115
+max_abs_pct_error = 1.13935
+validation_rmse = 0.00581756
+validation_rmse_pct = 2.62076
+validation_mean_abs_pct_error = 2.13231
+validation_max_abs_pct_error = 2.59762
+sample_count = 7
+validation_sample_count = 2
+source = "aisimulate@0000000000000000000000000000000000000000 h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[fits]]
+name = "h100_sxm-vllm-decode-latency-fit"
+target = "decode_ms"
+phase = "decode"
+kind = "latency"
+model = "linear"
+unit = "ms"
+intercept = 0.000725589
+features = ["decode_tokens_per_tensor_rank", "decode_batch_tokens_per_tensor_rank", "decode_batch_context_tokens_per_tensor_rank"]
+coefficients = [0.201145, 0.0, 5.01766e-06]
+feature_ranges = [
+  { feature = "decode_tokens_per_tensor_rank", min = 1.0, max = 4.0 },
+  { feature = "decode_batch_tokens_per_tensor_rank", min = 1.0, max = 16.0 },
+  { feature = "decode_batch_context_tokens_per_tensor_rank", min = 129.5, max = 8264.0 },
+]
+r_squared = 0.999262
+adjusted_r_squared = 0.999124
+rmse = 0.00712177
+rmse_pct = 1.48002
+mean_abs_pct_error = 1.34482
+max_abs_pct_error = 1.98009
+validation_rmse = 0.00855927
+validation_rmse_pct = 1.79898
+validation_mean_abs_pct_error = 1.28008
+validation_max_abs_pct_error = 1.91457
+sample_count = 20
+validation_sample_count = 7
+source = "aisimulate@0000000000000000000000000000000000000000 h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp2-b1-p128-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "fixture-tiny-dense"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 128
+decode_tokens = 1
+sequence_tokens = 129
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 0.140305
+predicted_ms = 0.142644
+source = "aisimulate@0000000000000000000000000000000000000000 h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp2-b4-p512-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "fixture-tiny-dense"
+dtype = "bfloat16"
+batch_size = 4
+prompt_tokens = 512
+decode_tokens = 1
+sequence_tokens = 513
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 0.303655
+predicted_ms = 0.311543
+source = "aisimulate@0000000000000000000000000000000000000000 h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp2-b1-p512-d8"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "fixture-tiny-dense"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 512
+decode_tokens = 8
+sequence_tokens = 520
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 0.828339
+predicted_ms = 0.815672
+source = "aisimulate@0000000000000000000000000000000000000000 h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp2-b2-p256-d8"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "fixture-tiny-dense"
+dtype = "bfloat16"
+batch_size = 2
+prompt_tokens = 256
+decode_tokens = 8
+sequence_tokens = 264
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 0.831686
+predicted_ms = 0.815762
+source = "aisimulate@0000000000000000000000000000000000000000 h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp2-b2-p512-d4"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "fixture-tiny-dense"
+dtype = "bfloat16"
+batch_size = 2
+prompt_tokens = 512
+decode_tokens = 4
+sequence_tokens = 516
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 0.417629
+predicted_ms = 0.413342
+source = "aisimulate@0000000000000000000000000000000000000000 h100_sxm/vllm/0.24.0; composed from measured op tables"

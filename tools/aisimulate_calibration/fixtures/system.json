@@ -1,0 +1,13 @@
+{
+  "_comment": "Scalars copied verbatim from AISimulate python/aisimulate/src/aisimulate_core/systems/h100_sxm.yaml",
+  "mem_bw": 3350000000000,
+  "mem_bw_empirical_scaling_factor": 0.8,
+  "mem_empirical_constant_latency": 0.000003,
+  "tc_flops": {
+    "bfloat16": 989000000000000,
+    "fp8": 1978000000000000,
+    "int8": 1978000000000000
+  },
+  "nccl_version": "2.27.3",
+  "num_gpus_per_node": 8
+}
