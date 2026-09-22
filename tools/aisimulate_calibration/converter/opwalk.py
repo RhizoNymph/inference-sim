@@ -14,6 +14,7 @@ from converter.spec import (
     GENERATION_SAMPLE_COUNT,
     GpuSpec,
     GridSpec,
+    ShapeBounds,
     ShardedModel,
 )
 from converter.tables import AllReduceCurve, AttentionTable, GemmTable
@@ -153,13 +154,42 @@ class Sample:
 
 
 def prefill_features(batch: int, prompt: int, tp: int) -> tuple[float, ...]:
+    """Values for `PREFILL_FEATURES`, in that exact order."""
     tokens = batch * prompt
-    return (tokens / tp, batch * prompt * prompt / tp)
+    return (float(tokens), tokens / tp, batch * prompt * prompt / tp)
 
 
 def decode_features(batch: int, prompt: int, decode: int, tp: int) -> tuple[float, ...]:
+    """Values for `DECODE_FEATURES`, in that exact order."""
     context = prompt + (decode + 1) / 2.0
-    return (decode / tp, batch * decode / tp, batch * decode * context / tp)
+    return (
+        float(decode),
+        decode / tp,
+        batch * decode / tp,
+        batch * decode * context / tp,
+    )
+
+
+def shape_bounds(decode_samples: Sequence[Sample]) -> ShapeBounds:
+    """Bounding box of the request shapes that actually survived composition.
+
+    The decode samples carry the full `(batch, prompt, decode)` triple for every
+    surviving `(batch, prompt)`, so they are the superset.
+    """
+    batches = [sample.batch for sample in decode_samples]
+    prompts = [sample.prompt for sample in decode_samples]
+    decodes = [sample.decode for sample in decode_samples]
+    sequences = [sample.prompt + sample.decode for sample in decode_samples]
+    return ShapeBounds(
+        min_batch_size=min(batches),
+        max_batch_size=max(batches),
+        min_prompt_tokens=min(prompts),
+        max_prompt_tokens=max(prompts),
+        min_decode_tokens=min(decodes),
+        max_decode_tokens=max(decodes),
+        min_sequence_tokens=min(sequences),
+        max_sequence_tokens=max(sequences),
+    )
 
 
 def compose_samples(

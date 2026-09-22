@@ -185,18 +185,22 @@ and exits non-zero.  Concretely:
 
 ```
 prefill_ms ~ intercept
-           + c0 * batch_prompt_tokens_per_tensor_rank          (b*s / tp)
-           + c1 * batch_prompt_tokens_squared_per_tensor_rank  (b*s^2 / tp)
+           + c0 * batch_tokens                                 (b*s)
+           + c1 * batch_prompt_tokens_per_tensor_rank          (b*s / tp)
+           + c2 * batch_prompt_tokens_squared_per_tensor_rank  (b*s^2 / tp)
 
 decode_ms  ~ intercept
-           + c0 * decode_tokens_per_tensor_rank                (d / tp)
-           + c1 * decode_batch_tokens_per_tensor_rank          (b*d / tp)
-           + c2 * decode_batch_context_tokens_per_tensor_rank  (b*d*ctx / tp)
+           + c0 * decode_tokens                                (d)
+           + c1 * decode_tokens_per_tensor_rank                (d / tp)
+           + c2 * decode_batch_tokens_per_tensor_rank          (b*d / tp)
+           + c3 * decode_batch_context_tokens_per_tensor_rank  (b*d*ctx / tp)
              with ctx = s + (d + 1) / 2
 ```
 
-These names are a frozen contract with the sibling Rust branch that adds the
-basis features to `src/solver/calibration_fits.rs`.
+Every name is evaluated by `src/solver/calibration_fits.rs`.  The
+`*_per_tensor_rank` composites and `decode_batch_context_tokens` are the derived
+basis features; `batch_tokens` and `decode_tokens` were already in the
+dictionary.
 
 `1/tp` is folded **into the features** rather than carried as a separate
 `tensor_ranks` feature.  The loader picks the first fit matching `(phase,
@@ -206,6 +210,36 @@ express `coef * tokens / tp` unless the division is already inside the basis.
 The same logic drives the `b*s^2` prefill term (attention is quadratic in
 sequence length) and the `b*d*ctx` decode term (per-step KV reads grow with the
 context).
+
+### The two tensor-rank-independent terms
+
+`batch_tokens` and `decode_tokens` carry the parts of the walk that **do not**
+shrink when the model is sharded wider, and neither is constant per request, so
+the intercept cannot stand in for them:
+
+- Both `add_norm` elementwise ops move `2 * (2h + 2h) = 8h` bytes **per token**
+  whatever `tp` is, and the per-layer allreduce payload is `num_tokens * h`
+  elements on every rank.  Both scale with `b*s` in prefill.
+- Every memory op carries a `mem_empirical_constant_latency` floor (3 us on
+  `h100_sxm`), and there are three elementwise ops per layer plus the embedding
+  and the allreduces.  In decode that floor is paid once **per step**, so it
+  scales with `d`.
+
+Dropping them is not a small loss of precision - it is a structural
+misspecification.  Measured on the Llama-3.1-70B / `h100_sxm` grid:
+
+| fit | basis | train R² | train RMSE% | train MAPE | train max APE | intercept |
+| --- | --- | --- | --- | --- | --- | --- |
+| prefill | without `batch_tokens` | 0.990163 | 12.88 | 41.47 | 327.99 | 55.5 ms |
+| prefill | with `batch_tokens` | 0.999831 | 1.69 | 2.75 | 34.33 | 6.9 ms |
+| decode | without `decode_tokens` | 0.983698 | 13.79 | 40.34 | 199.17 | 678.1 ms |
+| decode | with `decode_tokens` | 0.998250 | 4.52 | 3.02 | 11.30 | 2.3 ms |
+
+The fitted `decode_tokens` coefficient (4.14 ms/step at the time of writing) is
+a direct read-out of that floor: `80 layers * 3 elementwise * 3 us` plus the
+`2*80 + 1` allreduce latency floors is about 4 ms, which is what NNLS recovers.
+The intercepts collapsing to a few milliseconds is the other tell - they now
+mean what they should, the once-per-request cost.
 
 Coefficients and the intercept are fitted with **non-negative** least squares
 (Lawson-Hanson active set).  Latency cannot decrease when a basis quantity grows,
@@ -236,6 +270,20 @@ out-of-sample residual.
 - `environment_hash` - `sha256` over the four input table files.
 - `source` - the AISimulate git commit, the `system/backend/version` triple, and
   the phrase `composed from measured op tables`.
+- `kernel_settings` - facts about the slices that were read, not aspirations:
+  `custom_allreduce=vllm_graph` (the `*_eager` rows are dropped),
+  `beam_width=1`, `window_size=0`, `pipeline_ranks=1`.
+- `[valid_shape]` - the bounding box of the `(batch, prompt, decode)` samples
+  that survived composition.  It is coarser than the truth, because the
+  `b * s <= measured GEMM m sweep` filter removes large-batch/long-prompt
+  corners that the box still covers; `feature_ranges` remain the precise
+  witness and are what drives the interpolated/extrapolated classification.
+
+`driver_version` and `cuda_version` are deliberately **not** emitted.  The
+`gemm` and `attention` collection metadata for `vllm / 0.24.0` are tagged
+`provenance: legacy` and record no ABI block, so there is nothing to copy; the
+profile therefore trips the `calibration_profile_runtime_provenance_incomplete`
+gate at `warn` level, which is the accurate outcome.
 
 ## Limits
 
@@ -250,12 +298,19 @@ out-of-sample residual.
   at `32768`, so `b * s` above that is not represented; the attention staircase
   additionally thins out at large `batch x isl`.  The emitted `feature_ranges`
   are the honest witness of what survived.
-- **Fit expressiveness.**  The frozen three-term decode basis has no
-  tp-independent `d` term, while the measured per-step cost has a real
-  tp-independent component (the fixed `3 us` memory-op floors and the allreduce
-  latency floor).  The fit absorbs that into the intercept, which inflates the
-  relative error at small `d` - visible as a large `mean_abs_pct_error` next to a
-  high `r_squared`.  Both numbers are emitted; neither is massaged.
+- **Fit expressiveness.**  A linear basis still cannot express everything the
+  walk does.  The lm_head GEMM runs at `m = batch` in prefill, so its cost grows
+  with `b` and not with `b*s`, and no emitted feature is proportional to `b`
+  alone; adding one was measured and moved nothing (`max_abs_pct_error`
+  34.33 -> 36.29), so it is left out.  Off-site GEMM utilisation transfer also
+  makes the per-token cost mildly non-linear in the shard width.  The residual
+  shows up as a `max_abs_pct_error` in the 10-35% band at the extreme corners of
+  the grid while `rmse_pct` stays low.  Both numbers are emitted; neither is
+  massaged.
+- **Unweighted least squares.**  The fit minimises absolute squared error, so
+  the largest samples dominate.  That is the right choice for a latency model
+  consumed in seconds, but it means the relative error is worst at the small end
+  of the grid.
 - **Shared-layer inheritance is not reproduced.**  AISimulate's
   `gemm/vllm/0.24.0/reuse.yaml` lets that table borrow missing keys from
   `0.25.0`.  The converter reads the `0.24.0` file only.  For the `bfloat16`
@@ -277,7 +332,7 @@ out-of-sample residual.
 | `tools/aisimulate_calibration/convert.py` | uv script entry point: PEP 723 metadata, argparse CLI, self-test driver |
 | `tools/aisimulate_calibration/converter/errors.py` | structured exception hierarchy with per-class exit codes |
 | `tools/aisimulate_calibration/converter/logging_setup.py` | structured key-value log formatter |
-| `tools/aisimulate_calibration/converter/spec.py` | `ModelSpec`, `ShardedModel`, `GpuSpec`, `GridSpec`, `Provenance`, feature-name constants |
+| `tools/aisimulate_calibration/converter/spec.py` | `ModelSpec`, `ShardedModel`, `GpuSpec`, `GridSpec`, `ShapeBounds`, `Provenance`, feature-name constants |
 | `tools/aisimulate_calibration/converter/tables.py` | measured-table loaders, interpolation, derived `compute_efficiency` |
 | `tools/aisimulate_calibration/converter/opwalk.py` | `RankTables` op walk and phase-sample composition |
 | `tools/aisimulate_calibration/converter/fitting.py` | NNLS, train/holdout split, fit statistics |
@@ -287,6 +342,9 @@ out-of-sample residual.
 | `tools/aisimulate_calibration/fixtures/` | tiny CSV slice + `golden_profile.toml` for `--self-test` |
 | `tools/aisimulate_calibration/fixtures/README.md` | exact `duckdb` commands that regenerate the fixture |
 | `examples/calibration_h100_vllm_llama31_70b.toml` | generated profile for Llama-3.1-70B on `h100_sxm / vllm / 0.24.0`, `tp` 2/4/8 |
+| `examples/llama31_70b_calibrated_workload.toml` | workload whose request shape lands inside every emitted feature range |
+| `src/cli/tests.rs::runs_aisimulate_calibrated_llama_example_with_applied_phase_fits` | end-to-end regression anchor |
+| `src/solver/calibration_fits.rs` | the feature dictionary the emitted fits are evaluated against |
 | `src/config/calibration_config.rs` | the parser this profile must satisfy |
 | `src/config/sections.rs` | the serde sections defining every emitted field name |
 
@@ -309,6 +367,30 @@ install step.
   `CoverageError` (4), `FitError` (5), `SelfTestError` (6); each exits with its
   own code.
 
+## Regression anchors
+
+Two tests guard this feature, and both must pass after any change to the walk,
+the interpolation rules, the fit basis or the emitter:
+
+- `uv run tools/aisimulate_calibration/convert.py --self-test` replays the whole
+  compose/fit/emit pipeline against `fixtures/` and byte-diffs the result
+  against `fixtures/golden_profile.toml`.  It needs no AISimulate clone.
+- `src/cli/tests.rs::runs_aisimulate_calibrated_llama_example_with_applied_phase_fits`
+  runs the CLI against `examples/h100_cluster.toml` plus
+  `examples/llama31_70b_calibrated_workload.toml` and asserts that both emitted
+  fits are **applied** - one per phase, `applicability_status == "interpolated"`,
+  zero extrapolation ratio, every basis feature `in_range`, and the fit
+  provenance (`sample_count`, `validation_sample_count`, `uncertainty_source`,
+  `source`) surviving into the JSON.  That is what catches a feature name
+  drifting out of the Rust dictionary: the fit would silently stop applying
+  rather than fail to parse.
+
+The workload's request shape (`b = 8`, `s = 1024`, `d = 128`) is chosen so every
+basis feature is strictly inside the emitted `feature_ranges` at `tp` 4 and 8.
+Regenerating the profile with a different grid can move those ranges; if the
+smoke test starts reporting `extrapolated`, the request shape - not the
+assertion - is what needs revisiting.
+
 ## Invariants
 
 - Exactly one `[[fits]]` block per phase, prefill first, because the first
@@ -325,6 +407,9 @@ install step.
 - The holdout split is disjoint from the training split, and benchmarks are drawn
   only from the holdout.
 - `pipeline_ranks = 1` on every emitted benchmark; the walk models no `P2P`.
+- Every emitted feature carries both a `min` and a `max` in `feature_ranges`,
+  so an in-range request classifies as `interpolated` rather than
+  `partially_bounded`.
 
 ## Usage
 
@@ -338,6 +423,10 @@ uv run tools/aisimulate_calibration/convert.py \
 
 # verify the composition + fit + emit pipeline against the checked-in fixture
 uv run tools/aisimulate_calibration/convert.py --self-test
+
+# run the generated profile end to end
+cargo run -- --cluster examples/h100_cluster.toml \
+  --workload examples/llama31_70b_calibrated_workload.toml --json
 ```
 
 Model geometry comes from `--model-preset` (`llama-3.1-8b`, `llama-3.1-70b`,

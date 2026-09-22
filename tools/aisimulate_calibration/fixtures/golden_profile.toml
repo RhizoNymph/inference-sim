@@ -12,6 +12,17 @@ environment_hash = "sha256:0b57af8388a0d69629c948c00527ca12816d54dc61a9008510782
 source = "aisimulate@0000000000000000000000000000000000000000 h100_sxm/vllm/0.24.0; composed from measured op tables"
 date = "2026-01-01"
 notes = "Phase latencies composed from AISimulate measured GEMM, context/generation attention and custom-allreduce tables; dense decoder, pipeline ranks pinned to 1."
+kernel_settings = ["custom_allreduce=vllm_graph", "beam_width=1", "window_size=0", "pipeline_ranks=1"]
+
+[valid_shape]
+min_batch_size = 1
+max_batch_size = 4
+min_prompt_tokens = 128
+max_prompt_tokens = 512
+min_decode_tokens = 2
+max_decode_tokens = 8
+min_sequence_tokens = 130
+max_sequence_tokens = 520
 
 [calibration]
 compute_efficiency = 0.442816
@@ -25,14 +36,15 @@ kind = "latency"
 model = "linear"
 unit = "ms"
 intercept = 0.132974
-features = ["batch_prompt_tokens_per_tensor_rank", "batch_prompt_tokens_squared_per_tensor_rank"]
-coefficients = [0.000143335, 6.06431e-08]
+features = ["batch_tokens", "batch_prompt_tokens_per_tensor_rank", "batch_prompt_tokens_squared_per_tensor_rank"]
+coefficients = [7.16673e-05, 0.0, 6.06431e-08]
 feature_ranges = [
+  { feature = "batch_tokens", min = 256.0, max = 1024.0 },
   { feature = "batch_prompt_tokens_per_tensor_rank", min = 128.0, max = 512.0 },
   { feature = "batch_prompt_tokens_squared_per_tensor_rank", min = 16384.0, max = 262144.0 },
 ]
 r_squared = 0.997749
-adjusted_r_squared = 0.996623
+adjusted_r_squared = 0.995498
 rmse = 0.00121156
 rmse_pct = 0.670372
 mean_abs_pct_error = 0.598115
@@ -53,15 +65,16 @@ kind = "latency"
 model = "linear"
 unit = "ms"
 intercept = 0.000725589
-features = ["decode_tokens_per_tensor_rank", "decode_batch_tokens_per_tensor_rank", "decode_batch_context_tokens_per_tensor_rank"]
-coefficients = [0.201145, 0.0, 5.01766e-06]
+features = ["decode_tokens", "decode_tokens_per_tensor_rank", "decode_batch_tokens_per_tensor_rank", "decode_batch_context_tokens_per_tensor_rank"]
+coefficients = [0.100572, 0.0, 0.0, 5.01766e-06]
 feature_ranges = [
+  { feature = "decode_tokens", min = 2.0, max = 8.0 },
   { feature = "decode_tokens_per_tensor_rank", min = 1.0, max = 4.0 },
   { feature = "decode_batch_tokens_per_tensor_rank", min = 1.0, max = 16.0 },
   { feature = "decode_batch_context_tokens_per_tensor_rank", min = 129.5, max = 8264.0 },
 ]
 r_squared = 0.999262
-adjusted_r_squared = 0.999124
+adjusted_r_squared = 0.999066
 rmse = 0.00712177
 rmse_pct = 1.48002
 mean_abs_pct_error = 1.34482

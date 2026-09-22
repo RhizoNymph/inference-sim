@@ -9,7 +9,7 @@ import duckdb
 
 from converter.emit import render_profile
 from converter.fitting import fit_phase
-from converter.opwalk import RankTables, compose_samples
+from converter.opwalk import RankTables, compose_samples, shape_bounds
 from converter.sources import TableSources
 from converter.spec import (
     DECODE_FEATURES,
@@ -123,6 +123,7 @@ def run(plan: RunPlan, logger: logging.Logger) -> str:
         gpu=plan.gpu,
         provenance=plan.provenance,
         efficiency=efficiency,
+        shape=shape_bounds(decode),
         fits=(prefill_fit, decode_fit),
         benchmark_limit=plan.benchmark_limit,
     )

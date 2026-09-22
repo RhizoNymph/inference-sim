@@ -139,6 +139,26 @@ class GridSpec:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class ShapeBounds:
+    """Coarse request-shape envelope of the samples that were actually composed.
+
+    This is the bounding box of the surviving grid, so its corners can claim a
+    little more than was measured (the `b * s <= measured GEMM m sweep` filter
+    removes large-batch/long-prompt corners).  The per-fit `feature_ranges` are
+    the precise witness; this box only drives the profile-level shape gate.
+    """
+
+    min_batch_size: int
+    max_batch_size: int
+    min_prompt_tokens: int
+    max_prompt_tokens: int
+    min_decode_tokens: int
+    max_decode_tokens: int
+    min_sequence_tokens: int
+    max_sequence_tokens: int
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class Provenance:
     """Everything that ends up in `[profile]` and the fit `source` strings."""
 
@@ -191,10 +211,23 @@ MODEL_PRESETS: Final[Mapping[str, Mapping[str, object]]] = {
 }
 
 PREFILL_FEATURES: Final[tuple[str, ...]] = (
+    # Plain `batch_tokens` (b * s) carries the tensor-rank-INDEPENDENT PER-TOKEN
+    # cost: both `add_norm` elementwise ops read and write `8h` bytes per token
+    # whatever the shard width, and the per-layer allreduce payload is
+    # `num_tokens * h` elements on every rank.  Neither shrinks with `tp`, and
+    # neither is constant per request, so the intercept cannot absorb them.
+    "batch_tokens",
     "batch_prompt_tokens_per_tensor_rank",
     "batch_prompt_tokens_squared_per_tensor_rank",
 )
 DECODE_FEATURES: Final[tuple[str, ...]] = (
+    # Plain `decode_tokens` carries the tensor-rank-INDEPENDENT per-step floor
+    # (the 3 us memory-op constant on every elementwise kernel, times layers,
+    # plus the allreduce latency floor).  That cost is paid once per decode
+    # step, so it scales with `d` and not with `d / tp`; without this term the
+    # intercept - which is paid once per request - has to absorb it and the
+    # relative error at small `d` blows up.
+    "decode_tokens",
     "decode_tokens_per_tensor_rank",
     "decode_batch_tokens_per_tensor_rank",
     "decode_batch_context_tokens_per_tensor_rank",

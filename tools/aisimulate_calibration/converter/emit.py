@@ -8,7 +8,7 @@ from collections.abc import Iterable, Sequence
 from converter.errors import FitError
 from converter.fitting import PhaseFit
 from converter.opwalk import Sample
-from converter.spec import GpuSpec, ModelSpec, Provenance
+from converter.spec import GpuSpec, ModelSpec, Provenance, ShapeBounds
 
 # ---------------------------------------------------------------------------
 # TOML emission
@@ -158,6 +158,7 @@ def render_profile(
     gpu: GpuSpec,
     provenance: Provenance,
     efficiency: float,
+    shape: ShapeBounds,
     fits: Sequence[PhaseFit],
     benchmark_limit: int,
 ) -> str:
@@ -185,6 +186,36 @@ def render_profile(
                 "context/generation attention and custom-allreduce tables; "
                 "dense decoder, pipeline ranks pinned to 1.",
             ),
+        ]
+    )
+    # Facts about the measured slices this profile was composed from, not
+    # aspirational settings: the allreduce curve is the CUDA-graph lane (the
+    # `*_eager` rows are dropped, mirroring AISimulate's loader), and the
+    # attention slices are keyed at beam width 1 with no sliding window.
+    lines.append(
+        "kernel_settings = ["
+        + ", ".join(
+            toml_string(setting)
+            for setting in (
+                "custom_allreduce=vllm_graph",
+                "beam_width=1",
+                "window_size=0",
+                "pipeline_ranks=1",
+            )
+        )
+        + "]"
+    )
+    lines += ["", "[valid_shape]"]
+    lines += _kv_lines(
+        [
+            ("min_batch_size", shape.min_batch_size),
+            ("max_batch_size", shape.max_batch_size),
+            ("min_prompt_tokens", shape.min_prompt_tokens),
+            ("max_prompt_tokens", shape.max_prompt_tokens),
+            ("min_decode_tokens", shape.min_decode_tokens),
+            ("max_decode_tokens", shape.max_decode_tokens),
+            ("min_sequence_tokens", shape.min_sequence_tokens),
+            ("max_sequence_tokens", shape.max_sequence_tokens),
         ]
     )
     lines += ["", "[calibration]"]
