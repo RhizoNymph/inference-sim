@@ -1,0 +1,49 @@
+schema_version = 1
+
+# Llama-3.1-70B shaped to match examples/calibration_h100_vllm_llama31_70b.toml,
+# which was composed from AISimulate's measured h100_sxm / vllm / 0.24.0 tables by
+# tools/aisimulate_calibration/convert.py.
+#
+# The request shape below is chosen so every basis feature of both emitted fits
+# lands strictly inside the profile's feature_ranges at every searched tensor
+# rank, so the prefill and decode fits apply as "interpolated" rather than
+# "extrapolated":
+#
+#   batch_tokens                                 = 8 * 1024        =    8192
+#   batch_prompt_tokens_per_tensor_rank          = 8192 / tp       = 2048..1024
+#   batch_prompt_tokens_squared_per_tensor_rank  = 8388608 / tp    = 2.1e6..1.0e6
+#   decode_tokens                                = 128
+#   decode_tokens_per_tensor_rank                = 128 / tp        =   32..16
+#   decode_batch_tokens_per_tensor_rank          = 1024 / tp       =  256..128
+#   decode_batch_context_tokens_per_tensor_rank  = 1114624 / tp    = 2.8e5..1.4e5
+#
+# Tensor ranks are limited to 4 and 8: 141 GB of bf16 weights does not fit two
+# 80 GB H100s, so tp = 2 would be rejected for memory even though the profile
+# covers it.
+
+[model]
+id = "llama-3.1-70b"
+layers = 80
+hidden_size = 8192
+attention_heads = 64
+kv_heads = 8
+vocab_size = 128256
+parameters_gb = 141.0
+dtype = "bf16"
+kv_dtype = "bf16"
+
+[request]
+batch_size = 8
+prompt_tokens = 1024
+decode_tokens = 128
+max_sequence_tokens = 2048
+phase = "end_to_end"
+
+[calibration_profile]
+path = "calibration_h100_vllm_llama31_70b.toml"
+
+[search]
+tensor_ranks = [4, 8]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]

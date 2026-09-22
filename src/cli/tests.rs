@@ -4988,6 +4988,116 @@ fn runs_homogeneous_serving_example_with_colocated_metrics() {
     assert!(output.contains("\"e2el_ms\""));
 }
 
+/// Regression anchor for `tools/aisimulate_calibration/convert.py`: the profile
+/// it generates from AISimulate's measured operation tables must actually
+/// override both roofline phases, and do so as an interpolation rather than an
+/// extrapolation, for the request shape the example workload declares.
+#[test]
+fn runs_aisimulate_calibrated_llama_example_with_applied_phase_fits() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let cluster_path = root.join("examples/h100_cluster.toml");
+    let workload_path = root.join("examples/llama31_70b_calibrated_workload.toml");
+
+    let mut output = Vec::new();
+    run_with_args(
+        [
+            "inference-sim".to_string(),
+            "--cluster".to_string(),
+            cluster_path.display().to_string(),
+            "--workload".to_string(),
+            workload_path.display().to_string(),
+            "--json".to_string(),
+            "--top-k".to_string(),
+            "2".to_string(),
+        ],
+        &mut output,
+    )
+    .unwrap();
+
+    let output = String::from_utf8(output).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    let calibration = &value["calibration"];
+    assert_eq!(
+        calibration["applicability_status"].as_str(),
+        Some("within_valid_shape")
+    );
+
+    let profile = &calibration["profile"];
+    assert_eq!(profile["serving_stack"].as_str(), Some("vllm"));
+    assert_eq!(profile["dtype"].as_str(), Some("bfloat16"));
+    assert!(
+        profile["environment_hash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
+    );
+
+    let profile_fits = profile["fits"].as_array().unwrap();
+    assert_eq!(profile_fits.len(), 2);
+    for fit in profile_fits {
+        assert!(fit["r_squared"].as_f64().unwrap() > 0.99);
+        assert!(fit["sample_count"].as_u64().unwrap() > 0);
+        assert!(fit["validation_sample_count"].as_u64().unwrap() > 0);
+        assert!(
+            fit["source"]
+                .as_str()
+                .unwrap()
+                .contains("composed from measured op tables")
+        );
+    }
+
+    let results = value["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+
+    for result in results {
+        assert!(result["feasible"].as_bool().unwrap());
+        let applications = result["calibration_fit_applications"].as_array().unwrap();
+        assert_eq!(applications.len(), 2);
+        assert_eq!(applications[0]["phase"].as_str(), Some("prefill"));
+        assert_eq!(applications[0]["target"].as_str(), Some("prefill_ms"));
+        assert_eq!(applications[1]["phase"].as_str(), Some("decode"));
+        assert_eq!(applications[1]["target"].as_str(), Some("decode_ms"));
+
+        for application in applications {
+            assert_eq!(
+                application["applicability_status"].as_str(),
+                Some("interpolated")
+            );
+            assert_eq!(application["model"].as_str(), Some("linear"));
+            assert_eq!(application["unit"].as_str(), Some("ms"));
+            assert_eq!(application["max_extrapolation_ratio"].as_f64(), Some(0.0));
+            assert!(application["predicted_ms"].as_f64().unwrap() > 0.0);
+            assert!(application["baseline_ms"].as_f64().unwrap() > 0.0);
+
+            // Fit metadata survives the profile -> applied-fit hand-off.
+            assert!(application["sample_count"].as_u64().unwrap() > 0);
+            assert!(application["validation_sample_count"].as_u64().unwrap() > 0);
+            assert_eq!(
+                application["uncertainty_source"].as_str(),
+                Some("validation_rmse")
+            );
+            assert!(application["validation_rmse_pct"].as_f64().unwrap() > 0.0);
+            assert!(
+                application["source"]
+                    .as_str()
+                    .unwrap()
+                    .contains("composed from measured op tables")
+            );
+
+            // Every basis feature of the generated fits is bounded and inside
+            // the measured range at this tensor rank.
+            let features = application["features"].as_array().unwrap();
+            assert!(!features.is_empty());
+            for feature in features {
+                assert_eq!(feature["status"].as_str(), Some("in_range"));
+                assert!(feature["range_min"].as_f64().is_some());
+                assert!(feature["range_max"].as_f64().is_some());
+            }
+        }
+    }
+}
+
 #[test]
 fn runs_heterogeneous_partially_disaggregated_example_with_serving_metrics() {
     let output = run_heterogeneous_example("heterogeneous_partially_disaggregated_workload.toml");
