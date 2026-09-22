@@ -37,6 +37,71 @@ pub(super) fn calibration_feature_values(
         "decode_batch_tokens",
         batch_size * decode_tokens,
     );
+
+    // Derived basis features: linear-in-coefficient terms that let a linear fit
+    // express measured attention and KV-read curve shapes. `decode_context` is
+    // the mean context length seen over the decode steps of the request.
+    let prompt_tokens_squared = prompt_tokens * prompt_tokens;
+    let batch_prompt_tokens = batch_size * prompt_tokens;
+    let batch_prompt_tokens_squared = batch_size * prompt_tokens_squared;
+    let batch_decode_tokens = batch_size * decode_tokens;
+    let decode_context_tokens = prompt_tokens + (decode_tokens + 1.0) / 2.0;
+    let batch_decode_context_tokens = batch_size * decode_context_tokens;
+    let decode_batch_context_tokens = batch_decode_tokens * decode_context_tokens;
+    let inv_tensor_ranks = 1.0 / tensor_ranks;
+
+    insert_feature(
+        &mut features,
+        "prompt_tokens_squared",
+        prompt_tokens_squared,
+    );
+    insert_feature(
+        &mut features,
+        "batch_prompt_tokens_squared",
+        batch_prompt_tokens_squared,
+    );
+    insert_feature(
+        &mut features,
+        "decode_context_tokens",
+        decode_context_tokens,
+    );
+    insert_feature(
+        &mut features,
+        "batch_decode_context_tokens",
+        batch_decode_context_tokens,
+    );
+    insert_feature(
+        &mut features,
+        "decode_batch_context_tokens",
+        decode_batch_context_tokens,
+    );
+    insert_feature(&mut features, "inv_tensor_ranks", inv_tensor_ranks);
+    insert_feature(
+        &mut features,
+        "batch_prompt_tokens_per_tensor_rank",
+        batch_prompt_tokens * inv_tensor_ranks,
+    );
+    insert_feature(
+        &mut features,
+        "batch_prompt_tokens_squared_per_tensor_rank",
+        batch_prompt_tokens_squared * inv_tensor_ranks,
+    );
+    insert_feature(
+        &mut features,
+        "decode_tokens_per_tensor_rank",
+        decode_tokens * inv_tensor_ranks,
+    );
+    insert_feature(
+        &mut features,
+        "decode_batch_tokens_per_tensor_rank",
+        batch_decode_tokens * inv_tensor_ranks,
+    );
+    insert_feature(
+        &mut features,
+        "decode_batch_context_tokens_per_tensor_rank",
+        decode_batch_context_tokens * inv_tensor_ranks,
+    );
+
     insert_feature(&mut features, "tensor_ranks", tensor_ranks);
     insert_feature(&mut features, "tp", tensor_ranks);
     insert_feature(&mut features, "pipeline_ranks", pipeline_ranks);
