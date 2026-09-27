@@ -100,6 +100,15 @@ Overview:
         workload description every estimate is computed against.
       key_files:
         - src/workload.rs
+    aisimulate_calibration:
+      role: >
+        Offline Python tool, outside the simulation loop, that composes NVIDIA
+        AISimulate's measured per-operation GPU performance tables into a
+        calibration-profile TOML config can load like any other.
+      key_files:
+        - tools/aisimulate_calibration/convert.py (uv script entry point)
+        - tools/aisimulate_calibration/converter/ (tables, op walk, fitting, emission)
+        - tools/aisimulate_calibration/fixtures/ (self-test CSVs and golden profile)
   data_flow: >
     cli parses arguments and loads TOML through config, producing a Cluster
     (types::topology), a ModelSpec/InferenceRequest (workload), a
@@ -120,8 +129,25 @@ Overview:
     Solver::fitted_latency_from_features. cli then ranks, gates (calibration and
     approximation policies), and renders text/JSON/CSV, carrying every fit
     application and its applicability status into the output.
+    aisimulate_calibration runs entirely outside that loop: it reads AISimulate
+    Parquet op tables, composes phase latencies, fits the basis features
+    solver::calibration_fits already evaluates, and writes a profile TOML that a
+    later cli run loads through config.
 
 Features Index:
+  aisimulate_calibration:
+    description: >
+      Offline converter that composes AISimulate's measured GEMM,
+      context/generation attention, and custom-allreduce tables into
+      phase-level prefill/decode calibration fits with holdout validation
+      stats, honest feature ranges, derived efficiency scalars, and benchmark
+      residual entries.
+    entry_points:
+      - tools/aisimulate_calibration/convert.py
+      - examples/calibration_h100_vllm_llama31_70b.toml
+      - examples/llama31_70b_calibrated_workload.toml
+    depends_on: [calibration_fits]
+    doc: docs/features/aisimulate_calibration.md
   calibration_fits:
     description: >
       Fitted linear models in calibration profiles that override analytical

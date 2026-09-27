@@ -657,6 +657,11 @@ in user-facing output.
   mean-decode-context terms, and per-tensor-rank composites) so linear
   calibration fits can express measured attention and KV-read curve shapes
   across a tensor-parallel sweep.
+- [x] Add a v1 converter that composes AISimulate's measured per-op GPU
+  performance tables (GEMM, context/generation attention, custom allreduce) into
+  phase-level prefill/decode calibration fits with holdout validation stats,
+  honest feature ranges, derived efficiency scalars, and benchmark residual
+  entries.
 
 ### Operations, Reliability, And Testing
 

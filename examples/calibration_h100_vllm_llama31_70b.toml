@@ -1,0 +1,544 @@
+schema_version = 1
+
+[profile]
+name = "h100_sxm-vllm-llama-3.1-70b"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+serving_stack = "vllm"
+backend_version = "0.24.0"
+nccl_version = "2.27.3"
+environment_hash = "sha256:59982e2602ebc7a71b14cec9e43c43d994b37445428569cf21b841dc907a192d"
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+date = "2026-09-21"
+notes = "Phase latencies composed from AISimulate measured GEMM, context/generation attention and custom-allreduce tables; dense decoder, pipeline ranks pinned to 1."
+kernel_settings = ["custom_allreduce=vllm_graph", "beam_width=1", "window_size=0", "pipeline_ranks=1"]
+
+[valid_shape]
+min_batch_size = 1
+max_batch_size = 64
+min_prompt_tokens = 128
+max_prompt_tokens = 16384
+min_decode_tokens = 32
+max_decode_tokens = 1024
+min_sequence_tokens = 160
+max_sequence_tokens = 17408
+
+[calibration]
+compute_efficiency = 0.79785
+decode_memory_bandwidth_scale = 0.8
+
+[[fits]]
+name = "h100_sxm-vllm-prefill-latency-fit"
+target = "prefill_ms"
+phase = "prefill"
+kind = "latency"
+model = "linear"
+unit = "ms"
+intercept = 6.94918
+features = ["batch_tokens", "batch_prompt_tokens_per_tensor_rank", "batch_prompt_tokens_squared_per_tensor_rank"]
+coefficients = [0.0149657, 0.186081, 1.95399e-06]
+feature_ranges = [
+  { feature = "batch_tokens", min = 128.0, max = 32768.0 },
+  { feature = "batch_prompt_tokens_per_tensor_rank", min = 16.0, max = 16384.0 },
+  { feature = "batch_prompt_tokens_squared_per_tensor_rank", min = 2048.0, max = 2.68435e+08 },
+]
+r_squared = 0.999831
+adjusted_r_squared = 0.999826
+rmse = 11.8125
+rmse_pct = 1.68643
+mean_abs_pct_error = 2.74646
+max_abs_pct_error = 34.3345
+validation_rmse = 15.2644
+validation_rmse_pct = 1.87073
+validation_mean_abs_pct_error = 3.5084
+validation_max_abs_pct_error = 26.1057
+sample_count = 98
+validation_sample_count = 25
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[fits]]
+name = "h100_sxm-vllm-decode-latency-fit"
+target = "decode_ms"
+phase = "decode"
+kind = "latency"
+model = "linear"
+unit = "ms"
+intercept = 2.27903
+features = ["decode_tokens", "decode_tokens_per_tensor_rank", "decode_batch_tokens_per_tensor_rank", "decode_batch_context_tokens_per_tensor_rank"]
+coefficients = [4.14034, 46.1757, 0.0510488, 0.000123669]
+feature_ranges = [
+  { feature = "decode_tokens", min = 32.0, max = 1024.0 },
+  { feature = "decode_tokens_per_tensor_rank", min = 4.0, max = 512.0 },
+  { feature = "decode_batch_tokens_per_tensor_rank", min = 4.0, max = 32768.0 },
+  { feature = "decode_batch_context_tokens_per_tensor_rank", min = 578.0, max = 3.35708e+07 },
+]
+r_squared = 0.99825
+adjusted_r_squared = 0.998232
+rmse = 353.552
+rmse_pct = 4.5176
+mean_abs_pct_error = 3.01556
+max_abs_pct_error = 11.3019
+validation_rmse = 277.622
+validation_rmse_pct = 3.70098
+validation_mean_abs_pct_error = 2.67312
+validation_max_abs_pct_error = 10.6403
+sample_count = 394
+validation_sample_count = 98
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp2-b4-p128-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 4
+prompt_tokens = 128
+decode_tokens = 1
+sequence_tokens = 129
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 56.7081
+predicted_ms = 62.3124
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp2-b8-p256-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 8
+prompt_tokens = 256
+decode_tokens = 1
+sequence_tokens = 257
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 219.269
+predicted_ms = 228.658
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp2-b16-p512-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 16
+prompt_tokens = 512
+decode_tokens = 1
+sequence_tokens = 513
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 912.434
+predicted_ms = 895.833
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp4-b1-p16384-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 16384
+decode_tokens = 1
+sequence_tokens = 16385
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 1131.59
+predicted_ms = 1145.46
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp4-b2-p16384-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 2
+prompt_tokens = 16384
+decode_tokens = 1
+sequence_tokens = 16385
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 2259.33
+predicted_ms = 2283.98
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp4-b8-p128-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 8
+prompt_tokens = 128
+decode_tokens = 1
+sequence_tokens = 129
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 66.5734
+predicted_ms = 69.9748
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp4-b8-p2048-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 8
+prompt_tokens = 2048
+decode_tokens = 1
+sequence_tokens = 2049
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 1023.28
+predicted_ms = 1030.73
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp4-b16-p256-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 16
+prompt_tokens = 256
+decode_tokens = 1
+sequence_tokens = 257
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 257.013
+predicted_ms = 259.308
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp4-b32-p256-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 32
+prompt_tokens = 256
+decode_tokens = 1
+sequence_tokens = 257
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 546.721
+predicted_ms = 511.667
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp8-b1-p16384-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 16384
+decode_tokens = 1
+sequence_tokens = 16385
+tensor_ranks = 8
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 690.282
+predicted_ms = 698.806
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp8-b2-p2048-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 2
+prompt_tokens = 2048
+decode_tokens = 1
+sequence_tokens = 2049
+tensor_ranks = 8
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 167.796
+predicted_ms = 165.571
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "prefill-tp8-b32-p1024-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 32
+prompt_tokens = 1024
+decode_tokens = 1
+sequence_tokens = 1025
+tensor_ranks = 8
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 1281.32
+predicted_ms = 1267.73
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp2-b1-p128-d1024"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 128
+decode_tokens = 1024
+sequence_tokens = 1152
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 28122.5
+predicted_ms = 27950.6
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp2-b4-p256-d1024"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 4
+prompt_tokens = 256
+decode_tokens = 1024
+sequence_tokens = 1280
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 27467.3
+predicted_ms = 28183.1
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp2-b16-p2048-d32"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 16
+prompt_tokens = 2048
+decode_tokens = 32
+sequence_tokens = 2080
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 947.383
+predicted_ms = 952.01
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp2-b32-p1024-d1024"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 32
+prompt_tokens = 1024
+decode_tokens = 1024
+sequence_tokens = 2048
+tensor_ranks = 2
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 31014.7
+predicted_ms = 31833.6
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp4-b1-p2048-d32"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 2048
+decode_tokens = 32
+sequence_tokens = 2080
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 479.162
+predicted_ms = 506.626
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp4-b2-p256-d512"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 2
+prompt_tokens = 256
+decode_tokens = 512
+sequence_tokens = 768
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 7875.48
+predicted_ms = 8061.92
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp4-b4-p2048-d32"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 4
+prompt_tokens = 2048
+decode_tokens = 32
+sequence_tokens = 2080
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 489.387
+predicted_ms = 513.979
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp4-b16-p256-d1024"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 16
+prompt_tokens = 256
+decode_tokens = 1024
+sequence_tokens = 1280
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 16719.7
+predicted_ms = 16661.3
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp4-b64-p512-d512"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 64
+prompt_tokens = 512
+decode_tokens = 512
+sequence_tokens = 1024
+tensor_ranks = 4
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 9385.2
+predicted_ms = 9229.38
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp8-b1-p2048-d32"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 2048
+decode_tokens = 32
+sequence_tokens = 2080
+tensor_ranks = 8
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 326.03
+predicted_ms = 320.698
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp8-b4-p256-d1024"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 4
+prompt_tokens = 256
+decode_tokens = 1024
+sequence_tokens = 1280
+tensor_ranks = 8
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 10509.7
+predicted_ms = 10227.3
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
+
+[[benchmarks]]
+name = "decode-tp8-b8-p512-d1024"
+kind = "compute"
+phase = "decode"
+hardware = "h100_sxm (8 GPUs per node)"
+model = "llama-3.1-70b"
+dtype = "bfloat16"
+batch_size = 8
+prompt_tokens = 512
+decode_tokens = 1024
+sequence_tokens = 1536
+tensor_ranks = 8
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 10381.5
+predicted_ms = 10334.5
+source = "aisimulate@1267d0f245765ecdf127466dc4ed31d114aced6a h100_sxm/vllm/0.24.0; composed from measured op tables"
