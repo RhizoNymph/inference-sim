@@ -1,0 +1,16 @@
+kernel_source,batch_size,isl,step,num_heads,num_key_value_heads,head_dim,beam_width,kv_cache_dtype,window_size,latency
+vllm_flash_attn_fa3,1,1,63,4,1,128,1,bfloat16,0,0.011365332951148352
+vllm_flash_attn_fa3,1,1,127,4,1,128,1,bfloat16,0,0.011519999553759893
+vllm_flash_attn_fa3,1,1,255,4,1,128,1,bfloat16,0,0.013503999759753546
+vllm_flash_attn_fa3,1,1,511,4,1,128,1,bfloat16,0,0.01349866638580958
+vllm_flash_attn_fa3,1,1,1023,4,1,128,1,bfloat16,0,0.01341333364446958
+vllm_flash_attn_fa3,2,1,63,4,1,128,1,bfloat16,0,0.011557333171367645
+vllm_flash_attn_fa3,2,1,127,4,1,128,1,bfloat16,0,0.01128000020980835
+vllm_flash_attn_fa3,2,1,255,4,1,128,1,bfloat16,0,0.013295999417702356
+vllm_flash_attn_fa3,2,1,511,4,1,128,1,bfloat16,0,0.013429333766301474
+vllm_flash_attn_fa3,2,1,1023,4,1,128,1,bfloat16,0,0.013557333499193192
+vllm_flash_attn_fa3,4,1,63,4,1,128,1,bfloat16,0,0.01163200040658315
+vllm_flash_attn_fa3,4,1,127,4,1,128,1,bfloat16,0,0.011546666423479715
+vllm_flash_attn_fa3,4,1,255,4,1,128,1,bfloat16,0,0.013594667116800943
+vllm_flash_attn_fa3,4,1,511,4,1,128,1,bfloat16,0,0.013722666849692663
+vllm_flash_attn_fa3,4,1,1023,4,1,128,1,bfloat16,0,0.014122666170199713

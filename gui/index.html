@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>inference-sim GUI</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>inference-sim</h1>
+          <p>Config builder, topology map, parallelism view, and serving timeline.</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="loadDemoButton" type="button">Load demo</button>
+          <button id="runSimulationButton" type="button">Run simulation</button>
+          <button id="downloadClusterButton" type="button">Cluster TOML</button>
+          <button id="downloadWorkloadButton" type="button">Workload TOML</button>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <aside class="config-panel" aria-label="Configuration editor">
+          <div class="panel-heading">
+            <h2>Config</h2>
+            <span id="configSummary">2 nodes, auto search</span>
+          </div>
+
+          <form id="configForm">
+            <fieldset>
+              <legend>Cluster</legend>
+              <label>
+                GPU preset
+                <select name="gpuPreset">
+                  <option value="h100_sxm">H100 SXM</option>
+                  <option value="a100_80gb">A100 80GB</option>
+                  <option value="mixed_h100_a100">Mixed H100/A100</option>
+                </select>
+              </label>
+              <div class="field-grid">
+                <label>
+                  Nodes
+                  <input name="nodeCount" type="number" min="1" max="64" step="1" value="2">
+                </label>
+                <label>
+                  GPUs / node
+                  <input name="gpusPerNode" type="number" min="1" max="16" step="1" value="8">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  NICs / node
+                  <input name="nicsPerNode" type="number" min="0" max="16" step="1" value="8">
+                </label>
+                <label>
+                  Rails
+                  <input name="railCount" type="number" min="0" max="16" step="1" value="8">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  Fabric
+                  <select name="fabricKind">
+                    <option value="ib">InfiniBand</option>
+                    <option value="roce">RoCE</option>
+                    <option value="ethernet">Ethernet</option>
+                  </select>
+                </label>
+                <label>
+                  Oversubscription
+                  <input name="oversubscription" type="number" min="1" max="16" step="0.25" value="1">
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Model</legend>
+              <label>
+                Model id
+                <input name="modelId" type="text" value="gui generated bf16 transformer">
+              </label>
+              <div class="field-grid">
+                <label>
+                  DType
+                  <select name="dtype">
+                    <option value="bf16">bf16</option>
+                    <option value="fp16">fp16</option>
+                    <option value="fp8">fp8</option>
+                  </select>
+                </label>
+                <label>
+                  Derived weights
+                  <output id="modelWeightEstimate">calculated</output>
+                </label>
+              </div>
+              <div class="field-grid four">
+                <label>
+                  Layers
+                  <input name="layers" type="number" min="1" max="1000" step="1" value="4">
+                </label>
+                <label>
+                  Hidden
+                  <input name="hiddenSize" type="number" min="1" max="100000" step="1" value="4096">
+                </label>
+                <label>
+                  Heads
+                  <input name="attentionHeads" type="number" min="1" max="1000" step="1" value="32">
+                </label>
+                <label>
+                  KV heads
+                  <input name="kvHeads" type="number" min="1" max="1000" step="1" value="8">
+                </label>
+                <label>
+                  FFN hidden
+                  <input name="ffnHiddenSize" type="number" min="1" max="1000000" step="1" value="11008">
+                </label>
+                <label>
+                  Vocab
+                  <input name="vocabSize" type="number" min="1" max="10000000" step="1" value="32000">
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Serving</legend>
+              <div class="field-grid">
+                <label>
+                  Requests
+                  <input name="requestCount" type="number" min="1" max="10000" step="1" value="16">
+                </label>
+                <label>
+                  Arrival pattern
+                  <select name="arrivalPattern">
+                    <option value="poisson">Poisson</option>
+                    <option value="fixed">Fixed gap</option>
+                  </select>
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  Arrival rate / s
+                  <input name="arrivalRatePerS" type="number" min="0.01" max="100000" step="0.1" value="20">
+                </label>
+                <label>
+                  Arrival gap ms
+                  <input name="arrivalGapMs" type="number" min="0" max="100000" step="0.5" value="1">
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Search Objective</legend>
+              <div class="field-grid">
+                <label>
+                  Target metric
+                  <select name="targetMetric">
+                    <option value="e2el">E2EL latency</option>
+                    <option value="ttft">TTFT latency</option>
+                    <option value="tpot">TPOT latency</option>
+                    <option value="throughput">Throughput</option>
+                    <option value="memory_pressure">Memory pressure</option>
+                    <option value="slo_miss_rate">SLO miss rate</option>
+                  </select>
+                </label>
+                <label>
+                  Results to rank
+                  <input name="topK" type="number" min="1" max="100" step="1" value="10">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  Rank candidates
+                  <input name="maxRankCandidates" type="number" min="1" max="100000" step="1" value="4096">
+                </label>
+                <label>
+                  Serving pair budget
+                  <input name="maxServingPairs" type="number" min="1" max="256" step="1" value="32">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  Pool candidates
+                  <input name="maxPoolCandidates" type="number" min="1" max="10000" step="1" value="64">
+                </label>
+                <label>
+                  Search runtime ms
+                  <input name="maxSearchRuntimeMs" type="number" min="1000" max="110000" step="1000" value="30000">
+                </label>
+                <label>
+                  E2EL cap s
+                  <input name="maxE2elS" type="number" min="0" max="1000000" step="1" value="0">
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Dynamic Batching</legend>
+              <div class="field-grid">
+                <label>
+                  Max prefill batch tokens
+                  <input name="maxPrefillBatchTokens" type="number" min="1" max="10000000" step="1" value="4096">
+                </label>
+                <label>
+                  Prefill chunk tokens
+                  <input name="maxPrefillChunkTokens" type="number" min="1" max="10000000" step="1" value="512">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  Max decode batch tokens
+                  <input name="maxDecodeBatchTokens" type="number" min="1" max="10000000" step="1" value="16">
+                </label>
+                <label>
+                  Max decode sequences
+                  <input name="maxDecodeSequences" type="number" min="1" max="1000000" step="1" value="8">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  Max resident tokens
+                  <input name="maxResidentTokens" type="number" min="1" max="100000000" step="1" value="32768">
+                </label>
+                <label>
+                  Max KV blocks
+                  <input name="maxKvBlocks" type="number" min="1" max="10000000" step="1" value="4096">
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Request Shape Distribution</legend>
+              <div class="field-grid">
+                <label>
+                  Prompt p50 tokens
+                  <input name="promptMedianTokens" type="number" min="1" max="1000000" step="1" value="128">
+                </label>
+                <label>
+                  Prompt sigma
+                  <input name="promptSigma" type="number" min="0.01" max="5" step="0.05" value="0.7">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  Prompt min
+                  <input name="promptMinTokens" type="number" min="1" max="1000000" step="1" value="64">
+                </label>
+                <label>
+                  Prompt max
+                  <input name="promptMaxTokens" type="number" min="1" max="1000000" step="1" value="512">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  Decode min
+                  <input name="decodeMinTokens" type="number" min="1" max="1000000" step="1" value="8">
+                </label>
+                <label>
+                  Decode max
+                  <input name="decodeMaxTokens" type="number" min="1" max="1000000" step="1" value="32">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label>
+                  Max sequence
+                  <input name="maxSequenceTokens" type="number" min="1" max="2000000" step="1" value="512">
+                </label>
+                <label>
+                  KV block tokens
+                  <input name="kvBlockTokens" type="number" min="1" max="1000000" step="1" value="16">
+                </label>
+              </div>
+            </fieldset>
+          </form>
+        </aside>
+
+        <section class="visual-panel" aria-label="Visualization">
+          <nav class="tabs" aria-label="Visualization tabs">
+            <button class="tab active" data-tab="topology" type="button">Topology</button>
+            <button class="tab" data-tab="parallelism" type="button">Parallelism</button>
+            <button class="tab" data-tab="process" type="button">Process</button>
+            <button class="tab" data-tab="outputs" type="button">Outputs</button>
+          </nav>
+
+          <section class="tab-page active" id="topology" aria-labelledby="Topology">
+            <div class="section-title">
+              <h2>Cluster Topology</h2>
+              <p id="topologySubtitle">Live preview from the editable cluster config.</p>
+            </div>
+            <div class="topology-layout">
+              <svg id="topologySvg" class="topology-svg" viewBox="0 0 960 520" role="img" aria-label="Cluster topology visualization"></svg>
+              <div id="inventory" class="inventory"></div>
+            </div>
+          </section>
+
+          <section class="tab-page" id="parallelism" aria-labelledby="Parallelism">
+            <div class="section-title">
+              <h2>Ranked Parallelism</h2>
+              <p>The simulator ranks candidate configs from the search space for the selected target metric.</p>
+            </div>
+            <div id="parallelismCards" class="parallelism-grid"></div>
+            <div class="scatter-panel">
+              <div class="scatter-header">
+                <div>
+                  <h3>Pareto Metrics</h3>
+                  <p>Ranked candidates plotted by two simulator metrics.</p>
+                </div>
+                <div class="scatter-controls">
+                  <label>
+                    X metric
+                    <select id="scatterXMetric">
+                      <option value="e2el_ms">E2EL</option>
+                      <option value="ttft_ms">TTFT</option>
+                      <option value="tpot_ms">TPOT</option>
+                      <option value="throughput_tokens_per_s">Throughput</option>
+                      <option value="memory_pressure_peak_fraction">Memory pressure</option>
+                      <option value="slo_miss_rate">SLO miss rate</option>
+                    </select>
+                  </label>
+                  <label>
+                    Y metric
+                    <select id="scatterYMetric">
+                      <option value="throughput_tokens_per_s">Throughput</option>
+                      <option value="e2el_ms">E2EL</option>
+                      <option value="ttft_ms">TTFT</option>
+                      <option value="tpot_ms">TPOT</option>
+                      <option value="memory_pressure_peak_fraction">Memory pressure</option>
+                      <option value="slo_miss_rate">SLO miss rate</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <svg id="metricScatterSvg" class="metric-scatter-svg" viewBox="0 0 960 320" role="img" aria-label="Ranked candidate metric scatter plot"></svg>
+            </div>
+            <div id="candidateRankings" class="candidate-rankings"></div>
+            <svg id="parallelismSvg" class="parallelism-svg" viewBox="0 0 960 360" role="img" aria-label="Parallelism layout visualization"></svg>
+          </section>
+
+          <section class="tab-page" id="process" aria-labelledby="Process">
+            <div class="section-title process-heading">
+              <div>
+                <h2>Inference Process</h2>
+                <p id="processSubtitle">Estimated phase flow from the editable config.</p>
+              </div>
+              <label class="json-loader">
+                Simulator JSON
+                <textarea id="jsonInput" rows="4" placeholder="Paste output from: cargo run -- --cluster ... --workload ... --json --trace --request-limit 8"></textarea>
+              </label>
+            </div>
+            <div id="resultStatus" class="result-status">No simulator JSON loaded.</div>
+            <div id="resultMetrics" class="result-metrics"></div>
+            <div id="timeline" class="timeline"></div>
+            <div id="resourceUtilization" class="resource-utilization"></div>
+          </section>
+
+          <section class="tab-page" id="outputs" aria-labelledby="Outputs">
+            <div class="section-title">
+              <h2>Generated Files</h2>
+              <p>Run from the local GUI server or use these files with the CLI.</p>
+            </div>
+            <div class="output-grid">
+              <label>
+                cluster.toml
+                <textarea id="clusterToml" readonly rows="18"></textarea>
+              </label>
+              <label>
+                workload.toml
+                <textarea id="workloadToml" readonly rows="18"></textarea>
+              </label>
+            </div>
+            <div id="serverHint" class="server-hint"></div>
+            <pre id="runCommand" class="run-command"></pre>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

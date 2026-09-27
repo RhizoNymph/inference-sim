@@ -1101,6 +1101,29 @@ mod tests {
         }
     }
 
+    fn basis_fit(
+        target: &str,
+        phase: &str,
+        intercept_ms: f64,
+        terms: &[(&str, f64, Option<f64>, Option<f64>)],
+    ) -> CalibrationFittedModel {
+        let mut fit = constant_fit(target, phase, intercept_ms, "batch_size");
+        fit.features = terms.iter().map(|(name, ..)| name.to_string()).collect();
+        fit.coefficients = terms
+            .iter()
+            .map(|(_, coefficient, ..)| *coefficient)
+            .collect();
+        fit.feature_ranges = terms
+            .iter()
+            .map(|(name, _, min, max)| CalibrationFitFeatureRange {
+                feature: name.to_string(),
+                min: *min,
+                max: *max,
+            })
+            .collect();
+        fit
+    }
+
     fn profile_with_fits(fits: Vec<CalibrationFittedModel>) -> CalibrationProfileMetadata {
         CalibrationProfileMetadata {
             path: "unit-test-profile.toml".to_string(),
@@ -1748,6 +1771,226 @@ mod tests {
         assert_eq!(application.confidence_interval, Some(0.5));
         assert_eq!(application.confidence_interval_pct, Some(12.0));
         assert_eq!(application.confidence_level, Some(0.95));
+    }
+
+    #[test]
+    fn derived_basis_features_have_exact_values() {
+        let config = ParallelismConfig {
+            tensor_ranks: 2,
+            pipeline_ranks: 1,
+            expert_ranks: 1,
+            data_ranks: 1,
+        };
+        // batch_size = 4, prompt_tokens = 128, decode_tokens = 16, tensor_ranks = 2
+        // mean decode context = 128 + (16 + 1) / 2 = 136.5
+        let features = calibration_feature_values(&model(), &request(), config, None);
+
+        let expected = [
+            ("prompt_tokens_squared", 16_384.0),
+            ("batch_prompt_tokens_squared", 65_536.0),
+            ("decode_context_tokens", 136.5),
+            ("batch_decode_context_tokens", 546.0),
+            ("decode_batch_context_tokens", 8_736.0),
+            ("inv_tensor_ranks", 0.5),
+            ("batch_prompt_tokens_per_tensor_rank", 256.0),
+            ("batch_prompt_tokens_squared_per_tensor_rank", 32_768.0),
+            ("decode_tokens_per_tensor_rank", 8.0),
+            ("decode_batch_tokens_per_tensor_rank", 32.0),
+            ("decode_batch_context_tokens_per_tensor_rank", 4_368.0),
+        ];
+
+        for (name, value) in expected {
+            let actual = features
+                .get(name)
+                .unwrap_or_else(|| panic!("missing calibration basis feature {name}"));
+            assert!(
+                (actual - value).abs() < 1e-9,
+                "feature {name} expected {value} but was {actual}"
+            );
+        }
+    }
+
+    #[test]
+    fn quadratic_basis_fit_predicts_prefill_latency() {
+        let config = ParallelismConfig {
+            tensor_ranks: 1,
+            pipeline_ranks: 1,
+            expert_ranks: 1,
+            data_ranks: 1,
+        };
+        let request = InferenceRequest {
+            batch_size: 4,
+            prompt_tokens: 128,
+            decode_tokens: 16,
+            max_sequence_tokens: 256,
+            phase: InferencePhase::Prefill,
+        };
+        let fit = basis_fit(
+            "prefill_ms",
+            "prefill",
+            1.0,
+            &[
+                (
+                    "batch_prompt_tokens_per_tensor_rank",
+                    0.01,
+                    Some(0.0),
+                    Some(4_096.0),
+                ),
+                (
+                    "batch_prompt_tokens_squared_per_tensor_rank",
+                    0.0001,
+                    Some(0.0),
+                    Some(1_000_000.0),
+                ),
+            ],
+        );
+        let profile = profile_with_fits(vec![fit]);
+        let score = Solver::score_config_with_options(
+            &cluster(1),
+            &model(),
+            &request,
+            config,
+            SolverOptions {
+                calibration: SimulationCalibration::default(),
+                calibration_profile: Some(&profile),
+                max_candidates: None,
+                search_deadline: None,
+                explicit_placement: None,
+            },
+        );
+
+        // b * s / tp = 512, b * s^2 / tp = 65536
+        let expected_ms = 1.0 + 0.01 * 512.0 + 0.0001 * 65_536.0;
+        assert!(score.feasible);
+        assert_eq!(score.calibration_fits.len(), 1);
+        let application = &score.calibration_fits[0];
+        assert!((application.raw_prediction - expected_ms).abs() < 1e-9);
+        assert!((score.estimated_latency_s - expected_ms / 1e3).abs() < 1e-12);
+        assert_eq!(application.applicability_status, "interpolated");
+        assert_eq!(
+            application.features[0].name,
+            "batch_prompt_tokens_per_tensor_rank"
+        );
+        assert_eq!(application.features[0].status, "in_range");
+        assert_eq!(application.features[1].status, "in_range");
+    }
+
+    #[test]
+    fn per_tensor_rank_basis_fit_scales_across_tensor_parallel_sweep() {
+        let request = InferenceRequest {
+            batch_size: 4,
+            prompt_tokens: 128,
+            decode_tokens: 16,
+            max_sequence_tokens: 256,
+            phase: InferencePhase::Prefill,
+        };
+        let fit = basis_fit(
+            "prefill_ms",
+            "prefill",
+            0.0,
+            &[
+                (
+                    "batch_prompt_tokens_per_tensor_rank",
+                    0.01,
+                    Some(0.0),
+                    Some(4_096.0),
+                ),
+                (
+                    "batch_prompt_tokens_squared_per_tensor_rank",
+                    0.0001,
+                    Some(0.0),
+                    Some(1_000_000.0),
+                ),
+            ],
+        );
+        let profile = profile_with_fits(vec![fit]);
+        let prediction_ms = |tensor_ranks: u32| {
+            let score = Solver::score_config_with_options(
+                &cluster(1),
+                &model(),
+                &request,
+                ParallelismConfig {
+                    tensor_ranks,
+                    pipeline_ranks: 1,
+                    expert_ranks: 1,
+                    data_ranks: 1,
+                },
+                SolverOptions {
+                    calibration: SimulationCalibration::default(),
+                    calibration_profile: Some(&profile),
+                    max_candidates: None,
+                    search_deadline: None,
+                    explicit_placement: None,
+                },
+            );
+            assert!(score.feasible);
+            assert_eq!(score.calibration_fits.len(), 1);
+            score.calibration_fits[0].raw_prediction
+        };
+
+        let tp1 = prediction_ms(1);
+        let tp2 = prediction_ms(2);
+
+        assert!((tp1 - (0.01 * 512.0 + 0.0001 * 65_536.0)).abs() < 1e-9);
+        assert!((tp2 - (0.01 * 256.0 + 0.0001 * 32_768.0)).abs() < 1e-9);
+        assert!((tp1 - 2.0 * tp2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn basis_feature_range_bounds_report_extrapolation() {
+        let config = ParallelismConfig {
+            tensor_ranks: 1,
+            pipeline_ranks: 1,
+            expert_ranks: 1,
+            data_ranks: 1,
+        };
+        let request = InferenceRequest {
+            batch_size: 4,
+            prompt_tokens: 128,
+            decode_tokens: 16,
+            max_sequence_tokens: 256,
+            phase: InferencePhase::Prefill,
+        };
+        let fit = basis_fit(
+            "prefill_ms",
+            "prefill",
+            1.0,
+            &[
+                (
+                    "batch_prompt_tokens_per_tensor_rank",
+                    0.01,
+                    Some(0.0),
+                    Some(4_096.0),
+                ),
+                (
+                    "batch_prompt_tokens_squared_per_tensor_rank",
+                    0.0001,
+                    Some(0.0),
+                    // b * s^2 / tp is 65536 for this request, well above the bound.
+                    Some(16_384.0),
+                ),
+            ],
+        );
+        let profile = profile_with_fits(vec![fit]);
+        let score = Solver::score_config_with_options(
+            &cluster(1),
+            &model(),
+            &request,
+            config,
+            SolverOptions {
+                calibration: SimulationCalibration::default(),
+                calibration_profile: Some(&profile),
+                max_candidates: None,
+                search_deadline: None,
+                explicit_placement: None,
+            },
+        );
+
+        let application = &score.calibration_fits[0];
+        assert_eq!(application.applicability_status, "extrapolated");
+        assert_eq!(application.features[0].status, "in_range");
+        assert_eq!(application.features[1].status, "extrapolated");
+        assert!(application.max_extrapolation_ratio > 0.0);
     }
 
     #[test]
