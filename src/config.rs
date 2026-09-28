@@ -1045,7 +1045,7 @@ fn auto_search_space_for_model(model: &ModelSpec) -> SearchSpace {
     let tensor_limit = model.attention_heads.max(1);
     let tensor_ranks = divisors_up_to(tensor_limit, tensor_limit)
         .into_iter()
-        .filter(|rank| model.hidden_size % *rank == 0)
+        .filter(|rank| model.hidden_size.is_multiple_of(*rank))
         .collect::<Vec<_>>();
     let pipeline_ranks = integers_up_to(model.layers.max(1));
     let expert_ranks = model
@@ -1066,7 +1066,7 @@ fn auto_search_space_for_model(model: &ModelSpec) -> SearchSpace {
 fn divisors_up_to(value: u32, max: u32) -> Vec<u32> {
     let upper = value.min(max).max(1);
     (1..=upper)
-        .filter(|candidate| value % *candidate == 0)
+        .filter(|candidate| value.is_multiple_of(*candidate))
         .collect()
 }
 
