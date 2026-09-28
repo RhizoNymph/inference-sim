@@ -866,20 +866,60 @@ fn parse_workload_with_base_dir(
             .and_then(|serving| nonempty_metadata(serving.serving_stack.clone()))
     });
     let serving_runtime_features = parse_serving_runtime_features(&file)?;
+    let calibration_overrides = calibration_overrides_from_section(file.calibration.as_ref());
+    let calibration_profile = load_calibration_profile(file.calibration_profile, base_dir)?;
+    let calibration_defaults = calibration_profile
+        .as_ref()
+        .map(|profile| profile.calibration)
+        .unwrap_or_default();
+    validate_model_section(&file.model)?;
+    validate_positive_optional_f64(
+        "model.parameter_count_billion",
+        file.model.parameter_count_billion,
+    )?;
+    let request_phase = inference_phase(&file.request.phase)?;
+    validate_request_section(&file.request, request_phase)?;
+    let model_dtype = dtype("model.dtype", &file.model.dtype)?;
+    let derived_parameter_count = derive_model_parameter_count(&file.model);
+    let model_parameter_count = file
+        .model
+        .parameter_count_billion
+        .map(|count| count * 1e9)
+        .unwrap_or(derived_parameter_count);
+    let parameters_gb = file
+        .model
+        .parameters_gb
+        .unwrap_or_else(|| model_parameter_count * model_dtype.bytes_per_element() as f64 / 1e9);
+    let model = ModelSpec {
+        layers: file.model.layers,
+        hidden_size: file.model.hidden_size,
+        attention_heads: file.model.attention_heads,
+        kv_heads: file.model.kv_heads,
+        vocab_size: file.model.vocab_size,
+        parameters: Bytes::from_gigabytes(parameters_gb),
+        parameter_count: Some(model_parameter_count),
+        dtype: model_dtype,
+        kv_dtype: file
+            .model
+            .kv_dtype
+            .as_deref()
+            .map(|value| dtype("model.kv_dtype", value))
+            .transpose()?,
+        experts: file.model.experts.map(|experts| ExpertSpec {
+            expert_count: experts.expert_count,
+            top_k: experts.top_k,
+        }),
+    };
+    let request = InferenceRequest {
+        batch_size: file.request.batch_size,
+        prompt_tokens: file.request.prompt_tokens,
+        decode_tokens: file.request.decode_tokens,
+        max_sequence_tokens: file.request.max_sequence_tokens,
+        phase: request_phase,
+    };
     let search_space = match file.search {
         Some(search) => parse_search("search", search)?,
-        None => {
-            let serving = file
-                .serving
-                .as_ref()
-                .ok_or_else(|| ConfigError::new("either [search] or [serving] must be provided"))?;
-            parse_search(
-                "serving.prefill_search",
-                serving.prefill_search.clone().ok_or_else(|| {
-                    ConfigError::new("serving.prefill_search is required when [search] is absent")
-                })?,
-            )?
-        }
+        None => auto_search_space_for_model(&model),
     };
     let placement = parse_optional_placement("placement", file.placement.as_ref())?;
     let serving_prefill_placement = parse_optional_placement(
@@ -903,46 +943,6 @@ fn parse_workload_with_base_dir(
         .serving
         .map(|serving| parse_serving(serving, &search_space, base_dir))
         .transpose()?;
-    let calibration_overrides = calibration_overrides_from_section(file.calibration.as_ref());
-    let calibration_profile = load_calibration_profile(file.calibration_profile, base_dir)?;
-    let calibration_defaults = calibration_profile
-        .as_ref()
-        .map(|profile| profile.calibration)
-        .unwrap_or_default();
-    validate_model_section(&file.model)?;
-    validate_positive_optional_f64(
-        "model.parameter_count_billion",
-        file.model.parameter_count_billion,
-    )?;
-    let request_phase = inference_phase(&file.request.phase)?;
-    validate_request_section(&file.request, request_phase)?;
-    let model = ModelSpec {
-        layers: file.model.layers,
-        hidden_size: file.model.hidden_size,
-        attention_heads: file.model.attention_heads,
-        kv_heads: file.model.kv_heads,
-        vocab_size: file.model.vocab_size,
-        parameters: Bytes::from_gigabytes(file.model.parameters_gb),
-        parameter_count: file.model.parameter_count_billion.map(|count| count * 1e9),
-        dtype: dtype("model.dtype", &file.model.dtype)?,
-        kv_dtype: file
-            .model
-            .kv_dtype
-            .as_deref()
-            .map(|value| dtype("model.kv_dtype", value))
-            .transpose()?,
-        experts: file.model.experts.map(|experts| ExpertSpec {
-            expert_count: experts.expert_count,
-            top_k: experts.top_k,
-        }),
-    };
-    let request = InferenceRequest {
-        batch_size: file.request.batch_size,
-        prompt_tokens: file.request.prompt_tokens,
-        decode_tokens: file.request.decode_tokens,
-        max_sequence_tokens: file.request.max_sequence_tokens,
-        phase: request_phase,
-    };
     let calibration_profile = calibration_profile.map(|profile| profile.metadata);
     let calibration_policy = parse_calibration_policy(file.calibration_policy)?;
     let approximation_policy = parse_approximation_policy(file.approximation_policy)?;
@@ -990,6 +990,31 @@ fn parse_workload_with_base_dir(
     })
 }
 
+fn derive_model_parameter_count(model: &ModelSection) -> f64 {
+    let hidden_size = model.hidden_size as f64;
+    let head_dim = hidden_size / model.attention_heads as f64;
+    let kv_dim = model.kv_heads as f64 * head_dim;
+    let ffn_hidden_size = model
+        .ffn_hidden_size
+        .unwrap_or(model.hidden_size.saturating_mul(4)) as f64;
+    let expert_count = model
+        .experts
+        .as_ref()
+        .map(|experts| experts.expert_count as f64)
+        .unwrap_or(1.0);
+
+    let attention_per_layer =
+        hidden_size * hidden_size + hidden_size * kv_dim * 2.0 + hidden_size * hidden_size;
+    let ffn_per_layer = 3.0 * hidden_size * ffn_hidden_size * expert_count;
+    let norm_per_layer = 4.0 * hidden_size;
+    let embedding = model.vocab_size as f64 * hidden_size;
+    let final_norm = hidden_size;
+
+    model.layers as f64 * (attention_per_layer + ffn_per_layer + norm_per_layer)
+        + embedding
+        + final_norm
+}
+
 fn validate_schema_version(kind: &str, version: Option<u32>) -> Result<(), ConfigError> {
     match version {
         None | Some(SUPPORTED_SCHEMA_VERSION) => Ok(()),
@@ -1014,6 +1039,43 @@ fn parse_search(name: &str, search: SearchSection) -> Result<SearchSpace, Config
         expert_ranks: require_nonempty(&format!("{name}.expert_ranks"), search.expert_ranks)?,
         data_ranks: require_nonempty(&format!("{name}.data_ranks"), search.data_ranks)?,
     })
+}
+
+fn auto_search_space_for_model(model: &ModelSpec) -> SearchSpace {
+    let tensor_limit = model.attention_heads.max(1);
+    let tensor_ranks = divisors_up_to(tensor_limit, tensor_limit)
+        .into_iter()
+        .filter(|rank| model.hidden_size % *rank == 0)
+        .collect::<Vec<_>>();
+    let pipeline_ranks = integers_up_to(model.layers.max(1));
+    let expert_ranks = model
+        .experts
+        .as_ref()
+        .map(|experts| divisors_up_to(experts.expert_count, experts.expert_count))
+        .unwrap_or_else(|| vec![1]);
+    let data_ranks = integers_up_to(64);
+
+    SearchSpace {
+        tensor_ranks: nonempty_or_one(tensor_ranks),
+        pipeline_ranks,
+        expert_ranks: nonempty_or_one(expert_ranks),
+        data_ranks,
+    }
+}
+
+fn divisors_up_to(value: u32, max: u32) -> Vec<u32> {
+    let upper = value.min(max).max(1);
+    (1..=upper)
+        .filter(|candidate| value % *candidate == 0)
+        .collect()
+}
+
+fn integers_up_to(max: u32) -> Vec<u32> {
+    (1..=max.max(1)).collect()
+}
+
+fn nonempty_or_one(values: Vec<u32>) -> Vec<u32> {
+    if values.is_empty() { vec![1] } else { values }
 }
 
 fn parse_optional_placement(
@@ -1121,7 +1183,8 @@ fn validate_model_section(model: &ModelSection) -> Result<(), ConfigError> {
             "model.vocab_size must be greater than zero",
         ));
     }
-    validate_positive_optional_f64("model.parameters_gb", Some(model.parameters_gb))?;
+    validate_positive_optional_u32("model.ffn_hidden_size", model.ffn_hidden_size)?;
+    validate_positive_optional_f64("model.parameters_gb", model.parameters_gb)?;
 
     if !model.hidden_size.is_multiple_of(model.attention_heads) {
         return Err(ConfigError::new(
