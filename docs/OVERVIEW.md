@@ -162,4 +162,16 @@ Features Index:
       - src/config/calibration_config.rs::parse_calibration_fits
     depends_on: [config, solver]
     doc: docs/features/calibration_fits.md
+  compute_roofline:
+    description: >
+      Analytical per-phase latency model: dense parameter FLOPs plus causal
+      attention FLOPs for prefill/decode, and weight-read plus KV-cache-read
+      HBM bandwidth terms for decode, sharded across tensor/pipeline ranks
+      only for the attention and KV terms.
+    entry_points:
+      - src/solver.rs::estimate_compute_latency_s
+      - src/solver.rs::decode_compute_latency_s
+      - src/solver.rs::prefill_baseline_s
+    depends_on: [types, workload]
+    doc: docs/features/compute_roofline.md
 ```
