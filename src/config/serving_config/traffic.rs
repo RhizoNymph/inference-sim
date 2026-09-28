@@ -1,5 +1,26 @@
 use super::*;
 
+const DEFAULT_MAX_PREFILL_BATCH_TOKENS: u64 = 4096;
+const DEFAULT_MAX_PREFILL_CHUNK_TOKENS: u32 = 512;
+const DEFAULT_MAX_DECODE_BATCH_TOKENS: u32 = 16;
+const DEFAULT_MAX_DECODE_SEQUENCES: u32 = 8;
+const DEFAULT_MAX_RESIDENT_TOKENS: u64 = 32_768;
+const DEFAULT_KV_BLOCK_TOKENS: u32 = 16;
+const DEFAULT_MAX_KV_BLOCKS: u64 = 4096;
+
+fn default_prefill_batching() -> ServingPrefillBatching {
+    ServingPrefillBatching::Continuous {
+        max_batch_tokens: Some(DEFAULT_MAX_PREFILL_BATCH_TOKENS),
+        chunk_tokens: Some(DEFAULT_MAX_PREFILL_CHUNK_TOKENS),
+    }
+}
+
+fn default_decode_batching() -> ServingDecodeBatching {
+    ServingDecodeBatching::Continuous {
+        max_batch_tokens: Some(DEFAULT_MAX_DECODE_BATCH_TOKENS),
+    }
+}
+
 pub(in crate::config) fn parse_serving_traffic(
     traffic: Option<ServingTrafficSection>,
     base_dir: Option<&Path>,
@@ -17,7 +38,13 @@ pub(in crate::config) fn parse_serving_traffic(
     )?;
     let Some(traffic) = traffic else {
         return Ok(ServingTraffic {
+            prefill_batching: default_prefill_batching(),
+            decode_batching: default_decode_batching(),
             services: finalize_serving_services(services),
+            max_decode_sequences: Some(DEFAULT_MAX_DECODE_SEQUENCES),
+            max_resident_tokens: Some(DEFAULT_MAX_RESIDENT_TOKENS),
+            kv_block_tokens: Some(DEFAULT_KV_BLOCK_TOKENS),
+            max_kv_blocks: Some(DEFAULT_MAX_KV_BLOCKS),
             metric_ceilings,
             kv_route_constraints,
             traffic_classes,
