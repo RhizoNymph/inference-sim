@@ -1,0 +1,25 @@
+[project]
+name = "inference-sim-lab"
+version = "0.1.0"
+description = "Lab measurement-to-calibration harness for inference-sim"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001"]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.16.8",
+    "ty==0.0.83",
+]

@@ -18,7 +18,8 @@ Overview:
         typed ConfigError values; no simulation logic lives here.
       key_files:
         - src/config.rs (module root, shared validation helpers)
-        - src/config/cluster.rs (cluster/topology parsing)
+        - src/config/cluster.rs (cluster/topology parsing, NIC caps, directional links)
+        - src/config/collective_curves.rs ([[collective_curves]] parsing)
         - src/config/run_config.rs (run files, scenarios, output artifacts)
         - src/config/calibration_config.rs (calibration profiles, fits, gates)
         - src/config/serving_config.rs (serving search and policy parsing)
@@ -28,7 +29,9 @@ Overview:
       role: >
         Core value types shared by every other subsystem: Bytes, Bandwidth,
         GPU/NIC/node addressing, operational state, GPU profiles, fabric
-        profiles, cluster/node topology, collective descriptions, and
+        profiles (including one-way NIC caps and asymmetric links),
+        cluster/node topology, collective descriptions and their pricing
+        evidence, measured collective curves, and
         ParallelismConfig/RankPlacement.
       key_files:
         - src/types/common.rs
@@ -36,11 +39,14 @@ Overview:
         - src/types/topology.rs
         - src/types/configs.rs
         - src/types/collective.rs
-        - src/types/fabric/
+        - src/types/collective_curves/ (MeasuredCurve, CurveTarget, CollectiveCurveSet)
+        - src/types/fabric/ (direction.rs: NicDirectionCaps, AsymmetricLink)
     topology_graph:
       role: >
-        Builds a resource graph over GPUs, intra-node links, NICs, rails, and
-        inter-node links, and routes transfers across it so contention and path
+        Builds a directed resource graph over GPUs, intra-node links, NICs,
+        rails, and inter-node links (each direction carries its own
+        bandwidth/latency, honouring NIC egress/ingress caps and asymmetric
+        links), and routes transfers across it so contention and path
         evidence can be attributed to concrete physical resources.
       key_files:
         - src/topology_graph.rs
@@ -55,8 +61,10 @@ Overview:
         - src/solver.rs (Solver, scoring, phase latency, tests)
         - src/solver/placement.rs (rank placement and evidence)
         - src/solver/network_cost.rs (collective/transfer cost, fit lookup)
+        - src/solver/collective_pricing.rs (measured-curve pricing and evidence)
         - src/solver/operations.rs (operation trace construction)
         - src/solver/calibration_fits.rs (fit feature dictionary and evaluation)
+        - src/solver/step_cost.rs (per-engine-step roofline for the serving engine)
     scheduler:
       role: >
         Resource-constrained scheduling of simulated operations. Turns an
@@ -70,10 +78,16 @@ Overview:
         disaggregated, and fully disaggregated prefill/decode pools, arrivals
         and traffic classes, batching, queueing, KV transfer routing, SLOs,
         capacity and memory pressure, rejections, objective scoring, and
-        calibrated serving metrics.
+        calibrated serving metrics. Colocated continuous-batching candidates
+        run on an iteration-level engine (vLLM V1-style steps priced from
+        their composition); all others on the phase-pipeline scheduler.
       key_files:
         - src/serving.rs (module root, ServingSolver)
-        - src/serving/scheduling/ (queueing and batching)
+        - src/serving/scheduling.rs (request states, scheduler dispatch)
+        - src/serving/engine/ (iteration-level serving engine)
+        - src/serving/scheduling/pipeline.rs (phase-pipeline scheduler)
+        - src/serving/scheduling/summary.rs (shared metric summary)
+        - src/serving/scheduling/ (prefill/decode batching for the pipeline)
         - src/serving/metric_fits.rs (serving-metric calibration fits)
         - src/serving/calibration.rs, measurement.rs, observations.rs
         - src/serving/capacity.rs, memory.rs, routing.rs, ranking.rs
@@ -109,6 +123,21 @@ Overview:
         - tools/aisimulate_calibration/convert.py (uv script entry point)
         - tools/aisimulate_calibration/converter/ (tables, op walk, fitting, emission)
         - tools/aisimulate_calibration/fixtures/ (self-test CSVs and golden profile)
+    lab_harness:
+      role: >
+        Offline Python tool, outside the simulation loop, that measures vLLM
+        on real lab GPUs from TOML experiment specs (generating and running
+        every ssh/docker/venv/Ray command), runs the simulator over the same
+        spec, fits compute_efficiency and decode_memory_bandwidth_scale from
+        static-batch runs, emits and verifies a calibration profile, and
+        writes measured-vs-simulated reports into lab-runs/.
+      key_files:
+        - tools/lab/lab.py (uv script entry point)
+        - tools/lab/labharness/ (spec, commands, collective_plan, runner, results, curves, curves_toml, simulate, fitting, evaluate, profile, report)
+        - tools/lab/remote/ (bench_latency.py, collective_bench.py, probe_env.py, run on the nodes)
+        - tools/lab/labs/, tools/lab/specs/ (lab inventories and experiment matrices)
+        - lab-runs/ (raw measurements and derived reports)
+        - docs/validation_ledger.md (measured accuracy per regime)
   data_flow: >
     cli parses arguments and loads TOML through config, producing a Cluster
     (types::topology), a ModelSpec/InferenceRequest (workload), a
@@ -122,17 +151,29 @@ Overview:
     profile's fits by model kind, phase, and target, and evaluate_fit computes
     intercept + sum(coefficient * feature) plus range/applicability/uncertainty
     evidence. Collective and transfer costs are priced through
-    topology_graph routes. The resulting operations go to scheduler, whose
+    directed topology_graph routes; a collective whose op, node placement,
+    and rank count match one of the cluster's measured collective curves is
+    priced from that curve instead (solver::collective_pricing), and every
+    collective's pricing becomes approximation evidence. The resulting operations go to scheduler, whose
     makespan becomes estimated_latency_s. serving reuses the solver per pool and
     layers arrivals, batching, queueing, KV transfer, and SLO accounting on top,
     applying its own serving-scope fits through
-    Solver::fitted_latency_from_features. cli then ranks, gates (calibration and
+    Solver::fitted_latency_from_features. For colocated continuous-batching
+    candidates, serving builds a solver IterationCostModel from the placed
+    config and runs the discrete-event engine (src/serving/engine/), which
+    prices every engine step from its prefill/decode composition and writes
+    request lifecycles back into the same request states the phase-pipeline
+    scheduler fills; both feed one shared metric summary. cli then ranks, gates (calibration and
     approximation policies), and renders text/JSON/CSV, carrying every fit
     application and its applicability status into the output.
     aisimulate_calibration runs entirely outside that loop: it reads AISimulate
     Parquet op tables, composes phase latencies, fits the basis features
     solver::calibration_fits already evaluates, and writes a profile TOML that a
-    later cli run loads through config.
+    later cli run loads through config. lab_harness also runs outside the loop:
+    it drives vLLM on lab nodes, invokes the release binary as a subprocess
+    (--json) for every measured shape or request rate, fits the two roofline
+    scalars from static-batch results, and writes a profile TOML that config
+    loads; its reports feed docs/validation_ledger.md.
 
 Features Index:
   aisimulate_calibration:
@@ -162,6 +203,23 @@ Features Index:
       - src/config/calibration_config.rs::parse_calibration_fits
     depends_on: [config, solver]
     doc: docs/features/calibration_fits.md
+  collective_curves:
+    description: >
+      Measured latency-vs-size curves in the cluster TOML that price
+      collectives and directed point-to-point sends (log-log interpolation,
+      floor/bandwidth extrapolation) in place of alpha-beta, with
+      extrapolation/derived/absent/suspended evidence; plus one-way NIC caps
+      and per-direction custom links so routed transfers use their direction
+      and ring collectives are bounded by the slower one.
+    entry_points:
+      - src/config/collective_curves.rs::parse_collective_curves
+      - src/solver/collective_pricing.rs::Solver::curve_pricing
+      - src/solver/network_cost.rs::Solver::estimate_collective_with_calibration
+      - src/topology_graph.rs::TopologyGraph::from_cluster
+      - tools/lab/lab.py curves
+      - lab-runs/2026-09-30-tp2/rtx3090_lab_cluster_measured_curves.toml
+    depends_on: [config, topology_graph, solver, lab_harness]
+    doc: docs/features/collective_curves.md
   compute_roofline:
     description: >
       Analytical per-phase latency model: dense parameter FLOPs plus causal
@@ -174,4 +232,37 @@ Features Index:
       - src/solver.rs::prefill_baseline_s
     depends_on: [types, workload]
     doc: docs/features/compute_roofline.md
+  serving_iteration_engine:
+    description: >
+      Deterministic discrete-event serving loop modeled on vLLM V1 for
+      colocated continuous-batching candidates: per-step decode tokens plus
+      budget-filling prefill chunks, KV-gated admission with a waiting queue
+      instead of rejection, and per-step latency from the solver roofline for
+      the step's actual composition (with TP all-reduces and PP stages).
+    entry_points:
+      - src/serving/engine.rs::select_scheduler_model
+      - src/serving/engine.rs::run_iteration_engine
+      - src/serving/engine/core.rs::run_engine
+      - src/solver/step_cost.rs::IterationCostModel
+    depends_on: [compute_roofline]
+    doc: docs/features/serving_iteration_engine.md
+  lab_harness:
+    description: >
+      Turn-key measurement-to-calibration pipeline: TOML experiment specs
+      (static-batch shapes or vllm bench serve rate sweeps) with lab quirks as
+      config, a dry-runnable remote runner with JSON-record completion
+      detection and manifests, simulator sweeps mirroring each benchmark, a
+      two-scalar median-ratio fit with leave-one-shape-out validation,
+      calibration-profile emission verified by the simulator, per-regime
+      markdown comparisons, and a collective-bench mode (NCCL sweep with
+      receiver-timed sends) whose results `lab.py curves` converts into the
+      cluster's [[collective_curves]] section.
+    entry_points:
+      - tools/lab/lab.py
+      - tools/lab/specs/rtx3090_qwen7b_static_pp1.toml
+      - tools/lab/specs/rtx3090_qwen7b_serving_pp1.toml
+      - tools/lab/specs/rtx3090_nccl_curve.toml
+      - docs/validation_ledger.md
+    depends_on: [compute_roofline, calibration_fits]
+    doc: docs/features/lab_harness.md
 ```
