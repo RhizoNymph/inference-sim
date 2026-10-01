@@ -1,0 +1,118 @@
+# plan 2026-09-30-qwen7b-serving-pp1
+# local results -> /runs/2026-09-30-qwen7b-serving-pp1
+# [sync] mkdir node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+mkdir -p "$HOME/inference-sim-lab/bench" "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1"
+LAB_EOF
+# [sync] copy bench scripts to node0
+scp -q /src/tools/lab/remote/bench_latency.py /src/tools/lab/remote/probe_env.py node0:inference-sim-lab/bench/
+# [clean] stop stale processes on node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; docker rm -f lab-2026-09-30-qwen7b-serving-pp1 >/dev/null 2>&1 || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+LAB_EOF
+# [preflight] probe node0 -> probe-node0.json
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+docker run --rm --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --ipc=host --user "$(id -u):$(id -g)" -e HF_HOME="/hf" -e HOME="/tmp" -e VLLM_CACHE_ROOT="/tmp/vllm-cache" -e PYTHONUNBUFFERED="1" -v "$HOME/.cache/huggingface:/hf" -v "$HOME/inference-sim-lab:/lab" --entrypoint python3 vllm/vllm-openai:v0.29.0 /lab/bench/probe_env.py
+LAB_EOF
+# [launch] start vllm serve
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+docker run -d --name lab-2026-09-30-qwen7b-serving-pp1 --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --ipc=host --user "$(id -u):$(id -g)" -e HF_HOME="/hf" -e HOME="/tmp" -e VLLM_CACHE_ROOT="/tmp/vllm-cache" -e PYTHONUNBUFFERED="1" -v "$HOME/.cache/huggingface:/hf" -v "$HOME/inference-sim-lab:/lab" -p 127.0.0.1:8000:8000 vllm/vllm-openai:v0.29.0 --model Qwen/Qwen2.5-7B-Instruct --dtype bfloat16 --max-model-len 4096 --max-num-batched-tokens 2048 --max-num-seqs 64 --gpu-memory-utilization 0.85 --no-enable-prefix-caching --seed 0
+LAB_EOF
+# [wait] server ready (poll until complete=1, expected=1, timeout=900s)
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+if curl -sf http://127.0.0.1:8000/health >/dev/null; then c=1; else c=0; fi; if [ -n "$(docker ps -q --filter name=^lab-2026-09-30-qwen7b-serving-pp1$)" ]; then a=1; else a=0; fi; echo "complete=$c progress=$c alive=$a"
+LAB_EOF
+# [launch] bench serve rate=1
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+cd "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" vllm bench serve --backend vllm --base-url http://127.0.0.1:8000 --model Qwen/Qwen2.5-7B-Instruct --dataset-name random --random-input-len 512 --random-output-len 128 --random-range-ratio 0 --ignore-eos --num-prompts 200 --request-rate 1 --seed 0 --disable-tqdm --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,90,99 --save-result --result-dir "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" --result-filename rate_1.json > "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_1.log" 2>&1 < /dev/null &
+LAB_EOF
+# [wait] bench serve rate=1 (poll until complete=1, expected=1, timeout=3600s)
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+if [ -s "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_1.json" ]; then c=1; else c=0; fi; if pgrep -f '[v]llm bench serve.*rate_1.json' >/dev/null; then a=1; else a=0; fi; echo "complete=$c progress=$c alive=$a"
+LAB_EOF
+# [launch] bench serve rate=2
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+cd "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" vllm bench serve --backend vllm --base-url http://127.0.0.1:8000 --model Qwen/Qwen2.5-7B-Instruct --dataset-name random --random-input-len 512 --random-output-len 128 --random-range-ratio 0 --ignore-eos --num-prompts 200 --request-rate 2 --seed 0 --disable-tqdm --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,90,99 --save-result --result-dir "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" --result-filename rate_2.json > "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_2.log" 2>&1 < /dev/null &
+LAB_EOF
+# [wait] bench serve rate=2 (poll until complete=1, expected=1, timeout=3600s)
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+if [ -s "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_2.json" ]; then c=1; else c=0; fi; if pgrep -f '[v]llm bench serve.*rate_2.json' >/dev/null; then a=1; else a=0; fi; echo "complete=$c progress=$c alive=$a"
+LAB_EOF
+# [launch] bench serve rate=4
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+cd "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" vllm bench serve --backend vllm --base-url http://127.0.0.1:8000 --model Qwen/Qwen2.5-7B-Instruct --dataset-name random --random-input-len 512 --random-output-len 128 --random-range-ratio 0 --ignore-eos --num-prompts 200 --request-rate 4 --seed 0 --disable-tqdm --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,90,99 --save-result --result-dir "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" --result-filename rate_4.json > "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_4.log" 2>&1 < /dev/null &
+LAB_EOF
+# [wait] bench serve rate=4 (poll until complete=1, expected=1, timeout=3600s)
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+if [ -s "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_4.json" ]; then c=1; else c=0; fi; if pgrep -f '[v]llm bench serve.*rate_4.json' >/dev/null; then a=1; else a=0; fi; echo "complete=$c progress=$c alive=$a"
+LAB_EOF
+# [launch] bench serve rate=6
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+cd "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" vllm bench serve --backend vllm --base-url http://127.0.0.1:8000 --model Qwen/Qwen2.5-7B-Instruct --dataset-name random --random-input-len 512 --random-output-len 128 --random-range-ratio 0 --ignore-eos --num-prompts 200 --request-rate 6 --seed 0 --disable-tqdm --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,90,99 --save-result --result-dir "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" --result-filename rate_6.json > "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_6.log" 2>&1 < /dev/null &
+LAB_EOF
+# [wait] bench serve rate=6 (poll until complete=1, expected=1, timeout=3600s)
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+if [ -s "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_6.json" ]; then c=1; else c=0; fi; if pgrep -f '[v]llm bench serve.*rate_6.json' >/dev/null; then a=1; else a=0; fi; echo "complete=$c progress=$c alive=$a"
+LAB_EOF
+# [launch] bench serve rate=8
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+cd "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" vllm bench serve --backend vllm --base-url http://127.0.0.1:8000 --model Qwen/Qwen2.5-7B-Instruct --dataset-name random --random-input-len 512 --random-output-len 128 --random-range-ratio 0 --ignore-eos --num-prompts 200 --request-rate 8 --seed 0 --disable-tqdm --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,90,99 --save-result --result-dir "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" --result-filename rate_8.json > "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_8.log" 2>&1 < /dev/null &
+LAB_EOF
+# [wait] bench serve rate=8 (poll until complete=1, expected=1, timeout=3600s)
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+if [ -s "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_8.json" ]; then c=1; else c=0; fi; if pgrep -f '[v]llm bench serve.*rate_8.json' >/dev/null; then a=1; else a=0; fi; echo "complete=$c progress=$c alive=$a"
+LAB_EOF
+# [launch] bench serve rate=10
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+cd "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" vllm bench serve --backend vllm --base-url http://127.0.0.1:8000 --model Qwen/Qwen2.5-7B-Instruct --dataset-name random --random-input-len 512 --random-output-len 128 --random-range-ratio 0 --ignore-eos --num-prompts 200 --request-rate 10 --seed 0 --disable-tqdm --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,90,99 --save-result --result-dir "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" --result-filename rate_10.json > "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_10.log" 2>&1 < /dev/null &
+LAB_EOF
+# [wait] bench serve rate=10 (poll until complete=1, expected=1, timeout=3600s)
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+if [ -s "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_10.json" ]; then c=1; else c=0; fi; if pgrep -f '[v]llm bench serve.*rate_10.json' >/dev/null; then a=1; else a=0; fi; echo "complete=$c progress=$c alive=$a"
+LAB_EOF
+# [launch] bench serve rate=inf
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+cd "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" vllm bench serve --backend vllm --base-url http://127.0.0.1:8000 --model Qwen/Qwen2.5-7B-Instruct --dataset-name random --random-input-len 512 --random-output-len 128 --random-range-ratio 0 --ignore-eos --num-prompts 200 --request-rate inf --seed 0 --disable-tqdm --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,90,99 --save-result --result-dir "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1" --result-filename rate_inf.json > "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_inf.log" 2>&1 < /dev/null &
+LAB_EOF
+# [wait] bench serve rate=inf (poll until complete=1, expected=1, timeout=3600s)
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+if [ -s "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_inf.json" ]; then c=1; else c=0; fi; if pgrep -f '[v]llm bench serve.*rate_inf.json' >/dev/null; then a=1; else a=0; fi; echo "complete=$c progress=$c alive=$a"
+LAB_EOF
+# [collect] dump server log
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+docker logs lab-2026-09-30-qwen7b-serving-pp1 > "$HOME/inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/server.log" 2>&1
+LAB_EOF
+# [collect] collect rate_1.json
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_1.json /runs/2026-09-30-qwen7b-serving-pp1/rate_1.json
+# [collect] collect bench_rate_1.log
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_1.log /runs/2026-09-30-qwen7b-serving-pp1/bench_rate_1.log
+# [collect] collect rate_2.json
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_2.json /runs/2026-09-30-qwen7b-serving-pp1/rate_2.json
+# [collect] collect bench_rate_2.log
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_2.log /runs/2026-09-30-qwen7b-serving-pp1/bench_rate_2.log
+# [collect] collect rate_4.json
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_4.json /runs/2026-09-30-qwen7b-serving-pp1/rate_4.json
+# [collect] collect bench_rate_4.log
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_4.log /runs/2026-09-30-qwen7b-serving-pp1/bench_rate_4.log
+# [collect] collect rate_6.json
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_6.json /runs/2026-09-30-qwen7b-serving-pp1/rate_6.json
+# [collect] collect bench_rate_6.log
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_6.log /runs/2026-09-30-qwen7b-serving-pp1/bench_rate_6.log
+# [collect] collect rate_8.json
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_8.json /runs/2026-09-30-qwen7b-serving-pp1/rate_8.json
+# [collect] collect bench_rate_8.log
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_8.log /runs/2026-09-30-qwen7b-serving-pp1/bench_rate_8.log
+# [collect] collect rate_10.json
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_10.json /runs/2026-09-30-qwen7b-serving-pp1/rate_10.json
+# [collect] collect bench_rate_10.log
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_10.log /runs/2026-09-30-qwen7b-serving-pp1/bench_rate_10.log
+# [collect] collect rate_inf.json
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/rate_inf.json /runs/2026-09-30-qwen7b-serving-pp1/rate_inf.json
+# [collect] collect bench_rate_inf.log
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_inf.log /runs/2026-09-30-qwen7b-serving-pp1/bench_rate_inf.log
+# [collect] collect server.log
+scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/server.log /runs/2026-09-30-qwen7b-serving-pp1/server.log
+# [teardown] stop stale processes on node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; docker rm -f lab-2026-09-30-qwen7b-serving-pp1 >/dev/null 2>&1 || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+LAB_EOF

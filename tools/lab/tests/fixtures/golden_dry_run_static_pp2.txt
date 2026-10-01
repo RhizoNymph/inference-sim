@@ -1,0 +1,62 @@
+# plan 2026-09-28-qwen7b-static-pp2
+# local results -> /runs/2026-09-28-qwen7b-static-pp2
+# [sync] mkdir node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+mkdir -p "$HOME/inference-sim-lab/bench" "$HOME/inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2"
+LAB_EOF
+# [sync] copy bench scripts to node0
+scp -q /src/tools/lab/remote/bench_latency.py /src/tools/lab/remote/probe_env.py node0:inference-sim-lab/bench/
+# [sync] mkdir node1
+ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
+mkdir -p "$HOME/inference-sim-lab/bench" "$HOME/inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2"
+LAB_EOF
+# [sync] copy bench scripts to node1
+scp -q /src/tools/lab/remote/bench_latency.py /src/tools/lab/remote/probe_env.py node1:inference-sim-lab/bench/
+# [clean] stop stale processes on node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+LAB_EOF
+# [clean] stop stale processes on node1
+ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+LAB_EOF
+# [preflight] probe node0 -> probe-node0.json
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" python "$HOME/inference-sim-lab/bench/probe_env.py"
+LAB_EOF
+# [preflight] probe node1 -> probe-node1.json
+ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
+env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.68" PYTHONUNBUFFERED="1" python "$HOME/inference-sim-lab/bench/probe_env.py"
+LAB_EOF
+# [cluster] ray head on node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" ray start --head --node-ip-address 10.1.1.69 --port 6379 --num-gpus 1 --disable-usage-stats
+LAB_EOF
+# [cluster] ray worker on node1
+ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
+env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.68" PYTHONUNBUFFERED="1" ray start --address 10.1.1.69:6379 --node-ip-address 10.1.1.68 --num-gpus 1 --disable-usage-stats
+LAB_EOF
+# [cluster] verify ray sees 2 GPUs
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" python -c 'import ray; ray.init(address='"'"'auto'"'"'); n = int(ray.cluster_resources().get('"'"'GPU'"'"', 0)); print(f'"'"'ray_gpus={n}'"'"'); raise SystemExit(0 if n >= 2 else 1)'
+LAB_EOF
+# [launch] start static-batch benchmark
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+cd "$HOME/inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" HF_HOME="$HOME/.cache/huggingface" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" VLLM_HOST_IP="10.1.1.69" PYTHONUNBUFFERED="1" python "$HOME/inference-sim-lab/bench/bench_latency.py" --model Qwen/Qwen2.5-7B-Instruct --shapes 1x512,1x2048,8x512,8x2048,32x512 --decode 128 --warmup 2 --iters 5 --tp 1 --pp 2 --dtype bfloat16 --gpu-memory-utilization 0.85 --max-model-len 4096 --max-num-batched-tokens 16384 --max-num-seqs 64 --seed 0 --output "$HOME/inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2/results.jsonl" --backend ray > "$HOME/inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2/bench.log" 2>&1 < /dev/null &
+LAB_EOF
+# [wait] static-batch results (poll until complete=1, expected=5, timeout=3600s)
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+n=$(grep -c '^{.*"record": "lab.static_batch.v1"' "$HOME/inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2/results.jsonl" 2>/dev/null); d=$(grep -c '^{.*"record": "lab.done.v1"' "$HOME/inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2/results.jsonl" 2>/dev/null); if pgrep -f '[b]ench_latency.py.*2026-09-28-qwen7b-static-pp2' >/dev/null; then a=1; else a=0; fi; if [ "${d:-0}" -ge 1 ] && [ "${n:-0}" -ge 5 ]; then c=1; else c=0; fi; echo "complete=$c progress=${n:-0} alive=$a"
+LAB_EOF
+# [collect] collect results.jsonl
+scp -q node0:inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2/results.jsonl /runs/2026-09-28-qwen7b-static-pp2/measured.jsonl
+# [collect] collect bench.log
+scp -q node0:inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2/bench.log /runs/2026-09-28-qwen7b-static-pp2/bench.log
+# [teardown] stop stale processes on node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+LAB_EOF
+# [teardown] stop stale processes on node1
+ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+LAB_EOF

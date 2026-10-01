@@ -4,11 +4,19 @@ use std::{
 };
 
 mod calibration_fits;
+mod collective_pricing;
+#[cfg(test)]
+mod curve_tests;
 mod network_cost;
 mod operations;
 mod placement;
+mod step_cost;
 use calibration_fits::{calibration_feature_values, evaluate_fit, evaluate_value_fit, fit_matches};
+use collective_pricing::{
+    CurvePricing, PricedCollective, all_traffic_priced_by_curves, collective_pricing_approximations,
+};
 pub use operations::schedule_operations;
+pub use step_cost::{IterationCostModel, StepCostError, StepLatency, StepWork};
 
 use crate::{
     calibration::SimulationCalibration,
@@ -22,7 +30,8 @@ use crate::{
     },
     types::{
         collective::{
-            CollectiveAlgorithm, CollectiveCall, CollectiveCost, CollectiveKind, ReductionOp,
+            CollectiveAlgorithm, CollectiveCall, CollectiveCost, CollectiveKind, CollectivePricing,
+            CurveCoverage, ReductionOp,
         },
         common::{Bandwidth, Bytes, GpuAddr, NodeId, RankId, UnorderedPair},
         configs::{ParallelGroups, ParallelismConfig, RankPlacement},
@@ -243,30 +252,19 @@ impl Solver {
         options: SolverOptions,
     ) -> Vec<ScoredParallelismConfig> {
         let mut results = Vec::new();
+        let configs = ordered_parallelism_candidates(search_space);
 
-        'search: for &tensor_ranks in &search_space.tensor_ranks {
-            for &pipeline_ranks in &search_space.pipeline_ranks {
-                for &expert_ranks in &search_space.expert_ranks {
-                    for &data_ranks in &search_space.data_ranks {
-                        if options
-                            .max_candidates
-                            .is_some_and(|max_candidates| results.len() >= max_candidates)
-                            || search_deadline_expired(options.search_deadline)
-                        {
-                            break 'search;
-                        }
-                        let config = ParallelismConfig {
-                            tensor_ranks,
-                            pipeline_ranks,
-                            expert_ranks,
-                            data_ranks,
-                        };
-                        results.push(Self::score_config_with_options(
-                            cluster, model, request, config, options,
-                        ));
-                    }
-                }
+        for config in configs {
+            if options
+                .max_candidates
+                .is_some_and(|max_candidates| results.len() >= max_candidates)
+                || search_deadline_expired(options.search_deadline)
+            {
+                break;
             }
+            results.push(Self::score_config_with_options(
+                cluster, model, request, config, options,
+            ));
         }
 
         results.sort_by(|a, b| {
@@ -436,7 +434,7 @@ impl Solver {
             calibration,
             options.calibration_profile,
         );
-        let operations = Self::build_operation_trace(
+        let (operations, priced_collectives) = Self::build_operation_trace(
             cluster,
             model,
             request,
@@ -472,6 +470,7 @@ impl Solver {
             config,
             &placement,
             &operations,
+            &priced_collectives,
             &calibration_fits,
         );
         let placement_evidence = Self::placement_evidence(
@@ -596,7 +595,10 @@ impl Solver {
         let per_layer = tokens * kv_heads * head_dim * 2 * bytes_per_element;
         let total = per_layer * model.layers as u64;
 
-        div_ceil(total, config.tensor_ranks.max(1) as u64)
+        div_ceil(
+            total,
+            (config.tensor_ranks * config.pipeline_ranks).max(1) as u64,
+        )
     }
 
     fn memory_rejection_reason(
@@ -631,8 +633,7 @@ impl Solver {
         calibration_profile: Option<&CalibrationProfileMetadata>,
     ) -> (f64, Vec<CalibrationFitApplication>) {
         let parameter_count = model.parameter_count();
-        let shard_factor =
-            (config.tensor_ranks * config.pipeline_ranks * config.expert_ranks).max(1) as f64;
+        let shard_factor = Self::latency_shard_factor(config);
         let peak_flops = Self::effective_peak_flops(cluster, model, placement, calibration);
 
         match request.phase {
@@ -774,11 +775,17 @@ impl Solver {
         flops_per_rank / peak_flops
     }
 
-    // Attention score/value work shards across tensor ranks (heads) and
-    // pipeline ranks (layers) but not expert ranks, which only partition MLP
-    // expert weights.
+    // Pipeline stages split a batch's layers but run them one after another,
+    // so pipeline ranks shard weight memory without shortening one batch's
+    // latency. Phase latencies are per-batch totals across every stage.
+    fn latency_shard_factor(config: ParallelismConfig) -> f64 {
+        (config.tensor_ranks * config.expert_ranks).max(1) as f64
+    }
+
+    // Attention score/value work shards across tensor ranks (heads) but not
+    // expert ranks, which only partition MLP expert weights.
     fn attention_shard_factor(config: ParallelismConfig) -> f64 {
-        (config.tensor_ranks * config.pipeline_ranks).max(1) as f64
+        config.tensor_ranks.max(1) as f64
     }
 
     // Causal QK^T and AV bilinear FLOPs for prefilling the prompt. The
@@ -880,6 +887,7 @@ impl Solver {
         hbm_bytes_per_sec.max(1.0) * calibration.decode_memory_bandwidth_scale
     }
 
+    #[cfg(test)]
     fn activation_bytes(model: &ModelSpec, request: &InferenceRequest) -> Bytes {
         let tokens = Self::active_tokens(request);
         let bytes = request.batch_size as u64
@@ -890,6 +898,7 @@ impl Solver {
         Bytes::from_bytes(bytes)
     }
 
+    #[cfg(test)]
     fn active_tokens(request: &InferenceRequest) -> u64 {
         match request.phase {
             InferencePhase::Prefill => request.prompt_tokens as u64,
@@ -901,6 +910,90 @@ impl Solver {
 
 fn search_deadline_expired(deadline: Option<Instant>) -> bool {
     deadline.is_some_and(|deadline| Instant::now() >= deadline)
+}
+
+fn ordered_parallelism_candidates(search_space: &SearchSpace) -> Vec<ParallelismConfig> {
+    let mut by_total_ranks = BTreeMap::<u32, Vec<ParallelismConfig>>::new();
+    for &tensor_ranks in &search_space.tensor_ranks {
+        for &pipeline_ranks in &search_space.pipeline_ranks {
+            for &expert_ranks in &search_space.expert_ranks {
+                for &data_ranks in &search_space.data_ranks {
+                    let config = ParallelismConfig {
+                        tensor_ranks,
+                        pipeline_ranks,
+                        expert_ranks,
+                        data_ranks,
+                    };
+                    by_total_ranks
+                        .entry(config.total_ranks())
+                        .or_default()
+                        .push(config);
+                }
+            }
+        }
+    }
+
+    for configs in by_total_ranks.values_mut() {
+        configs.sort_by_key(|config| {
+            (
+                dimension_spread(*config),
+                config.tensor_ranks,
+                config.pipeline_ranks,
+                config.expert_ranks,
+                config.data_ranks,
+            )
+        });
+    }
+
+    let rank_order = diverse_rank_order(by_total_ranks.keys().copied().collect());
+    let mut ordered = Vec::new();
+    loop {
+        let mut advanced = false;
+        for total_ranks in &rank_order {
+            let Some(configs) = by_total_ranks.get_mut(total_ranks) else {
+                continue;
+            };
+            if configs.is_empty() {
+                continue;
+            }
+            ordered.push(configs.remove(0));
+            advanced = true;
+        }
+        if !advanced {
+            break;
+        }
+    }
+    ordered
+}
+
+fn diverse_rank_order(ranks: Vec<u32>) -> Vec<u32> {
+    if ranks.is_empty() {
+        return Vec::new();
+    }
+
+    let mut ordered = Vec::with_capacity(ranks.len());
+    let mut low = 0usize;
+    let mut high = ranks.len() - 1;
+    while low < high {
+        ordered.push(ranks[low]);
+        ordered.push(ranks[high]);
+        low += 1;
+        high -= 1;
+    }
+    if low == high {
+        ordered.push(ranks[low]);
+    }
+    ordered
+}
+
+fn dimension_spread(config: ParallelismConfig) -> u32 {
+    let dims = [
+        config.tensor_ranks,
+        config.pipeline_ranks,
+        config.expert_ranks,
+        config.data_ranks,
+    ];
+    dims.iter().copied().max().unwrap_or(1) - dims.iter().copied().min().unwrap_or(1)
 }
 
 fn div_ceil(value: u64, divisor: u64) -> u64 {
@@ -2166,6 +2259,46 @@ mod tests {
     }
 
     #[test]
+    fn rank_config_candidate_order_covers_small_and_large_configs() {
+        let search_space = SearchSpace {
+            tensor_ranks: vec![1, 4],
+            pipeline_ranks: vec![1, 2],
+            expert_ranks: vec![1],
+            data_ranks: vec![1, 8],
+        };
+
+        let ordered = ordered_parallelism_candidates(&search_space);
+
+        assert_eq!(ordered[0].total_ranks(), 1);
+        assert_eq!(ordered[1].total_ranks(), 64);
+        assert_eq!(ordered[2].total_ranks(), 2);
+    }
+
+    #[test]
+    fn rank_config_budget_uses_diverse_candidate_order() {
+        let search_space = SearchSpace {
+            tensor_ranks: vec![1, 4],
+            pipeline_ranks: vec![1, 2],
+            expert_ranks: vec![1],
+            data_ranks: vec![1, 8],
+        };
+
+        let results = Solver::rank_configs_with_options(
+            &cluster(8),
+            &model(),
+            &request(),
+            &search_space,
+            SolverOptions {
+                max_candidates: Some(2),
+                ..SolverOptions::default()
+            },
+        );
+
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|score| score.config.total_ranks() == 64));
+    }
+
+    #[test]
     fn memory_infeasible_model_is_rejected() {
         let mut huge_model = model();
         huge_model.parameters = Bytes::from_gigabytes(200.0);
@@ -2250,7 +2383,7 @@ mod tests {
     }
 
     #[test]
-    fn attention_terms_ignore_expert_sharding() {
+    fn attention_latency_shards_across_tensor_ranks_only() {
         let config = ParallelismConfig {
             tensor_ranks: 2,
             pipeline_ranks: 2,
@@ -2258,7 +2391,7 @@ mod tests {
             data_ranks: 1,
         };
 
-        assert!((Solver::attention_shard_factor(config) - 4.0).abs() < f64::EPSILON);
+        assert!((Solver::attention_shard_factor(config) - 2.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -2360,5 +2493,372 @@ mod tests {
 
         assert!(score.feasible);
         assert!((score.estimated_latency_s - expected).abs() < expected * 1e-9);
+    }
+
+    fn single_gpu_nodes(node_count: u32) -> Cluster {
+        let mut cluster = cluster(node_count);
+        for node in cluster.nodes.values_mut() {
+            node.gpus.retain(|gpu_id, _| *gpu_id == 0);
+        }
+        cluster
+    }
+
+    fn pipeline_config(pipeline_ranks: u32) -> ParallelismConfig {
+        ParallelismConfig {
+            tensor_ranks: 1,
+            pipeline_ranks,
+            expert_ranks: 1,
+            data_ranks: 1,
+        }
+    }
+
+    fn phase_request(phase: InferencePhase, decode_tokens: u32) -> InferenceRequest {
+        InferenceRequest {
+            batch_size: 4,
+            prompt_tokens: 128,
+            decode_tokens,
+            max_sequence_tokens: 256,
+            phase,
+        }
+    }
+
+    fn operation_index(score: &ScoredParallelismConfig, name: &str) -> usize {
+        score
+            .operations
+            .iter()
+            .position(|operation| operation.name == name)
+            .unwrap_or_else(|| panic!("missing operation {name}"))
+    }
+
+    #[test]
+    fn pipeline_parallel_does_not_reduce_single_batch_latency() {
+        let cluster = single_gpu_nodes(2);
+        for phase in [
+            InferencePhase::Prefill,
+            InferencePhase::Decode,
+            InferencePhase::EndToEnd,
+        ] {
+            let request = phase_request(phase, 16);
+            let single_stage = Solver::score_config_with_options(
+                &cluster,
+                &model(),
+                &request,
+                pipeline_config(1),
+                default_options(),
+            );
+            let two_stage = Solver::score_config_with_options(
+                &cluster,
+                &model(),
+                &request,
+                pipeline_config(2),
+                default_options(),
+            );
+
+            assert!(single_stage.feasible, "{phase:?} pp=1 infeasible");
+            assert!(two_stage.feasible, "{phase:?} pp=2 infeasible");
+            assert!(
+                two_stage.estimated_latency_s >= single_stage.estimated_latency_s,
+                "{phase:?}: pp=2 {} < pp=1 {}",
+                two_stage.estimated_latency_s,
+                single_stage.estimated_latency_s
+            );
+            assert!(
+                two_stage.estimated_latency_s < single_stage.estimated_latency_s * 1.5,
+                "{phase:?}: pp=2 {} is implausibly slower than pp=1 {}",
+                two_stage.estimated_latency_s,
+                single_stage.estimated_latency_s
+            );
+        }
+    }
+
+    #[test]
+    fn pipeline_stage_layers_run_on_their_stage_node() {
+        let score = Solver::score_config_with_options(
+            &single_gpu_nodes(2),
+            &model(),
+            &phase_request(InferencePhase::Prefill, 1),
+            pipeline_config(2),
+            default_options(),
+        );
+        assert!(score.feasible);
+
+        let stage_node = |rank: u32| {
+            score
+                .placement
+                .gpu_for_rank(rank)
+                .map(|gpu| gpu.node_id)
+                .unwrap_or_else(|| panic!("rank {rank} unplaced"))
+        };
+        let first_stage_node = stage_node(0);
+        let second_stage_node = stage_node(1);
+        assert_ne!(first_stage_node, second_stage_node);
+
+        for (layer, expected_node) in [
+            (0, first_stage_node),
+            (1, first_stage_node),
+            (2, second_stage_node),
+            (3, second_stage_node),
+        ] {
+            let operation =
+                &score.operations[operation_index(&score, &format!("layer {layer} compute"))];
+            assert_eq!(
+                operation.resources,
+                vec![format!("gpu compute node {expected_node}")],
+                "layer {layer} resources"
+            );
+        }
+    }
+
+    #[test]
+    fn pipeline_boundary_sendrecv_sits_between_stages() {
+        let score = Solver::score_config_with_options(
+            &single_gpu_nodes(2),
+            &model(),
+            &phase_request(InferencePhase::Prefill, 1),
+            pipeline_config(2),
+            default_options(),
+        );
+        assert!(score.feasible);
+
+        let sendrecv_ops = score
+            .operations
+            .iter()
+            .filter(|operation| operation.name.starts_with("pipeline sendrecv"))
+            .count();
+        assert_eq!(sendrecv_ops, 1);
+
+        let last_first_stage_layer = operation_index(&score, "layer 1 compute");
+        let boundary = operation_index(&score, "pipeline sendrecv edge 0");
+        let first_second_stage_layer = operation_index(&score, "layer 2 compute");
+        assert!(
+            score.operations[boundary]
+                .dependencies
+                .contains(&last_first_stage_layer)
+        );
+        assert!(
+            score.operations[first_second_stage_layer]
+                .dependencies
+                .contains(&boundary)
+        );
+    }
+
+    #[test]
+    fn decode_pipeline_boundary_is_crossed_once_per_generated_token() {
+        let boundary_duration = |decode_tokens: u32| {
+            let score = Solver::score_config_with_options(
+                &single_gpu_nodes(2),
+                &model(),
+                &phase_request(InferencePhase::Decode, decode_tokens),
+                pipeline_config(2),
+                default_options(),
+            );
+            assert!(score.feasible);
+            score.operations[operation_index(&score, "pipeline sendrecv edge 0")].duration_s
+        };
+
+        let one_token = boundary_duration(1);
+        let sixteen_tokens = boundary_duration(16);
+        assert!(one_token > 0.0);
+        assert!((sixteen_tokens - 16.0 * one_token).abs() < one_token * 1e-9);
+    }
+
+    #[test]
+    fn kv_cache_bytes_shard_across_pipeline_stages() {
+        let request = phase_request(InferencePhase::Decode, 16);
+        let single_stage = Solver::kv_cache_bytes(&model(), &request, pipeline_config(1));
+        let two_stage = Solver::kv_cache_bytes(&model(), &request, pipeline_config(2));
+
+        assert!(single_stage > 0);
+        assert_eq!(two_stage * 2, single_stage);
+    }
+
+    fn tensor_config(tensor_ranks: u32) -> ParallelismConfig {
+        ParallelismConfig {
+            tensor_ranks,
+            pipeline_ranks: 1,
+            expert_ranks: 1,
+            data_ranks: 1,
+        }
+    }
+
+    fn operation_names_with_prefix(score: &ScoredParallelismConfig, prefix: &str) -> Vec<usize> {
+        score
+            .operations
+            .iter()
+            .enumerate()
+            .filter(|(_, operation)| operation.name.starts_with(prefix))
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
+    #[test]
+    fn tensor_parallel_layer_runs_attention_and_mlp_all_reduces() {
+        let score = Solver::score_config_with_options(
+            &single_gpu_nodes(2),
+            &model(),
+            &phase_request(InferencePhase::Prefill, 1),
+            tensor_config(2),
+            default_options(),
+        );
+        assert!(score.feasible);
+
+        for layer in 0..4 {
+            let all_reduces =
+                operation_names_with_prefix(&score, &format!("layer {layer} tp all-reduce"));
+            assert_eq!(all_reduces.len(), 2, "layer {layer}");
+        }
+    }
+
+    #[test]
+    fn tensor_parallel_all_reduce_blocks_next_layer_by_default() {
+        let score = Solver::score_config_with_options(
+            &single_gpu_nodes(2),
+            &model(),
+            &phase_request(InferencePhase::Prefill, 1),
+            tensor_config(2),
+            default_options(),
+        );
+        assert!(score.feasible);
+
+        let last_layer0_all_reduce = *operation_names_with_prefix(&score, "layer 0 tp all-reduce")
+            .last()
+            .unwrap_or_else(|| panic!("layer 0 has no all-reduce"));
+        let layer1 = operation_index(&score, "layer 1 compute");
+        assert!(
+            score.operations[layer1]
+                .dependencies
+                .contains(&last_layer0_all_reduce)
+        );
+    }
+
+    #[test]
+    fn compute_comm_overlap_opt_in_lets_next_layer_skip_all_reduce_wait() {
+        let score = Solver::score_config_with_options(
+            &single_gpu_nodes(2),
+            &model(),
+            &phase_request(InferencePhase::Prefill, 1),
+            tensor_config(2),
+            SolverOptions {
+                calibration: SimulationCalibration {
+                    allow_compute_comm_overlap: true,
+                    ..SimulationCalibration::default()
+                },
+                ..default_options()
+            },
+        );
+        assert!(score.feasible);
+
+        let layer0_all_reduces = operation_names_with_prefix(&score, "layer 0 tp all-reduce");
+        let layer1 = operation_index(&score, "layer 1 compute");
+        assert!(
+            layer0_all_reduces
+                .iter()
+                .all(|idx| !score.operations[layer1].dependencies.contains(idx))
+        );
+    }
+
+    #[test]
+    fn tensor_parallel_all_reduce_moves_full_activation() {
+        let cluster = single_gpu_nodes(2);
+        let request = phase_request(InferencePhase::Prefill, 1);
+        let score = Solver::score_config_with_options(
+            &cluster,
+            &model(),
+            &request,
+            tensor_config(2),
+            default_options(),
+        );
+        assert!(score.feasible);
+
+        let full_activation_bytes = u64::from(request.batch_size)
+            * u64::from(request.prompt_tokens)
+            * u64::from(model().hidden_size)
+            * DType::Bf16.bytes_per_element();
+        let expected = Solver::estimate_collective(
+            &cluster,
+            &score.placement,
+            &CollectiveCall {
+                kind: CollectiveKind::AllReduce,
+                participants: vec![0, 1],
+                bytes_per_rank: Bytes::from_bytes(full_activation_bytes),
+                dtype: DType::Bf16,
+                reduction: Some(ReductionOp::Sum),
+                root: None,
+                phase: InferencePhase::Prefill,
+                algorithm: CollectiveAlgorithm::Hierarchical,
+            },
+        )
+        .total_s;
+
+        let first = operation_names_with_prefix(&score, "layer 0 tp all-reduce")[0];
+        let actual = score.operations[first].duration_s;
+        assert!(expected > 0.0);
+        assert!(
+            (actual - expected).abs() < expected * 1e-9,
+            "{actual} vs {expected}"
+        );
+    }
+
+    #[test]
+    fn decode_tensor_parallel_all_reduce_repeats_per_generated_token() {
+        let all_reduce_duration = |decode_tokens: u32| {
+            let score = Solver::score_config_with_options(
+                &single_gpu_nodes(2),
+                &model(),
+                &phase_request(InferencePhase::Decode, decode_tokens),
+                tensor_config(2),
+                default_options(),
+            );
+            assert!(score.feasible);
+            score.operations[operation_names_with_prefix(&score, "layer 0 tp all-reduce")[0]]
+                .duration_s
+        };
+
+        let one_token = all_reduce_duration(1);
+        let sixteen_tokens = all_reduce_duration(16);
+        assert!(one_token > 0.0);
+        assert!((sixteen_tokens - 16.0 * one_token).abs() < one_token * 1e-9);
+    }
+
+    #[test]
+    fn tensor_parallel_over_ten_gig_ethernet_slows_large_prefill() {
+        let mut cluster = Cluster::h100_sxm_nodes(
+            2,
+            crate::types::fabric::variants::eth::EthVariant::E10G.default_profile(),
+        );
+        for node in cluster.nodes.values_mut() {
+            node.gpus.retain(|gpu_id, _| *gpu_id == 0);
+        }
+        let request = InferenceRequest {
+            batch_size: 8,
+            prompt_tokens: 2048,
+            decode_tokens: 1,
+            max_sequence_tokens: 2176,
+            phase: InferencePhase::Prefill,
+        };
+
+        let single_gpu = Solver::score_config_with_options(
+            &cluster,
+            &model(),
+            &request,
+            tensor_config(1),
+            default_options(),
+        );
+        let two_nodes = Solver::score_config_with_options(
+            &cluster,
+            &model(),
+            &request,
+            tensor_config(2),
+            default_options(),
+        );
+
+        assert!(single_gpu.feasible);
+        assert!(two_nodes.feasible);
+        assert!(
+            two_nodes.estimated_latency_s > single_gpu.estimated_latency_s,
+            "tp2 {} vs tp1 {}",
+            two_nodes.estimated_latency_s,
+            single_gpu.estimated_latency_s
+        );
     }
 }

@@ -66,6 +66,162 @@ fn parses_workload_and_search_config() {
 }
 
 #[test]
+fn derives_search_space_when_search_is_omitted() {
+    let workload = parse_workload(
+        r#"
+            [model]
+            layers = 4
+            hidden_size = 4096
+            attention_heads = 32
+            kv_heads = 8
+            vocab_size = 32000
+            parameters_gb = 16.0
+            dtype = "bf16"
+
+            [request]
+            batch_size = 1
+            prompt_tokens = 128
+            decode_tokens = 16
+            max_sequence_tokens = 256
+            phase = "end_to_end"
+            "#,
+    )
+    .unwrap();
+
+    assert_eq!(workload.search_space.tensor_ranks, vec![1, 2, 4, 8, 16, 32]);
+    assert_eq!(workload.search_space.pipeline_ranks, vec![1, 2, 3, 4]);
+    assert_eq!(workload.search_space.expert_ranks, vec![1]);
+    assert_eq!(workload.search_space.data_ranks[0], 1);
+    assert_eq!(workload.search_space.data_ranks.last().copied(), Some(64));
+}
+
+#[test]
+fn derives_model_parameters_when_parameters_gb_is_omitted() {
+    let workload = parse_workload(
+        r#"
+            [model]
+            layers = 2
+            hidden_size = 16
+            attention_heads = 4
+            kv_heads = 2
+            vocab_size = 100
+            ffn_hidden_size = 64
+            dtype = "bf16"
+
+            [request]
+            batch_size = 1
+            prompt_tokens = 128
+            decode_tokens = 16
+            max_sequence_tokens = 256
+            phase = "end_to_end"
+            "#,
+    )
+    .unwrap();
+
+    let expected_parameter_count = 9_424.0;
+    let expected_parameters_gb = expected_parameter_count * 2.0 / 1e9;
+    assert!((workload.model.parameter_count() - expected_parameter_count).abs() < 1e-9);
+    assert!((workload.model.parameters.as_gigabytes() - expected_parameters_gb).abs() < 1e-12);
+}
+
+#[test]
+fn explicit_parameters_gb_overrides_derived_model_memory() {
+    let workload = parse_workload(
+        r#"
+            [model]
+            layers = 2
+            hidden_size = 16
+            attention_heads = 4
+            kv_heads = 2
+            vocab_size = 100
+            ffn_hidden_size = 64
+            parameters_gb = 1.5
+            dtype = "bf16"
+
+            [request]
+            batch_size = 1
+            prompt_tokens = 128
+            decode_tokens = 16
+            max_sequence_tokens = 256
+            phase = "end_to_end"
+            "#,
+    )
+    .unwrap();
+
+    assert!((workload.model.parameter_count() - 9_424.0).abs() < 1e-9);
+    assert!((workload.model.parameters.as_gigabytes() - 1.5).abs() < 1e-9);
+}
+
+#[test]
+fn derives_serving_pool_search_when_pools_are_omitted() {
+    let cluster = parse_cluster(
+        r#"
+            [cluster]
+            preset = "h100_sxm"
+            node_count = 2
+
+            [interconnect]
+            kind = "ib"
+            variant = "ndr"
+            "#,
+    )
+    .unwrap();
+    let workload = parse_workload(
+        r#"
+            [model]
+            layers = 4
+            hidden_size = 4096
+            attention_heads = 32
+            kv_heads = 8
+            vocab_size = 32000
+            parameters_gb = 16.0
+            dtype = "bf16"
+
+            [request]
+            batch_size = 1
+            prompt_tokens = 128
+            decode_tokens = 16
+            max_sequence_tokens = 256
+            phase = "end_to_end"
+
+            [serving]
+            mode = "flexible"
+            objective = "e2el"
+            "#,
+    )
+    .unwrap();
+
+    let serving = workload.serving.as_ref().expect("serving config");
+    let pool_search = serving.pool_search.as_ref().expect("default pool search");
+    assert_eq!(pool_search.prefill_groups, vec!["all"]);
+    assert_eq!(pool_search.decode_groups, vec!["all"]);
+    assert!(pool_search.prefill_node_counts.is_empty());
+    assert!(pool_search.decode_node_counts.is_empty());
+    assert_eq!(
+        serving.traffic.prefill_batching,
+        ServingPrefillBatching::Continuous {
+            max_batch_tokens: Some(4096),
+            chunk_tokens: Some(512)
+        }
+    );
+    assert_eq!(
+        serving.traffic.decode_batching,
+        ServingDecodeBatching::Continuous {
+            max_batch_tokens: Some(16)
+        }
+    );
+    assert_eq!(serving.traffic.max_decode_sequences, Some(8));
+    assert_eq!(serving.traffic.max_resident_tokens, Some(32768));
+    assert_eq!(serving.traffic.kv_block_tokens, Some(16));
+    assert_eq!(serving.traffic.max_kv_blocks, Some(4096));
+    assert_eq!(serving.traffic.ttft_slo_s, None);
+    assert_eq!(serving.traffic.max_queue_delay_s, None);
+    assert_eq!(serving.traffic.request_timeout_s, None);
+
+    validate_workload_for_cluster(&cluster, &workload).unwrap();
+}
+
+#[test]
 fn approximation_policy_presets_apply_defaults_and_field_overrides() {
     let workload = parse_workload(
         r#"

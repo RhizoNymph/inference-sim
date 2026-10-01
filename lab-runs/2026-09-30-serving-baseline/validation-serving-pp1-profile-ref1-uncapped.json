@@ -1,0 +1,435 @@
+{
+  "record": "lab.validation.v1",
+  "tag": "serving-pp1-profile-ref1-uncapped",
+  "mode": "serving",
+  "kv_cache_tokens": 82864,
+  "label": "serving-pp1-profile-ref1-uncapped: qwen7b-serving-pp1 under profile-calibration_profile-pp1",
+  "calibration": "profile-calibration_profile-pp1",
+  "mean_abs_pct": {
+    "ttft_median": 1270.7156462913304,
+    "ttft_p99": 1131.1125012779046,
+    "tpot_median": 8665.323669460844,
+    "tpot_p99": 7216.6786726914825,
+    "itl_median": 17353.753190945718,
+    "itl_p99": 1831.1600857289977,
+    "e2el_median": 7551.918709874867,
+    "e2el_p99": 5950.909041826666,
+    "output_throughput": 86.47637683663875
+  },
+  "rates": [
+    {
+      "request_rate": "1",
+      "measured": {
+        "ttft": {
+          "mean_ms": 167.8948817262426,
+          "median_ms": 162.32130536809564,
+          "p99_ms": 277.85760312341114
+        },
+        "tpot": {
+          "mean_ms": 21.909238236853632,
+          "median_ms": 21.764936581928662,
+          "p99_ms": 27.077324788973435
+        },
+        "itl": {
+          "mean_ms": 21.9092395957046,
+          "median_ms": 19.376298878341913,
+          "p99_ms": 126.6465883795172
+        },
+        "e2el": {
+          "mean_ms": 2950.368137806654,
+          "median_ms": 2911.137316375971,
+          "p99_ms": 3641.291505135596
+        },
+        "output_throughput": 126.32916267978031,
+        "request_throughput": 0.9869465834357837,
+        "max_concurrent_requests": 12
+      },
+      "simulated": {
+        "record": "lab.sim_serving.v1",
+        "request_rate": "1",
+        "reference_batch": 1,
+        "request_count": 200,
+        "feasible": true,
+        "status": "ok",
+        "rejected_reason": null,
+        "ttft": {
+          "mean_ms": 3401.242824,
+          "median_ms": 3404.511363,
+          "p99_ms": 7724.815784
+        },
+        "tpot": {
+          "mean_ms": 2814.175468,
+          "median_ms": 2991.461606,
+          "p99_ms": 3164.581711
+        },
+        "itl": {
+          "mean_ms": 2814.175468,
+          "median_ms": 3151.210615,
+          "p99_ms": 4360.839179
+        },
+        "e2el": {
+          "mean_ms": 360801.527234,
+          "median_ms": 384625.052459,
+          "p99_ms": 405864.001858
+        },
+        "output_throughput": 48.944331,
+        "request_throughput": 0.3823775859375
+      }
+    },
+    {
+      "request_rate": "2",
+      "measured": {
+        "ttft": {
+          "mean_ms": 193.31731640268117,
+          "median_ms": 168.04371867328882,
+          "p99_ms": 384.79032252915164
+        },
+        "tpot": {
+          "mean_ms": 25.181938143901704,
+          "median_ms": 24.655337925765693,
+          "p99_ms": 32.72071781392231
+        },
+        "itl": {
+          "mean_ms": 25.181939621477966,
+          "median_ms": 19.78097390383482,
+          "p99_ms": 129.53188865445554
+        },
+        "e2el": {
+          "mean_ms": 3391.4234606781974,
+          "median_ms": 3308.777641505003,
+          "p99_ms": 4322.477469351142
+        },
+        "output_throughput": 249.35742499800483,
+        "request_throughput": 1.9481048827969127,
+        "max_concurrent_requests": 19
+      },
+      "simulated": {
+        "record": "lab.sim_serving.v1",
+        "request_rate": "2",
+        "reference_batch": 1,
+        "request_count": 200,
+        "feasible": true,
+        "status": "ok",
+        "rejected_reason": null,
+        "ttft": {
+          "mean_ms": 4147.582791,
+          "median_ms": 3934.684415,
+          "p99_ms": 9220.257466
+        },
+        "tpot": {
+          "mean_ms": 3488.804581,
+          "median_ms": 3560.756309,
+          "p99_ms": 3657.371112
+        },
+        "itl": {
+          "mean_ms": 3488.804581,
+          "median_ms": 3832.027723,
+          "p99_ms": 4879.355912
+        },
+        "e2el": {
+          "mean_ms": 447225.764614,
+          "median_ms": 456736.983035,
+          "p99_ms": 468708.468418
+        },
+        "output_throughput": 48.9417,
+        "request_throughput": 0.38235703125
+      }
+    },
+    {
+      "request_rate": "4",
+      "measured": {
+        "ttft": {
+          "mean_ms": 256.1900902027264,
+          "median_ms": 193.4439023025334,
+          "p99_ms": 574.0892715565857
+        },
+        "tpot": {
+          "mean_ms": 35.488221373365036,
+          "median_ms": 35.89621472253104,
+          "p99_ms": 48.61815185594101
+        },
+        "itl": {
+          "mean_ms": 35.48822237959674,
+          "median_ms": 20.30302118510008,
+          "p99_ms": 241.37190527282652
+        },
+        "e2el": {
+          "mean_ms": 4763.194204620086,
+          "median_ms": 4783.007837831974,
+          "p99_ms": 6421.340457089244
+        },
+        "output_throughput": 483.68915539558526,
+        "request_throughput": 3.77882152652801,
+        "max_concurrent_requests": 37
+      },
+      "simulated": {
+        "record": "lab.sim_serving.v1",
+        "request_rate": "4",
+        "reference_batch": 1,
+        "request_count": 200,
+        "feasible": true,
+        "status": "ok",
+        "rejected_reason": null,
+        "ttft": {
+          "mean_ms": 5364.248059,
+          "median_ms": 5464.499695,
+          "p99_ms": 11068.163011
+        },
+        "tpot": {
+          "mean_ms": 3797.546977,
+          "median_ms": 3814.610496,
+          "p99_ms": 3881.518873
+        },
+        "itl": {
+          "mean_ms": 3797.546977,
+          "median_ms": 3890.383475,
+          "p99_ms": 5138.03187
+        },
+        "e2el": {
+          "mean_ms": 487652.714114,
+          "median_ms": 490191.680268,
+          "p99_ms": 498098.864382
+        },
+        "output_throughput": 49.142614,
+        "request_throughput": 0.383926671875
+      }
+    },
+    {
+      "request_rate": "6",
+      "measured": {
+        "ttft": {
+          "mean_ms": 594.9999955529347,
+          "median_ms": 467.8269699215889,
+          "p99_ms": 1686.9173486530779
+        },
+        "tpot": {
+          "mean_ms": 60.4118742141506,
+          "median_ms": 62.623684998513674,
+          "p99_ms": 79.9172997972598
+        },
+        "itl": {
+          "mean_ms": 60.41187520641247,
+          "median_ms": 22.501003462821245,
+          "p99_ms": 342.13891902938485
+        },
+        "e2el": {
+          "mean_ms": 8267.30802075006,
+          "median_ms": 8634.754696395248,
+          "p99_ms": 11067.746212091297
+        },
+        "output_throughput": 700.8524656446017,
+        "request_throughput": 5.475409887848451,
+        "max_concurrent_requests": 78
+      },
+      "simulated": {
+        "record": "lab.sim_serving.v1",
+        "request_rate": "6",
+        "reference_batch": 1,
+        "request_count": 200,
+        "feasible": true,
+        "status": "ok",
+        "rejected_reason": null,
+        "ttft": {
+          "mean_ms": 7659.010286,
+          "median_ms": 7143.059025,
+          "p99_ms": 14682.223262
+        },
+        "tpot": {
+          "mean_ms": 3877.500712,
+          "median_ms": 3889.591153,
+          "p99_ms": 3945.76228
+        },
+        "itl": {
+          "mean_ms": 3877.500712,
+          "median_ms": 3890.383475,
+          "p99_ms": 4454.077058
+        },
+        "e2el": {
+          "mean_ms": 500101.600695,
+          "median_ms": 501679.028767,
+          "p99_ms": 507030.080031
+        },
+        "output_throughput": 49.271652,
+        "request_throughput": 0.38493478125
+      }
+    },
+    {
+      "request_rate": "8",
+      "measured": {
+        "ttft": {
+          "mean_ms": 3082.8840511012822,
+          "median_ms": 3702.936813235283,
+          "p99_ms": 6323.1530646421
+        },
+        "tpot": {
+          "mean_ms": 68.85341657941618,
+          "median_ms": 76.44820593546811,
+          "p99_ms": 80.53074842392225
+        },
+        "itl": {
+          "mean_ms": 68.85341762293747,
+          "median_ms": 23.29091727733612,
+          "p99_ms": 405.4036223981529
+        },
+        "e2el": {
+          "mean_ms": 11827.267956687137,
+          "median_ms": 11688.162927515805,
+          "p99_ms": 15105.663768379018
+        },
+        "output_throughput": 746.3048871501842,
+        "request_throughput": 5.830506930860814,
+        "max_concurrent_requests": 114
+      },
+      "simulated": {
+        "record": "lab.sim_serving.v1",
+        "request_rate": "8",
+        "reference_batch": 1,
+        "request_count": 200,
+        "feasible": true,
+        "status": "ok",
+        "rejected_reason": null,
+        "ttft": {
+          "mean_ms": 11937.075693,
+          "median_ms": 12000.785474,
+          "p99_ms": 19357.552529
+        },
+        "tpot": {
+          "mean_ms": 3888.358716,
+          "median_ms": 3881.649993,
+          "p99_ms": 3980.980561
+        },
+        "itl": {
+          "mean_ms": 3888.358716,
+          "median_ms": 3890.383475,
+          "p99_ms": 3890.383475
+        },
+        "e2el": {
+          "mean_ms": 505758.632569,
+          "median_ms": 506861.107322,
+          "p99_ms": 512605.260506
+        },
+        "output_throughput": 49.381771,
+        "request_throughput": 0.3857950859375
+      }
+    },
+    {
+      "request_rate": "10",
+      "measured": {
+        "ttft": {
+          "mean_ms": 4676.958994260058,
+          "median_ms": 5107.802208978683,
+          "p99_ms": 10597.99781307578
+        },
+        "tpot": {
+          "mean_ms": 66.18252014730301,
+          "median_ms": 72.90294027601288,
+          "p99_ms": 77.74949166183104
+        },
+        "itl": {
+          "mean_ms": 66.18252107814892,
+          "median_ms": 23.265186231583357,
+          "p99_ms": 405.70803445763886
+        },
+        "e2el": {
+          "mean_ms": 13082.139052967541,
+          "median_ms": 13537.209674715996,
+          "p99_ms": 17360.2582494542
+        },
+        "output_throughput": 768.124557937884,
+        "request_throughput": 6.000973108889719,
+        "max_concurrent_requests": 136
+      },
+      "simulated": {
+        "record": "lab.sim_serving.v1",
+        "request_rate": "10",
+        "reference_batch": 1,
+        "request_count": 200,
+        "feasible": true,
+        "status": "ok",
+        "rejected_reason": null,
+        "ttft": {
+          "mean_ms": 14677.815149,
+          "median_ms": 15481.056822,
+          "p99_ms": 23198.258571
+        },
+        "tpot": {
+          "mean_ms": 3890.078396,
+          "median_ms": 3889.770816,
+          "p99_ms": 3889.770816
+        },
+        "itl": {
+          "mean_ms": 3890.078396,
+          "median_ms": 3890.383475,
+          "p99_ms": 3890.383475
+        },
+        "e2el": {
+          "mean_ms": 508717.771456,
+          "median_ms": 509481.950447,
+          "p99_ms": 517199.152196
+        },
+        "output_throughput": 49.476838,
+        "request_throughput": 0.386537796875
+      }
+    },
+    {
+      "request_rate": "inf",
+      "measured": {
+        "ttft": {
+          "mean_ms": 13386.954386690632,
+          "median_ms": 13207.225617021322,
+          "p99_ms": 28599.1228914354
+        },
+        "tpot": {
+          "mean_ms": 60.08376587904609,
+          "median_ms": 65.7071583816327,
+          "p99_ms": 70.93224414829604
+        },
+        "itl": {
+          "mean_ms": 60.08376680090877,
+          "median_ms": 23.346046917140484,
+          "p99_ms": 405.74001813307405
+        },
+        "e2el": {
+          "mean_ms": 21017.592653329484,
+          "median_ms": 21660.554768051952,
+          "p99_ms": 31245.974555648863
+        },
+        "output_throughput": 818.2798367827986,
+        "request_throughput": 6.392811224865614,
+        "max_concurrent_requests": 200
+      },
+      "simulated": {
+        "record": "lab.sim_serving.v1",
+        "request_rate": "inf",
+        "reference_batch": 1,
+        "request_count": 200,
+        "feasible": true,
+        "status": "ok",
+        "rejected_reason": null,
+        "ttft": {
+          "mean_ms": 23334.752401,
+          "median_ms": 23412.541736,
+          "p99_ms": 23412.541736
+        },
+        "tpot": {
+          "mean_ms": 3889.782925,
+          "median_ms": 3889.770816,
+          "p99_ms": 3890.376256
+        },
+        "itl": {
+          "mean_ms": 3889.782925,
+          "median_ms": 3890.383475,
+          "p99_ms": 3890.383475
+        },
+        "e2el": {
+          "mean_ms": 517337.183844,
+          "median_ms": 517413.435361,
+          "p99_ms": 517413.435361
+        },
+        "output_throughput": 49.476875,
+        "request_throughput": 0.3865380859375
+      }
+    }
+  ],
+  "spec": "tools/lab/specs/rtx3090_qwen7b_serving_pp1.toml"
+}

@@ -505,7 +505,7 @@ fn kv_cache_gb(model: &ModelSpec, request: &InferenceRequest, config: Parallelis
         * 2.0
         * model.kv_dtype().bytes_per_element() as f64
         * f64::from(model.layers)
-        / f64::from(config.tensor_ranks.max(1));
+        / f64::from((config.tensor_ranks * config.pipeline_ranks).max(1));
 
     bytes / 1e9
 }
@@ -588,4 +588,45 @@ pub(super) fn memory_headroom_rejection(
             memory.estimated_per_gpu_gb, memory.min_hbm_per_gpu_gb
         ),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{types::common::Bytes, workload::DType};
+
+    #[test]
+    fn serving_kv_cache_shards_across_pipeline_stages() {
+        let model = ModelSpec {
+            layers: 4,
+            hidden_size: 4096,
+            attention_heads: 32,
+            kv_heads: 8,
+            vocab_size: 32000,
+            parameters: Bytes::from_gigabytes(16.0),
+            parameter_count: None,
+            dtype: DType::Bf16,
+            kv_dtype: None,
+            experts: None,
+        };
+        let request = InferenceRequest {
+            batch_size: 4,
+            prompt_tokens: 128,
+            decode_tokens: 16,
+            max_sequence_tokens: 256,
+            phase: InferencePhase::Decode,
+        };
+        let config = |pipeline_ranks| ParallelismConfig {
+            tensor_ranks: 1,
+            pipeline_ranks,
+            expert_ranks: 1,
+            data_ranks: 1,
+        };
+
+        let single_stage = kv_cache_gb(&model, &request, config(1));
+        let two_stage = kv_cache_gb(&model, &request, config(2));
+
+        assert!(single_stage > 0.0);
+        assert!((two_stage * 2.0 - single_stage).abs() < single_stage * 1e-12);
+    }
 }

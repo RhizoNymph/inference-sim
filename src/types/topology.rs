@@ -1,6 +1,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::types::{
+    collective_curves::CollectiveCurveSet,
     common::{GpuAddr, GpuId, NicId, NodeId, OperationalState},
     fabric::{
         inter_node::{FabricProfile, InterNodeTopology},
@@ -58,6 +59,9 @@ pub struct Cluster {
     pub nodes: HashMap<NodeId, Node>,
     pub node_groups: HashMap<String, Vec<NodeId>>,
     pub inter_node_topology: InterNodeTopology,
+    /// Measured collective/point-to-point curves; empty unless the cluster
+    /// TOML lists `[[collective_curves]]`.
+    pub collective_curves: CollectiveCurveSet,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -108,6 +112,7 @@ impl Cluster {
                         gpu_nic_path_overrides: Default::default(),
                         disabled_nics: Default::default(),
                         nic_operational_states: Default::default(),
+                        nic_direction_caps: Default::default(),
                     },
                 },
             );
@@ -126,6 +131,7 @@ impl Cluster {
                 oversubscription: 1.0,
                 leaf_size: node_count.min(u16::MAX as u32) as u16,
             },
+            collective_curves: CollectiveCurveSet::default(),
         }
     }
 
@@ -218,6 +224,7 @@ impl Cluster {
             nodes,
             node_groups,
             inter_node_topology: self.inter_node_topology.clone(),
+            collective_curves: self.collective_curves.clone(),
         })
     }
 

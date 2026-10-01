@@ -1,0 +1,56 @@
+# plan 2026-10-01-nccl-curve
+# local results -> /runs/2026-10-01-nccl-curve
+# [sync] mkdir node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+mkdir -p "$HOME/inference-sim-lab/bench" "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve"
+LAB_EOF
+# [sync] copy bench scripts to node0
+scp -q /src/tools/lab/remote/collective_bench.py /src/tools/lab/remote/probe_env.py node0:inference-sim-lab/bench/
+# [sync] mkdir node1
+ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
+mkdir -p "$HOME/inference-sim-lab/bench" "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve"
+LAB_EOF
+# [sync] copy bench scripts to node1
+scp -q /src/tools/lab/remote/collective_bench.py /src/tools/lab/remote/probe_env.py node1:inference-sim-lab/bench/
+# [clean] stop stale processes on node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+pkill -f '[c]ollective_bench.py' || true
+LAB_EOF
+# [clean] stop stale processes on node1
+ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
+pkill -f '[c]ollective_bench.py' || true
+LAB_EOF
+# [preflight] probe node0 -> probe-node0.json
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" python "$HOME/inference-sim-lab/bench/probe_env.py"
+LAB_EOF
+# [preflight] probe node1 -> probe-node1.json
+ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
+env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" python "$HOME/inference-sim-lab/bench/probe_env.py"
+LAB_EOF
+# [launch] start rank 0 on node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+cd "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" MASTER_ADDR="10.1.1.69" MASTER_PORT="29500" RANK="0" WORLD_SIZE="2" LOCAL_RANK="0" python "$HOME/inference-sim-lab/bench/collective_bench.py" --min-bytes 1024 --max-bytes 268435456 --iters 30 --warmup 5 --ops all_reduce,all_gather,reduce_scatter,all_to_all,send_recv --sim-node-id 0 --output "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl" > "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank0.log" 2>&1 < /dev/null &
+LAB_EOF
+# [launch] start rank 1 on node1
+ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
+cd "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" MASTER_ADDR="10.1.1.69" MASTER_PORT="29500" RANK="1" WORLD_SIZE="2" LOCAL_RANK="0" python "$HOME/inference-sim-lab/bench/collective_bench.py" --min-bytes 1024 --max-bytes 268435456 --iters 30 --warmup 5 --ops all_reduce,all_gather,reduce_scatter,all_to_all,send_recv --sim-node-id 1 --output "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl" > "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank1.log" 2>&1 < /dev/null &
+LAB_EOF
+# [wait] collective results (poll until complete=1, expected=114, timeout=3600s)
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+n=$(grep -c '^{.*"record": "lab.collective.v1"' "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl" 2>/dev/null); d=$(grep -c '^{.*"record": "lab.done.v1"' "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl" 2>/dev/null); if pgrep -f '[c]ollective_bench.py.*2026-10-01-nccl-curve' >/dev/null; then a=1; else a=0; fi; if [ "${d:-0}" -ge 1 ] && [ "${n:-0}" -ge 114 ]; then c=1; else c=0; fi; echo "complete=$c progress=${n:-0} alive=$a"
+LAB_EOF
+# [collect] collect collective_curve.jsonl
+scp -q node0:inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl /runs/2026-10-01-nccl-curve/collective_curve.jsonl
+# [collect] collect collective_rank0.log
+scp -q node0:inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank0.log /runs/2026-10-01-nccl-curve/collective_rank0.log
+# [collect] collect collective_rank1.log
+scp -q node1:inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank1.log /runs/2026-10-01-nccl-curve/collective_rank1.log
+# [teardown] stop stale processes on node0
+ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
+pkill -f '[c]ollective_bench.py' || true
+LAB_EOF
+# [teardown] stop stale processes on node1
+ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
+pkill -f '[c]ollective_bench.py' || true
+LAB_EOF

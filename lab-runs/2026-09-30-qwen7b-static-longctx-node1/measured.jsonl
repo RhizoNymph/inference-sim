@@ -1,0 +1,6 @@
+{"record": "lab.static_batch.v1", "batch": 1, "prompt": 4096, "decode": 128, "tp": 1, "pp": 1, "prefill_ms": 824.471, "decode_ms": 2545.311, "decode_ms_per_step": 19.8852, "end_to_end_ms": 3363.489, "prefill_spread_ms": 2.629, "e2e_spread_ms": 5.074, "iters": 5}
+{"record": "lab.static_batch.v1", "batch": 1, "prompt": 8192, "decode": 128, "tp": 1, "pp": 1, "prefill_ms": 1752.928, "decode_ms": 2592.019, "decode_ms_per_step": 20.2501, "end_to_end_ms": 4345.644, "prefill_spread_ms": 3.562, "e2e_spread_ms": 6.589, "iters": 5}
+{"record": "lab.static_batch.v1", "batch": 1, "prompt": 16384, "decode": 128, "tp": 1, "pp": 1, "prefill_ms": 3940.169, "decode_ms": 2713.616, "decode_ms_per_step": 21.2001, "end_to_end_ms": 6647.06, "prefill_spread_ms": 6.16, "e2e_spread_ms": 55.256, "iters": 5}
+{"record": "lab.static_batch.v1", "batch": 2, "prompt": 8192, "decode": 128, "tp": 1, "pp": 1, "prefill_ms": 3502.041, "decode_ms": 2723.89, "decode_ms_per_step": 21.2804, "end_to_end_ms": 6207.973, "prefill_spread_ms": 7.384, "e2e_spread_ms": 110.691, "iters": 5}
+{"record": "lab.static_batch.v1", "batch": 4, "prompt": 4096, "decode": 128, "tp": 1, "pp": 1, "prefill_ms": 3315.482, "decode_ms": 2762.28, "decode_ms_per_step": 21.5803, "end_to_end_ms": 6062.725, "prefill_spread_ms": 13.879, "e2e_spread_ms": 61.773, "iters": 5}
+{"record": "lab.done.v1", "shapes": 5}

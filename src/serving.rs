@@ -25,6 +25,7 @@ mod approximations;
 mod arrivals;
 mod calibration;
 mod capacity;
+mod engine;
 mod hardware;
 mod measurement;
 mod memory;
@@ -46,6 +47,7 @@ use approximations::*;
 use arrivals::*;
 use calibration::*;
 use capacity::*;
+use engine::*;
 use hardware::*;
 use measurement::*;
 use memory::*;
@@ -868,6 +870,7 @@ impl ServingSolver {
                 inter_node_topology: crate::types::fabric::inter_node::InterNodeTopology::Custom(
                     Default::default(),
                 ),
+                collective_curves: Default::default(),
             },
             &ModelSpec {
                 layers: 0,

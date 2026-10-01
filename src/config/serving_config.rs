@@ -17,14 +17,12 @@ pub(super) fn parse_serving(
     let kv_route_constraints = parse_serving_kv_route_constraints(&serving)?;
     let cost_model = parse_serving_cost_model(serving.cost.as_ref())?;
     let pool_candidates = parse_pool_candidates(&serving)?;
-    let pool_search = parse_pool_search(serving.pool_search, deployment_mode)?;
+    let mut pool_search = parse_pool_search(serving.pool_search, deployment_mode)?;
     let traffic_classes = parse_traffic_classes(serving.traffic_classes)?;
     let mut slo_policies = parse_slo_policies(serving.slo_policies)?;
     slo_policies.extend(traffic_class_slo_policies(&traffic_classes));
     if pool_candidates.is_empty() && pool_search.is_none() {
-        return Err(ConfigError::new(
-            "serving requires prefill/decode nodes, [[serving.pool_candidates]], or [serving.pool_search]",
-        ));
+        pool_search = Some(default_pool_search(deployment_mode));
     }
 
     let prefill = match serving.prefill_search {
@@ -85,6 +83,25 @@ pub(super) fn parse_serving(
         )?,
         slo_policies,
     })
+}
+
+fn default_pool_search(deployment_mode: ServingDeploymentMode) -> ServingPoolSearch {
+    ServingPoolSearch {
+        prefill_groups: vec!["all".to_string()],
+        decode_groups: vec!["all".to_string()],
+        prefill_node_counts: Vec::new(),
+        decode_node_counts: Vec::new(),
+        prefill_node_filter: ServingPoolNodeFilter::default(),
+        decode_node_filter: ServingPoolNodeFilter::default(),
+        prefill_gpu_labels: Vec::new(),
+        decode_gpu_labels: Vec::new(),
+        allow_overlap: matches!(
+            deployment_mode,
+            ServingDeploymentMode::Colocated | ServingDeploymentMode::PartiallyDisaggregated
+        ),
+        domain_spread: ServingPoolDomainSpread::default(),
+        max_candidates: 64,
+    }
 }
 
 pub(super) fn parse_serving_runtime_features(

@@ -1,0 +1,1171 @@
+{
+  "summary": [
+    {
+      "run": "TP=2",
+      "model": "alpha-beta, fitted (previous best), old TP trace",
+      "prefill": 7.8,
+      "decode_step": 11.6,
+      "e2e": 8.1,
+      "e2e_held_out": 9.6,
+      "held_out_shapes": 4
+    },
+    {
+      "run": "TP=2",
+      "model": "measured curves, old TP trace",
+      "prefill": 13.9,
+      "decode_step": 9.9,
+      "e2e": 7.0,
+      "e2e_held_out": 7.0,
+      "held_out_shapes": 5
+    },
+    {
+      "run": "TP=2",
+      "model": "alpha-beta, fitted (previous best)",
+      "prefill": 6.22,
+      "decode_step": 7.61,
+      "e2e": 4.77,
+      "e2e_held_out": 5.75,
+      "held_out_shapes": 4
+    },
+    {
+      "run": "TP=2",
+      "model": "alpha-beta, symmetric 9.41 Gb/s",
+      "prefill": 58.45,
+      "decode_step": 33.55,
+      "e2e": 45.42,
+      "e2e_held_out": 45.42,
+      "held_out_shapes": 5
+    },
+    {
+      "run": "TP=2",
+      "model": "alpha-beta, asymmetric NIC",
+      "prefill": 6.38,
+      "decode_step": 16.21,
+      "e2e": 10.29,
+      "e2e_held_out": 10.29,
+      "held_out_shapes": 5
+    },
+    {
+      "run": "TP=2",
+      "model": "measured curves",
+      "prefill": 12.46,
+      "decode_step": 7.18,
+      "e2e": 4.0,
+      "e2e_held_out": 4.0,
+      "held_out_shapes": 5
+    },
+    {
+      "run": "PP=2",
+      "model": "alpha-beta, fitted (previous best)",
+      "prefill": 14.47,
+      "decode_step": 3.79,
+      "e2e": 1.6,
+      "e2e_held_out": 1.6,
+      "held_out_shapes": 5
+    },
+    {
+      "run": "PP=2",
+      "model": "alpha-beta, symmetric 9.41 Gb/s",
+      "prefill": 14.08,
+      "decode_step": 4.22,
+      "e2e": 1.1,
+      "e2e_held_out": 1.1,
+      "held_out_shapes": 5
+    },
+    {
+      "run": "PP=2",
+      "model": "alpha-beta, asymmetric NIC",
+      "prefill": 14.47,
+      "decode_step": 3.81,
+      "e2e": 1.57,
+      "e2e_held_out": 1.57,
+      "held_out_shapes": 5
+    },
+    {
+      "run": "PP=2",
+      "model": "measured curves",
+      "prefill": 15.26,
+      "decode_step": 3.5,
+      "e2e": 2.35,
+      "e2e_held_out": 2.35,
+      "held_out_shapes": 5
+    }
+  ],
+  "rows": {
+    "TP=2": {
+      "alpha-beta, fitted (previous best)": [
+        {
+          "shape": "1x512",
+          "batch": 1,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 559.395,
+            "decode_step_ms": 17.2337,
+            "e2e_ms": 2770.417
+          },
+          "sim": {
+            "prefill_ms": 519.327,
+            "decode_step_ms": 17.7639,
+            "e2e_ms": 2793.111
+          },
+          "err_pct": {
+            "prefill": -7.16,
+            "decode_step": 3.08,
+            "e2e": 0.82
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "1x2048",
+          "batch": 1,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 2115.942,
+            "decode_step_ms": 17.9567,
+            "e2e_ms": 4292.184
+          },
+          "sim": {
+            "prefill_ms": 2061.135,
+            "decode_step_ms": 17.8201,
+            "e2e_ms": 4342.104
+          },
+          "err_pct": {
+            "prefill": -2.59,
+            "decode_step": -0.76,
+            "e2e": 1.16
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x512",
+          "batch": 8,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 4540.443,
+            "decode_step_ms": 31.3316,
+            "e2e_ms": 8627.765
+          },
+          "sim": {
+            "prefill_ms": 4107.044,
+            "decode_step_ms": 26.6083,
+            "e2e_ms": 7512.908
+          },
+          "err_pct": {
+            "prefill": -9.55,
+            "decode_step": -15.08,
+            "e2e": -12.92
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x2048",
+          "batch": 8,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 17623.793,
+            "decode_step_ms": 29.4289,
+            "e2e_ms": 21517.151
+          },
+          "sim": {
+            "prefill_ms": 16441.516,
+            "decode_step_ms": 27.0573,
+            "e2e_ms": 19904.853
+          },
+          "err_pct": {
+            "prefill": -6.71,
+            "decode_step": -8.06,
+            "e2e": -7.49
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "32x512",
+          "batch": 32,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 17289.501,
+            "decode_step_ms": 51.2535,
+            "e2e_ms": 24040.258
+          },
+          "sim": {
+            "prefill_ms": 16407.791,
+            "decode_step_ms": 56.9319,
+            "e2e_ms": 23695.07
+          },
+          "err_pct": {
+            "prefill": -5.1,
+            "decode_step": 11.08,
+            "e2e": -1.44
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        }
+      ],
+      "alpha-beta, symmetric 9.41 Gb/s": [
+        {
+          "shape": "1x512",
+          "batch": 1,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 559.395,
+            "decode_step_ms": 17.2337,
+            "e2e_ms": 2770.417
+          },
+          "sim": {
+            "prefill_ms": 230.314,
+            "decode_step_ms": 13.9287,
+            "e2e_ms": 2013.185
+          },
+          "err_pct": {
+            "prefill": -58.83,
+            "decode_step": -19.18,
+            "e2e": -27.33
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "1x2048",
+          "batch": 1,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 2115.942,
+            "decode_step_ms": 17.9567,
+            "e2e_ms": 4292.184
+          },
+          "sim": {
+            "prefill_ms": 914.917,
+            "decode_step_ms": 13.9848,
+            "e2e_ms": 2704.972
+          },
+          "err_pct": {
+            "prefill": -56.76,
+            "decode_step": -22.12,
+            "e2e": -36.98
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x512",
+          "batch": 8,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 4540.443,
+            "decode_step_ms": 31.3316,
+            "e2e_ms": 8627.765
+          },
+          "sim": {
+            "prefill_ms": 1816.43,
+            "decode_step_ms": 17.4126,
+            "e2e_ms": 4045.24
+          },
+          "err_pct": {
+            "prefill": -59.99,
+            "decode_step": -44.42,
+            "e2e": -53.11
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x2048",
+          "batch": 8,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 17623.793,
+            "decode_step_ms": 29.4289,
+            "e2e_ms": 21517.151
+          },
+          "sim": {
+            "prefill_ms": 7293.253,
+            "decode_step_ms": 17.8616,
+            "e2e_ms": 9579.537
+          },
+          "err_pct": {
+            "prefill": -58.62,
+            "decode_step": -39.31,
+            "e2e": -55.48
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "32x512",
+          "batch": 32,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 17289.501,
+            "decode_step_ms": 51.2535,
+            "e2e_ms": 24040.258
+          },
+          "sim": {
+            "prefill_ms": 7254.544,
+            "decode_step_ms": 29.3574,
+            "e2e_ms": 11012.286
+          },
+          "err_pct": {
+            "prefill": -58.04,
+            "decode_step": -42.72,
+            "e2e": -54.19
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        }
+      ],
+      "alpha-beta, asymmetric NIC": [
+        {
+          "shape": "1x512",
+          "batch": 1,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 559.395,
+            "decode_step_ms": 17.2337,
+            "e2e_ms": 2770.417
+          },
+          "sim": {
+            "prefill_ms": 516.257,
+            "decode_step_ms": 14.6945,
+            "e2e_ms": 2397.148
+          },
+          "err_pct": {
+            "prefill": -7.71,
+            "decode_step": -14.73,
+            "e2e": -13.47
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "1x2048",
+          "batch": 1,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 2115.942,
+            "decode_step_ms": 17.9567,
+            "e2e_ms": 4292.184
+          },
+          "sim": {
+            "prefill_ms": 2058.066,
+            "decode_step_ms": 14.7506,
+            "e2e_ms": 3946.141
+          },
+          "err_pct": {
+            "prefill": -2.74,
+            "decode_step": -17.85,
+            "e2e": -8.06
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x512",
+          "batch": 8,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 4540.443,
+            "decode_step_ms": 31.3316,
+            "e2e_ms": 8627.765
+          },
+          "sim": {
+            "prefill_ms": 4103.975,
+            "decode_step_ms": 23.5388,
+            "e2e_ms": 7116.945
+          },
+          "err_pct": {
+            "prefill": -9.61,
+            "decode_step": -24.87,
+            "e2e": -17.51
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x2048",
+          "batch": 8,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 17623.793,
+            "decode_step_ms": 29.4289,
+            "e2e_ms": 21517.151
+          },
+          "sim": {
+            "prefill_ms": 16438.446,
+            "decode_step_ms": 23.9878,
+            "e2e_ms": 19508.891
+          },
+          "err_pct": {
+            "prefill": -6.73,
+            "decode_step": -18.49,
+            "e2e": -9.33
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "32x512",
+          "batch": 32,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 17289.501,
+            "decode_step_ms": 51.2535,
+            "e2e_ms": 24040.258
+          },
+          "sim": {
+            "prefill_ms": 16404.722,
+            "decode_step_ms": 53.8624,
+            "e2e_ms": 23299.107
+          },
+          "err_pct": {
+            "prefill": -5.12,
+            "decode_step": 5.09,
+            "e2e": -3.08
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        }
+      ],
+      "measured curves": [
+        {
+          "shape": "1x512",
+          "batch": 1,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 559.395,
+            "decode_step_ms": 17.2337,
+            "e2e_ms": 2770.417
+          },
+          "sim": {
+            "prefill_ms": 418.097,
+            "decode_step_ms": 19.2617,
+            "e2e_ms": 2883.595
+          },
+          "err_pct": {
+            "prefill": -25.26,
+            "decode_step": 11.77,
+            "e2e": 4.09
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "collective_curve_absent",
+            "measured_collective_curve",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "1x2048",
+          "batch": 1,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 2115.942,
+            "decode_step_ms": 17.9567,
+            "e2e_ms": 4292.184
+          },
+          "sim": {
+            "prefill_ms": 1819.152,
+            "decode_step_ms": 19.3178,
+            "e2e_ms": 4291.835
+          },
+          "err_pct": {
+            "prefill": -14.03,
+            "decode_step": 7.58,
+            "e2e": -0.01
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "collective_curve_absent",
+            "measured_collective_curve",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x512",
+          "batch": 8,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 4540.443,
+            "decode_step_ms": 31.3316,
+            "e2e_ms": 8627.765
+          },
+          "sim": {
+            "prefill_ms": 3963.526,
+            "decode_step_ms": 31.8506,
+            "e2e_ms": 8040.397
+          },
+          "err_pct": {
+            "prefill": -12.71,
+            "decode_step": 1.66,
+            "e2e": -6.81
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "collective_curve_absent",
+            "measured_collective_curve",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x2048",
+          "batch": 8,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 17623.793,
+            "decode_step_ms": 29.4289,
+            "e2e_ms": 21517.151
+          },
+          "sim": {
+            "prefill_ms": 16572.437,
+            "decode_step_ms": 32.2996,
+            "e2e_ms": 20706.783
+          },
+          "err_pct": {
+            "prefill": -5.97,
+            "decode_step": 9.75,
+            "e2e": -3.77
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "collective_curve_absent",
+            "measured_collective_curve",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "32x512",
+          "batch": 32,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 17289.501,
+            "decode_step_ms": 51.2535,
+            "e2e_ms": 24040.258
+          },
+          "sim": {
+            "prefill_ms": 16538.713,
+            "decode_step_ms": 48.6072,
+            "e2e_ms": 22760.438
+          },
+          "err_pct": {
+            "prefill": -4.34,
+            "decode_step": -5.16,
+            "e2e": -5.32
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "collective_curve_absent",
+            "measured_collective_curve",
+            "static_per_gpu_memory_estimate"
+          ]
+        }
+      ]
+    },
+    "PP=2": {
+      "alpha-beta, fitted (previous best)": [
+        {
+          "shape": "1x512",
+          "batch": 1,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 131.196,
+            "decode_step_ms": 19.4041,
+            "e2e_ms": 2603.105
+          },
+          "sim": {
+            "prefill_ms": 105.418,
+            "decode_step_ms": 19.5271,
+            "e2e_ms": 2604.883
+          },
+          "err_pct": {
+            "prefill": -19.65,
+            "decode_step": 0.63,
+            "e2e": 0.07
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "1x2048",
+          "batch": 1,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 453.363,
+            "decode_step_ms": 19.5439,
+            "e2e_ms": 2932.331
+          },
+          "sim": {
+            "prefill_ms": 431.949,
+            "decode_step_ms": 19.6393,
+            "e2e_ms": 2945.782
+          },
+          "err_pct": {
+            "prefill": -4.72,
+            "decode_step": 0.49,
+            "e2e": 0.46
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x512",
+          "batch": 8,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 664.652,
+            "decode_step_ms": 22.3877,
+            "e2e_ms": 3470.085
+          },
+          "sim": {
+            "prefill_ms": 842.934,
+            "decode_step_ms": 19.9332,
+            "e2e_ms": 3394.381
+          },
+          "err_pct": {
+            "prefill": 26.82,
+            "decode_step": -10.96,
+            "e2e": -2.18
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x2048",
+          "batch": 8,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 2893.722,
+            "decode_step_ms": 21.3735,
+            "e2e_ms": 5985.687
+          },
+          "sim": {
+            "prefill_ms": 3455.181,
+            "decode_step_ms": 20.8312,
+            "e2e_ms": 6121.578
+          },
+          "err_pct": {
+            "prefill": 19.4,
+            "decode_step": -2.54,
+            "e2e": 2.27
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "32x512",
+          "batch": 32,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 3313.881,
+            "decode_step_ms": 22.2933,
+            "e2e_ms": 5922.615
+          },
+          "sim": {
+            "prefill_ms": 3371.557,
+            "decode_step_ms": 21.3256,
+            "e2e_ms": 6101.232
+          },
+          "err_pct": {
+            "prefill": 1.74,
+            "decode_step": -4.34,
+            "e2e": 3.02
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        }
+      ],
+      "alpha-beta, symmetric 9.41 Gb/s": [
+        {
+          "shape": "1x512",
+          "batch": 1,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 131.196,
+            "decode_step_ms": 19.4041,
+            "e2e_ms": 2603.105
+          },
+          "sim": {
+            "prefill_ms": 100.379,
+            "decode_step_ms": 19.4906,
+            "e2e_ms": 2595.174
+          },
+          "err_pct": {
+            "prefill": -23.49,
+            "decode_step": 0.45,
+            "e2e": -0.3
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "1x2048",
+          "batch": 1,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 453.363,
+            "decode_step_ms": 19.5439,
+            "e2e_ms": 2932.331
+          },
+          "sim": {
+            "prefill_ms": 411.871,
+            "decode_step_ms": 19.6028,
+            "e2e_ms": 2921.034
+          },
+          "err_pct": {
+            "prefill": -9.15,
+            "decode_step": 0.3,
+            "e2e": -0.39
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x512",
+          "batch": 8,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 664.652,
+            "decode_step_ms": 22.3877,
+            "e2e_ms": 3470.085
+          },
+          "sim": {
+            "prefill_ms": 802.804,
+            "decode_step_ms": 19.8282,
+            "e2e_ms": 3340.809
+          },
+          "err_pct": {
+            "prefill": 20.79,
+            "decode_step": -11.43,
+            "e2e": -3.73
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x2048",
+          "batch": 8,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 2893.722,
+            "decode_step_ms": 21.3735,
+            "e2e_ms": 5985.687
+          },
+          "sim": {
+            "prefill_ms": 3294.742,
+            "decode_step_ms": 20.7262,
+            "e2e_ms": 5947.696
+          },
+          "err_pct": {
+            "prefill": 13.86,
+            "decode_step": -3.03,
+            "e2e": -0.63
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "32x512",
+          "batch": 32,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 3313.881,
+            "decode_step_ms": 22.2933,
+            "e2e_ms": 5922.615
+          },
+          "sim": {
+            "prefill_ms": 3211.118,
+            "decode_step_ms": 20.9856,
+            "e2e_ms": 5897.273
+          },
+          "err_pct": {
+            "prefill": -3.1,
+            "decode_step": -5.87,
+            "e2e": -0.43
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        }
+      ],
+      "alpha-beta, asymmetric NIC": [
+        {
+          "shape": "1x512",
+          "batch": 1,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 131.196,
+            "decode_step_ms": 19.4041,
+            "e2e_ms": 2603.105
+          },
+          "sim": {
+            "prefill_ms": 105.392,
+            "decode_step_ms": 19.5004,
+            "e2e_ms": 2601.44
+          },
+          "err_pct": {
+            "prefill": -19.67,
+            "decode_step": 0.5,
+            "e2e": -0.06
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "1x2048",
+          "batch": 1,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 453.363,
+            "decode_step_ms": 19.5439,
+            "e2e_ms": 2932.331
+          },
+          "sim": {
+            "prefill_ms": 431.923,
+            "decode_step_ms": 19.6126,
+            "e2e_ms": 2942.339
+          },
+          "err_pct": {
+            "prefill": -4.73,
+            "decode_step": 0.35,
+            "e2e": 0.34
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x512",
+          "batch": 8,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 664.652,
+            "decode_step_ms": 22.3877,
+            "e2e_ms": 3470.085
+          },
+          "sim": {
+            "prefill_ms": 842.907,
+            "decode_step_ms": 19.9065,
+            "e2e_ms": 3390.938
+          },
+          "err_pct": {
+            "prefill": 26.82,
+            "decode_step": -11.08,
+            "e2e": -2.28
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x2048",
+          "batch": 8,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 2893.722,
+            "decode_step_ms": 21.3735,
+            "e2e_ms": 5985.687
+          },
+          "sim": {
+            "prefill_ms": 3455.155,
+            "decode_step_ms": 20.8045,
+            "e2e_ms": 6118.134
+          },
+          "err_pct": {
+            "prefill": 19.4,
+            "decode_step": -2.66,
+            "e2e": 2.21
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "32x512",
+          "batch": 32,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 3313.881,
+            "decode_step_ms": 22.2933,
+            "e2e_ms": 5922.615
+          },
+          "sim": {
+            "prefill_ms": 3371.53,
+            "decode_step_ms": 21.2989,
+            "e2e_ms": 6097.789
+          },
+          "err_pct": {
+            "prefill": 1.74,
+            "decode_step": -4.46,
+            "e2e": 2.96
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "coarse_collective_model",
+            "static_per_gpu_memory_estimate"
+          ]
+        }
+      ],
+      "measured curves": [
+        {
+          "shape": "1x512",
+          "batch": 1,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 131.196,
+            "decode_step_ms": 19.4041,
+            "e2e_ms": 2603.105
+          },
+          "sim": {
+            "prefill_ms": 107.519,
+            "decode_step_ms": 19.63,
+            "e2e_ms": 2620.162
+          },
+          "err_pct": {
+            "prefill": -18.05,
+            "decode_step": 1.16,
+            "e2e": 0.66
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "collective_curve_derived_region",
+            "measured_collective_curve",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "1x2048",
+          "batch": 1,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 453.363,
+            "decode_step_ms": 19.5439,
+            "e2e_ms": 2932.331
+          },
+          "sim": {
+            "prefill_ms": 439.871,
+            "decode_step_ms": 19.7423,
+            "e2e_ms": 2966.883
+          },
+          "err_pct": {
+            "prefill": -2.98,
+            "decode_step": 1.02,
+            "e2e": 1.18
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "collective_curve_derived_region",
+            "measured_collective_curve",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x512",
+          "batch": 8,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 664.652,
+            "decode_step_ms": 22.3877,
+            "e2e_ms": 3470.085
+          },
+          "sim": {
+            "prefill_ms": 858.644,
+            "decode_step_ms": 20.0808,
+            "e2e_ms": 3428.98
+          },
+          "err_pct": {
+            "prefill": 29.19,
+            "decode_step": -10.3,
+            "e2e": -1.18
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "collective_curve_derived_region",
+            "measured_collective_curve",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "8x2048",
+          "batch": 8,
+          "prompt": 2048,
+          "real": {
+            "prefill_ms": 2893.722,
+            "decode_step_ms": 21.3735,
+            "e2e_ms": 5985.687
+          },
+          "sim": {
+            "prefill_ms": 3531.75,
+            "decode_step_ms": 20.9788,
+            "e2e_ms": 6217.034
+          },
+          "err_pct": {
+            "prefill": 22.05,
+            "decode_step": -1.85,
+            "e2e": 3.87
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "collective_curve_derived_region",
+            "measured_collective_curve",
+            "static_per_gpu_memory_estimate"
+          ]
+        },
+        {
+          "shape": "32x512",
+          "batch": 32,
+          "prompt": 512,
+          "real": {
+            "prefill_ms": 3313.881,
+            "decode_step_ms": 22.2933,
+            "e2e_ms": 5922.615
+          },
+          "sim": {
+            "prefill_ms": 3448.125,
+            "decode_step_ms": 21.5831,
+            "e2e_ms": 6210.767
+          },
+          "err_pct": {
+            "prefill": 4.05,
+            "decode_step": -3.19,
+            "e2e": 4.87
+          },
+          "approximation_codes": [
+            "aggregate_inter_node_topology",
+            "capability_ordered_rank_placement",
+            "collective_curve_derived_region",
+            "measured_collective_curve",
+            "static_per_gpu_memory_estimate"
+          ]
+        }
+      ]
+    }
+  }
+}
