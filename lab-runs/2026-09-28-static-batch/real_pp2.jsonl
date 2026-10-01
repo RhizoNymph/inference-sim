@@ -1,0 +1,5 @@
+{"batch": 1, "prompt": 512, "decode": 128, "tp": 1, "pp": 2, "prefill_ms": 131.196, "decode_ms": 2483.724, "decode_ms_per_step": 19.4041, "end_to_end_ms": 2603.105, "prefill_spread_ms": 12.242, "e2e_spread_ms": 13.028}
+{"batch": 1, "prompt": 2048, "decode": 128, "tp": 1, "pp": 2, "prefill_ms": 453.363, "decode_ms": 2501.621, "decode_ms_per_step": 19.5439, "end_to_end_ms": 2932.331, "prefill_spread_ms": 46.552, "e2e_spread_ms": 58.068}
+{"batch": 8, "prompt": 512, "decode": 128, "tp": 1, "pp": 2, "prefill_ms": 664.652, "decode_ms": 2865.626, "decode_ms_per_step": 22.3877, "end_to_end_ms": 3470.085, "prefill_spread_ms": 88.67, "e2e_spread_ms": 293.366}
+{"batch": 8, "prompt": 2048, "decode": 128, "tp": 1, "pp": 2, "prefill_ms": 2893.722, "decode_ms": 2735.807, "decode_ms_per_step": 21.3735, "end_to_end_ms": 5985.687, "prefill_spread_ms": 348.762, "e2e_spread_ms": 626.798}
+{"batch": 32, "prompt": 512, "decode": 128, "tp": 1, "pp": 2, "prefill_ms": 3313.881, "decode_ms": 2853.547, "decode_ms_per_step": 22.2933, "end_to_end_ms": 5922.615, "prefill_spread_ms": 580.8, "e2e_spread_ms": 414.974}

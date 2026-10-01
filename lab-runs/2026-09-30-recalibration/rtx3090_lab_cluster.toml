@@ -1,0 +1,43 @@
+schema_version = 1
+
+# Three single-RTX-3090 nodes (node0/node1/node2) on a 2x10GbE LACP bond.
+# peak_f16_tflops = 88: datasheet 71 TFLOPs at 1695 MHz scaled to the
+# measured 2100 MHz max SM clock (nvidia-smi clocks.max.sm).
+# 3090 has no preset: base a100_40gb, overridden with 3090 specs.
+[cluster]
+preset = "custom"
+
+[interconnect]
+kind = "ethernet"
+variant = "10g"
+oversubscription = 1.0
+
+[[nodes]]
+id = 0
+gpu = "a100_40gb"
+gpu_count = 1
+hbm_gb = 24.0
+hbm_bandwidth_gb_s = 936.0
+peak_f16_tflops = 88.0
+intra = "pcie_gen4"
+nics = { count = 1, affinity = "uniform", bandwidth_gbps = 9.41, rail_count = 1 }
+
+[[nodes]]
+id = 1
+gpu = "a100_40gb"
+gpu_count = 1
+hbm_gb = 24.0
+hbm_bandwidth_gb_s = 936.0
+peak_f16_tflops = 88.0
+intra = "pcie_gen4"
+nics = { count = 1, affinity = "uniform", bandwidth_gbps = 9.41, rail_count = 1 }
+
+[[nodes]]
+id = 2
+gpu = "a100_40gb"
+gpu_count = 1
+hbm_gb = 24.0
+hbm_bandwidth_gb_s = 936.0
+peak_f16_tflops = 88.0
+intra = "pcie_gen4"
+nics = { count = 1, affinity = "uniform", bandwidth_gbps = 9.41, rail_count = 1 }

@@ -1,0 +1,15 @@
+{"batch": 1, "prompt": 512, "decode": 1, "tp": 2, "pp": 1, "phase": "prefill", "sim_ms": 507.69}
+{"batch": 1, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "decode", "sim_ms": 1823.282}
+{"batch": 1, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "end_to_end", "sim_ms": 2330.972}
+{"batch": 1, "prompt": 2048, "decode": 1, "tp": 2, "pp": 1, "phase": "prefill", "sim_ms": 2025.1}
+{"batch": 1, "prompt": 2048, "decode": 128, "tp": 2, "pp": 1, "phase": "decode", "sim_ms": 1830.466}
+{"batch": 1, "prompt": 2048, "decode": 128, "tp": 2, "pp": 1, "phase": "end_to_end", "sim_ms": 3855.566}
+{"batch": 8, "prompt": 512, "decode": 1, "tp": 2, "pp": 1, "phase": "prefill", "sim_ms": 4036.118}
+{"batch": 8, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "decode", "sim_ms": 2639.191}
+{"batch": 8, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "end_to_end", "sim_ms": 6675.309}
+{"batch": 8, "prompt": 2048, "decode": 1, "tp": 2, "pp": 1, "phase": "prefill", "sim_ms": 16175.397}
+{"batch": 8, "prompt": 2048, "decode": 128, "tp": 2, "pp": 1, "phase": "decode", "sim_ms": 2696.666}
+{"batch": 8, "prompt": 2048, "decode": 128, "tp": 2, "pp": 1, "phase": "end_to_end", "sim_ms": 18872.063}
+{"batch": 32, "prompt": 512, "decode": 1, "tp": 2, "pp": 1, "phase": "prefill", "sim_ms": 16133.585}
+{"batch": 32, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "decode", "sim_ms": 5436.594}
+{"batch": 32, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "end_to_end", "sim_ms": 21570.179}

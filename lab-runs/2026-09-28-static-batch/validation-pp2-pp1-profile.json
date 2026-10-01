@@ -1,0 +1,137 @@
+{
+  "record": "lab.validation.v1",
+  "tag": "pp2-pp1-profile",
+  "mode": "static-batch",
+  "label": "pp2-pp1-profile: qwen7b-static-pp2 under profile-calibration_profile-pp1",
+  "calibration": "profile-calibration_profile-pp1",
+  "summary": {
+    "prefill_mean_abs_pct": 14.077252189983975,
+    "decode_step_mean_abs_pct": 4.215064968893276,
+    "end_to_end_mean_abs_pct": 1.0962965354607033,
+    "end_to_end_max_abs_pct": 3.7262017212834913,
+    "count": 5
+  },
+  "rows": [
+    {
+      "shape": "1x512",
+      "measured": {
+        "prefill_ms": 131.196,
+        "decode_ms_per_step": 19.4041,
+        "end_to_end_ms": 2603.105
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 1,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 100.3789,
+        "decode_ms": 2494.768,
+        "decode_ms_per_step": 19.49037,
+        "end_to_end_ms": 2595.1469,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": -23.48933732735754,
+        "decode_step": 0.44462136062740354,
+        "end_to_end": -0.3057156741660375
+      }
+    },
+    {
+      "shape": "1x2048",
+      "measured": {
+        "prefill_ms": 453.363,
+        "decode_ms_per_step": 19.5439,
+        "end_to_end_ms": 2932.331
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 1,
+        "prompt": 2048,
+        "decode": 128,
+        "prefill_ms": 411.8716,
+        "decode_ms": 2509.1364,
+        "decode_ms_per_step": 19.60263,
+        "end_to_end_ms": 2921.008,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": -9.15192395497648,
+        "decode_step": 0.30049325652761716,
+        "end_to_end": -0.38614467466327024
+      }
+    },
+    {
+      "shape": "8x512",
+      "measured": {
+        "prefill_ms": 664.652,
+        "decode_ms_per_step": 22.3877,
+        "end_to_end_ms": 3470.085
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 8,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 802.8046,
+        "decode_ms": 2537.978,
+        "decode_ms_per_step": 19.82795,
+        "end_to_end_ms": 3340.7826,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 20.78570891233306,
+        "decode_step": -11.433719673637757,
+        "end_to_end": -3.7262017212834913
+      }
+    },
+    {
+      "shape": "8x2048",
+      "measured": {
+        "prefill_ms": 2893.722,
+        "decode_ms_per_step": 21.3735,
+        "end_to_end_ms": 5985.687
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 8,
+        "prompt": 2048,
+        "decode": 128,
+        "prefill_ms": 3294.7457,
+        "decode_ms": 2652.9254,
+        "decode_ms_per_step": 20.72598,
+        "end_to_end_ms": 5947.6711,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 13.858404573763476,
+        "decode_step": -3.0295470661683876,
+        "end_to_end": -0.6351132125685864
+      }
+    },
+    {
+      "shape": "32x512",
+      "measured": {
+        "prefill_ms": 3313.881,
+        "decode_ms_per_step": 22.2933,
+        "end_to_end_ms": 5922.615
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 32,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 3211.1213,
+        "decode_ms": 2686.1267,
+        "decode_ms_per_step": 20.98536,
+        "end_to_end_ms": 5897.248,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": -3.1008861814893143,
+        "decode_step": -5.866943487505214,
+        "end_to_end": -0.4283073946221308
+      }
+    }
+  ],
+  "spec": "tools/lab/specs/rtx3090_qwen7b_static_pp2.toml"
+}

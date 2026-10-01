@@ -1,0 +1,51 @@
+# Static-batch latency, Qwen2.5-14B-Instruct bf16 on two RTX 3090s (node0 + node1, PP=2).
+# Calibration-transfer test: a different model size with the 3090 constants
+# fitted on Qwen2.5-7B. 14B does not fit one 24 GB GPU, so PP=2 is required.
+
+[experiment]
+name = "qwen14b-static-pp2"
+description = "Static-batch prefill/decode/end-to-end medians, pipeline parallel 2 across node0+node1 over Ray."
+mode = "static-batch"
+lab = "../labs/rtx3090.toml"
+nodes = ["node0", "node1"]
+launch = "venv"            # multi-node Ray runs from the native venvs
+vllm_version = "0.29.0"
+
+[model]
+hf_id = "Qwen/Qwen2.5-14B-Instruct"
+name = "qwen2.5-14b-instruct"
+dtype = "bfloat16"
+max_model_len = 4096
+
+# The simulator's [model] section, from the downloaded config.json and the
+# safetensors sizes. No ffn_hidden_size, matching the 7B fit.
+[model.sim]
+layers = 48
+hidden_size = 5120
+attention_heads = 40
+kv_heads = 8
+vocab_size = 152064
+parameters_gb = 29.54
+dtype = "bf16"
+
+[parallelism]
+tp = 1
+pp = 2
+
+[engine]
+gpu_memory_utilization = 0.85
+max_num_batched_tokens = 16384
+max_num_seqs = 64
+enable_prefix_caching = false
+enforce_eager = false
+seed = 0
+
+[static_batch]
+shapes = ["1x512", "1x2048", "8x512", "8x2048", "32x512"]
+decode_tokens = 128
+warmup = 2
+iters = 5
+
+[runner]
+poll_interval_s = 15
+run_timeout_s = 3600
