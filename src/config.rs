@@ -10,6 +10,7 @@ use serde::Deserialize;
 
 mod calibration_config;
 mod cluster;
+mod collective_curves;
 mod run_config;
 mod sections;
 mod serving_config;
@@ -24,6 +25,7 @@ use calibration_config::{
     validate_positive_optional_u32,
 };
 use cluster::*;
+use collective_curves::{CollectiveCurveSection, parse_collective_curves};
 use run_config::*;
 use sections::*;
 use serving_config::*;
@@ -45,6 +47,7 @@ use crate::{
         },
         configs::RankPlacement,
         fabric::{
+            direction::{AsymmetricLink, DirectionProfile, LinkDirectionality, NicDirectionCaps},
             inter_node::{
                 CustomInterNodeLink, CustomInterNodeLinkEndpoints, FabricProfile, InterNodeTopology,
             },
@@ -714,6 +717,7 @@ pub fn parse_cluster(contents: &str) -> Result<Cluster, ConfigError> {
             node.network = profile.clone();
         }
     }
+    cluster.collective_curves = parse_collective_curves(file.collective_curves, &cluster)?;
 
     Ok(cluster)
 }

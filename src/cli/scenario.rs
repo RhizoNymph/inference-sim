@@ -1743,6 +1743,19 @@ fn scenario_topology_has_overrides(topology: &RunScenarioTopologyConfig) -> bool
         || !topology.degraded_links.is_empty()
 }
 
+/// Overlays that change link/NIC bandwidth or latency or remove network
+/// resources; measured collective curves no longer describe such a fabric.
+/// Node and GPU state changes leave the remaining fabric intact.
+fn scenario_modifies_network(topology: &RunScenarioTopologyConfig) -> bool {
+    topology.interconnect_bandwidth_scale.is_some()
+        || topology.interconnect_latency_scale.is_some()
+        || topology.nic_bandwidth_scale.is_some()
+        || !topology.disabled_nics.is_empty()
+        || !topology.degraded_nics.is_empty()
+        || !topology.degraded_rails.is_empty()
+        || !topology.degraded_links.is_empty()
+}
+
 pub(super) fn apply_run_scenario_topology(
     cluster: &mut Cluster,
     scenario: &RunScenarioConfig,
@@ -1751,9 +1764,19 @@ pub(super) fn apply_run_scenario_topology(
     if !scenario_topology_has_overrides(topology) {
         return Ok(());
     }
+    if scenario_modifies_network(topology) {
+        cluster
+            .collective_curves
+            .suspend(CurveSuspension::ScenarioNetworkOverlay {
+                scenario: scenario.name.clone(),
+            });
+    }
     if let Some(scale) = topology.nic_bandwidth_scale {
         for node in cluster.nodes.values_mut() {
             node.network.nic_bandwidth = node.network.nic_bandwidth * scale;
+            for caps in node.network.nic_direction_caps.values_mut() {
+                *caps = caps.scaled(scale);
+            }
         }
     }
     scale_inter_node_topology(&mut cluster.inter_node_topology, topology);
@@ -2004,6 +2027,9 @@ fn apply_degraded_nic_overlays(
                     node.network
                         .nic_bandwidth_overrides
                         .insert(*nic_id, degraded);
+                    if let Some(caps) = node.network.nic_direction_caps.get_mut(nic_id) {
+                        *caps = caps.scaled(bandwidth_scale);
+                    }
                 }
                 if let Some(latency_scale) = overlay.latency_scale {
                     let degraded = node.network.nic_latency_scale(*nic_id) * latency_scale;
@@ -2053,6 +2079,9 @@ fn apply_degraded_rail_overlays(
                     node.network
                         .nic_bandwidth_overrides
                         .insert(nic_id, degraded);
+                    if let Some(caps) = node.network.nic_direction_caps.get_mut(&nic_id) {
+                        *caps = caps.scaled(bandwidth_scale);
+                    }
                 }
                 if let Some(latency_scale) = overlay.latency_scale {
                     let degraded = node.network.nic_latency_scale(nic_id) * latency_scale;
@@ -2104,12 +2133,7 @@ fn apply_degraded_rail_link_overlays(
             if !link.rail.is_some_and(|rail| rails.contains(&rail)) {
                 continue;
             }
-            if let Some(scale) = bandwidth_scale {
-                link.profile.bw.unidirectional = link.profile.bw.unidirectional * scale;
-            }
-            if let Some(scale) = latency_scale {
-                link.profile.latency = Latency::from_us(link.profile.latency.to_us() * scale);
-            }
+            link.scale(bandwidth_scale.unwrap_or(1.0), latency_scale.unwrap_or(1.0));
             matched += 1;
         }
     }
@@ -2202,13 +2226,7 @@ fn apply_degraded_link_overlays(
                     if !link_matches_degraded_link(link, *from, *to, &from_gpus, &to_gpus, &rails) {
                         continue;
                     }
-                    if let Some(scale) = bandwidth_scale {
-                        link.profile.bw.unidirectional = link.profile.bw.unidirectional * scale;
-                    }
-                    if let Some(scale) = latency_scale {
-                        link.profile.latency =
-                            Latency::from_us(link.profile.latency.to_us() * scale);
-                    }
+                    link.scale(bandwidth_scale.unwrap_or(1.0), latency_scale.unwrap_or(1.0));
                     matched += 1;
                     pair_matched += 1;
                 }
@@ -2455,7 +2473,12 @@ fn scale_inter_node_topology(
         }
         InterNodeTopology::Custom(links) => {
             for link in links.values_mut().flatten() {
-                scale_fabric_profile(&mut link.profile, scenario_topology);
+                link.scale(
+                    scenario_topology
+                        .interconnect_bandwidth_scale
+                        .unwrap_or(1.0),
+                    scenario_topology.interconnect_latency_scale.unwrap_or(1.0),
+                );
             }
         }
     }

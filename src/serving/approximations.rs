@@ -50,6 +50,18 @@ pub(super) fn serving_approximations(
         ),
     );
 
+    match simulation.scheduler_model {
+        Some(SchedulerModel::IterationEngine) => {
+            for approximation in iteration_engine_approximations(traffic, decode_score) {
+                push_serving_approximation(&mut approximations, approximation);
+            }
+        }
+        Some(SchedulerModel::PhasePipeline(reason)) => {
+            push_serving_approximation(&mut approximations, phase_pipeline_approximation(reason));
+        }
+        None => {}
+    }
+
     if calibration_profile.is_none() {
         push_serving_approximation(
             &mut approximations,
