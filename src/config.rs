@@ -33,7 +33,7 @@ use trace::*;
 
 use crate::{
     DisaggregatedServingConfig, SearchSpace, ServingArrivalPattern, ServingCostModel,
-    ServingDecodeBatching, ServingDecodeCapacityPolicy, ServingDeploymentMode, ServingGpuCostRate,
+    ServingDecodeBatching, ServingDecodeCapacityPolicy, ServingDeploymentMode, ServingDisaggregatedFirstToken, ServingGpuCostRate,
     ServingKvRouteConstraints, ServingMetricCeilings, ServingObjective, ServingPoolCandidate,
     ServingPoolDomainSpread, ServingPoolNodeFilter, ServingPoolSearch, ServingPrefillBatching,
     ServingRequestSlo, ServingRoutingPolicy, ServingSearchSpace, ServingServiceHealth,

@@ -75,6 +75,8 @@ pub struct ServingTraffic {
     pub prefill_batching: ServingPrefillBatching,
     pub decode_batching: ServingDecodeBatching,
     pub decode_capacity_policy: ServingDecodeCapacityPolicy,
+    /// First-token convention for disaggregated requests on the iteration engine.
+    pub disaggregated_first_token: ServingDisaggregatedFirstToken,
     pub services: ServingServicesConfig,
     pub service_backpressure_penalty_weight: f64,
     pub max_prefill_tokens: Option<u64>,
@@ -297,6 +299,27 @@ pub enum ServingDecodeBatching {
     Continuous {
         max_batch_tokens: Option<u32>,
     },
+}
+
+/// Which instance's token the client sees first in disaggregated serving.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum ServingDisaggregatedFirstToken {
+    /// vLLM's disaggregated proxy: the client streams the decode instance,
+    /// which recomputes the last prompt token after pulling the KV cache and
+    /// samples the first client token in that step.
+    #[default]
+    DecodeInstance,
+    /// A proxy that forwards the prefill instance's token immediately.
+    PrefillInstance,
+}
+
+impl ServingDisaggregatedFirstToken {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DecodeInstance => "decode_instance",
+            Self::PrefillInstance => "prefill_instance",
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]

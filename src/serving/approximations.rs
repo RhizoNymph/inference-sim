@@ -56,6 +56,14 @@ pub(super) fn serving_approximations(
                 push_serving_approximation(&mut approximations, approximation);
             }
         }
+        Some(SchedulerModel::DisaggregatedEngine) => {
+            for approximation in iteration_engine_approximations(traffic, decode_score)
+                .into_iter()
+                .chain(disaggregated_engine_approximations(traffic, prefill_score))
+            {
+                push_serving_approximation(&mut approximations, approximation);
+            }
+        }
         Some(SchedulerModel::PhasePipeline(reason)) => {
             push_serving_approximation(&mut approximations, phase_pipeline_approximation(reason));
         }

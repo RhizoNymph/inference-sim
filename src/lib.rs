@@ -21,7 +21,7 @@ pub use serving::{
     DisaggregatedServingConfig, ScoredServingConfig, ServingArrivalPattern,
     ServingBottleneckSummary, ServingCalibrationSummary, ServingCostEstimate, ServingCostModel,
     ServingDecodeBatching, ServingDecodeCapacityPolicy, ServingDecodeIterationObservation,
-    ServingDeploymentMode, ServingGpuCapacityObservation, ServingGpuCostRate, ServingGpuLabelCount,
+    ServingDeploymentMode, ServingDisaggregatedFirstToken, ServingGpuCapacityObservation, ServingGpuCostRate, ServingGpuLabelCount,
     ServingGpuTypeCount, ServingHardwareFootprint, ServingKvRouteConstraints,
     ServingKvTransferPathObservation, ServingMeasurementWindowObservation, ServingMemoryHeadroom,
     ServingMemoryPressureObservation, ServingMetricCeilings, ServingMetrics,

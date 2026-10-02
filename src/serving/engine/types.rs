@@ -3,6 +3,8 @@
 
 use crate::solver::{StepLatency, StepWork};
 
+use super::transfer::{KvTransferPlan, TransferWindow};
+
 /// Index of one engine worker (one replica on one routed GPU set).
 pub(in crate::serving) type WorkerId = usize;
 /// Index of a request inside one engine run.
@@ -46,6 +48,90 @@ impl EngineRequest {
         self.cached_prompt_tokens
             .saturating_add(self.prefill_tokens)
     }
+}
+
+/// Which instance's token a disaggregated request's client sees first.
+///
+/// vLLM's disaggregated proxy (the NIXL toy proxy) sends the request to the
+/// prefill instance with `max_tokens = 1`, waits for that response, then
+/// streams the decode instance's output to the client. The decode instance
+/// recomputes the last prompt token (vLLM marks `prompt - 1` tokens as
+/// loaded from the remote KV) and samples the client's first token in that
+/// step, so `DecodeInstance` is the vLLM convention.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::serving) enum FirstTokenSource {
+    /// The client's first token comes from the decode worker's step that
+    /// recomputes the last prompt token after the KV pull; the prefill
+    /// worker's token is internal. All `output_tokens` come from decode.
+    #[default]
+    DecodeInstance,
+    /// The prefill worker's token is the client's first token (a proxy that
+    /// forwards it immediately); decode continues from token 2 without
+    /// recomputation.
+    PrefillInstance,
+}
+
+/// A disaggregated request's move from its prefill worker (the
+/// `EngineRequest::worker`) to its decode worker.
+///
+/// The transfer is decode-initiated (vLLM NixlConnector): when the prefill
+/// finishes, the request joins the decode worker's waiting queue; admission
+/// there reserves its decode KV blocks and starts the pull; the request
+/// computes on decode only after the pull completes. The prefill worker holds
+/// the prompt KV (tokens and blocks, not a running sequence) until the pull
+/// completes.
+#[derive(Clone, Debug, PartialEq)]
+pub(in crate::serving) struct Handoff {
+    pub(in crate::serving) decode_worker: WorkerId,
+    /// KV the request holds on the decode worker from admission to completion.
+    pub(in crate::serving) decode_footprint: KvFootprint,
+    pub(in crate::serving) plan: KvTransferPlan,
+    pub(in crate::serving) first_token: FirstTokenSource,
+}
+
+/// Whether a request runs on one worker or moves between two.
+#[derive(Clone, Debug, PartialEq)]
+pub(in crate::serving) enum JobRoute {
+    Colocated,
+    Disaggregated(Handoff),
+}
+
+/// One request and its route through the engine.
+#[derive(Clone, Debug, PartialEq)]
+pub(in crate::serving) struct EngineJob {
+    pub(in crate::serving) request: EngineRequest,
+    pub(in crate::serving) route: JobRoute,
+}
+
+impl EngineJob {
+    pub(in crate::serving) fn colocated(request: EngineRequest) -> Self {
+        Self {
+            request,
+            route: JobRoute::Colocated,
+        }
+    }
+
+    pub(in crate::serving) fn handoff(&self) -> Option<&Handoff> {
+        match &self.route {
+            JobRoute::Colocated => None,
+            JobRoute::Disaggregated(handoff) => Some(handoff),
+        }
+    }
+}
+
+/// What happened to a disaggregated request between its workers.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(in crate::serving) struct HandoffRecord {
+    /// End of the prefill worker's step that computed the last prompt token
+    /// (and sampled the prefill instance's token).
+    pub(in crate::serving) prefill_finish_s: f64,
+    /// When the request joined the decode worker's waiting queue.
+    pub(in crate::serving) decode_queued_s: f64,
+    /// When the decode worker reserved its KV and started the pull.
+    pub(in crate::serving) decode_admitted_s: Option<f64>,
+    pub(in crate::serving) transfer: Option<TransferWindow>,
+    /// Decode step that recomputed the last prompt token (`DecodeInstance`).
+    pub(in crate::serving) recompute_step: Option<usize>,
 }
 
 /// Sequence, token and KV limits on one scope (all workers, one worker, or
@@ -153,6 +239,8 @@ pub(in crate::serving) struct RequestTimeline {
     pub(in crate::serving) chunks: Vec<ChunkRecord>,
     pub(in crate::serving) tokens: Vec<TokenRecord>,
     pub(in crate::serving) fate: Option<RequestFate>,
+    /// Set for disaggregated requests whose prefill completed.
+    pub(in crate::serving) handoff: Option<HandoffRecord>,
 }
 
 /// One forward pass of one worker.
@@ -183,6 +271,21 @@ pub(in crate::serving) struct EngineOutcome {
 /// `IterationCostModel`, tests substitute closed-form costs.
 pub(in crate::serving) trait StepCost {
     fn step_latency(&mut self, work: &StepWork) -> StepLatency;
+}
+
+/// Per-worker step latency: disaggregated runs price prefill workers and
+/// decode workers with different parallelism configs.
+pub(in crate::serving) trait WorkerStepCost {
+    fn worker_step_latency(&mut self, worker: WorkerId, work: &StepWork) -> StepLatency;
+}
+
+/// Prices every worker with one cost model.
+pub(in crate::serving) struct UniformCost<'c, C>(pub(in crate::serving) &'c mut C);
+
+impl<C: StepCost> WorkerStepCost for UniformCost<'_, C> {
+    fn worker_step_latency(&mut self, _worker: WorkerId, work: &StepWork) -> StepLatency {
+        self.0.step_latency(work)
+    }
 }
 
 impl StepCost for crate::solver::IterationCostModel<'_> {

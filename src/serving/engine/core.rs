@@ -16,17 +16,35 @@
 //!    requests emit a token, a request whose prompt completes emits its first
 //!    token, and finished requests release their KV at that instant.
 //!
-//! Workers interact only through shared capacity limits, so the loop always
-//! advances the worker with the earliest clock.
+//! Disaggregated requests (`JobRoute::Disaggregated`) prefill on one
+//! worker and decode on another (vLLM NixlConnector semantics):
+//!
+//! - the prefill step that completes the prompt samples the prefill
+//!   instance's token; the request leaves the prefill worker's running set
+//!   (its sequence slot frees) but its prompt KV stays there;
+//! - it joins the decode worker's waiting queue at that instant; admission
+//!   there (in queue order, when its decode KV fits) reserves the decode KV and
+//!   starts the KV pull on the FIFO link queues; it takes no token budget;
+//! - when the pull completes, the prefill worker's KV is released and the
+//!   request becomes runnable on the decode worker at its next step: under
+//!   `FirstTokenSource::DecodeInstance` it first recomputes its last prompt
+//!   token (a one-token chunk that samples the client's first token), under
+//!   `PrefillInstance` it decodes token 2 directly.
+//!
+//! Workers interact only through shared capacity limits, handoffs, and link
+//! queues, so the loop always advances the worker with the earliest clock;
+//! transfers are therefore reserved in non-decreasing time order.
 
 use std::collections::VecDeque;
 
 use crate::solver::StepWork;
 
-use super::capacity::CapacityLedger;
+use super::capacity::{CapacityLedger, HoldingKey};
+use super::transfer::LinkQueues;
 use super::types::{
-    ChunkRecord, EngineLimits, EngineOutcome, EngineRequest, EngineRequestId, EngineStep,
-    RequestFate, RequestTimeline, StepCost, StepLimits, TokenRecord, WorkerId,
+    ChunkRecord, EngineJob, EngineLimits, EngineOutcome, EngineRequest, EngineRequestId,
+    EngineStep, FirstTokenSource, HandoffRecord, RequestFate, RequestTimeline, StepCost,
+    StepLimits, TokenRecord, UniformCost, WorkerId, WorkerStepCost,
 };
 
 const TIME_EPSILON_S: f64 = 1e-12;
@@ -41,6 +59,11 @@ pub(in crate::serving) enum EngineError {
         request: EngineRequestId,
         worker: WorkerId,
     },
+    /// A disaggregated request's decode worker is its prefill worker.
+    HandoffToSameWorker {
+        request: EngineRequestId,
+        worker: WorkerId,
+    },
 }
 
 impl std::fmt::Display for EngineError {
@@ -50,42 +73,45 @@ impl std::fmt::Display for EngineError {
                 formatter,
                 "engine request {request} is routed to unknown worker {worker}"
             ),
+            Self::HandoffToSameWorker { request, worker } => write!(
+                formatter,
+                "engine request {request} hands off from worker {worker} to itself"
+            ),
         }
     }
 }
 
 impl std::error::Error for EngineError {}
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum Phase {
     NotArrived,
+    /// Waiting for prefill admission (prefill or colocated worker).
     Waiting,
-    Prefilling { computed: u32 },
-    Decoding { emitted: u32 },
+    Prefilling {
+        computed: u32,
+    },
+    /// Disaggregated: prefill done, waiting for decode admission.
+    AwaitingDecode,
+    /// Disaggregated: admitted on decode, KV pull completes at `ready_s`.
+    Pulling {
+        ready_s: f64,
+    },
+    /// Disaggregated, `DecodeInstance`: recomputes the last prompt token.
+    Recomputing,
+    Decoding {
+        emitted: u32,
+    },
     Finished,
 }
 
 #[derive(Clone, Debug, Default)]
 struct WorkerQueue {
     clock_s: f64,
-    pending: VecDeque<EngineRequestId>,
+    /// Future arrivals (fresh requests and handoffs), by (time, request index).
+    pending: VecDeque<(f64, EngineRequestId)>,
     waiting: Vec<EngineRequestId>,
     running: Vec<EngineRequestId>,
-}
-
-impl WorkerQueue {
-    fn next_event_s(&self, requests: &[EngineRequest]) -> Option<f64> {
-        if !self.running.is_empty() || !self.waiting.is_empty() {
-            return Some(self.clock_s);
-        }
-        self.pending
-            .front()
-            .map(|id| requests[*id].arrival_s.max(self.clock_s))
-    }
-
-    fn has_work(&self) -> bool {
-        !self.running.is_empty() || !self.waiting.is_empty()
-    }
 }
 
 #[derive(Default)]
@@ -93,22 +119,37 @@ struct StepPlan {
     work: StepWork,
     decodes: Vec<EngineRequestId>,
     chunks: Vec<(EngineRequestId, u32)>,
+    recomputes: Vec<EngineRequestId>,
 }
 
 impl StepPlan {
     fn is_empty(&self) -> bool {
-        self.decodes.is_empty() && self.chunks.is_empty()
+        self.decodes.is_empty() && self.chunks.is_empty() && self.recomputes.is_empty()
     }
 }
 
-/// Simulates every request to completion (or rejection) and returns the
-/// step-by-step record.
+/// Simulates every colocated request to completion (or rejection) and
+/// returns the step-by-step record.
 pub(in crate::serving) fn run_engine(
     requests: &[EngineRequest],
     limits: &EngineLimits,
     cost: &mut impl StepCost,
 ) -> Result<EngineOutcome, EngineError> {
-    let mut engine = Engine::new(requests, limits)?;
+    let jobs = requests
+        .iter()
+        .cloned()
+        .map(EngineJob::colocated)
+        .collect::<Vec<_>>();
+    run_engine_jobs(&jobs, limits, &mut UniformCost(cost))
+}
+
+/// Simulates colocated and disaggregated jobs together.
+pub(in crate::serving) fn run_engine_jobs(
+    jobs: &[EngineJob],
+    limits: &EngineLimits,
+    cost: &mut impl WorkerStepCost,
+) -> Result<EngineOutcome, EngineError> {
+    let mut engine = Engine::new(jobs, limits)?;
     engine.run(cost);
     Ok(EngineOutcome {
         steps: engine.steps,
@@ -117,51 +158,68 @@ pub(in crate::serving) fn run_engine(
 }
 
 struct Engine<'a> {
-    requests: &'a [EngineRequest],
+    jobs: &'a [EngineJob],
     limits: &'a EngineLimits,
     workers: Vec<WorkerQueue>,
     phases: Vec<Phase>,
     timelines: Vec<RequestTimeline>,
     steps: Vec<EngineStep>,
     ledger: CapacityLedger,
+    links: LinkQueues,
 }
 
 impl<'a> Engine<'a> {
-    fn new(requests: &'a [EngineRequest], limits: &'a EngineLimits) -> Result<Self, EngineError> {
+    fn new(jobs: &'a [EngineJob], limits: &'a EngineLimits) -> Result<Self, EngineError> {
         let mut workers = vec![WorkerQueue::default(); limits.workers.len()];
-        let mut order = (0..requests.len()).collect::<Vec<_>>();
+        let mut order = (0..jobs.len()).collect::<Vec<_>>();
         order.sort_by(|left, right| {
-            requests[*left]
-                .arrival_s
-                .total_cmp(&requests[*right].arrival_s)
-                .then_with(|| {
-                    requests[*left]
-                        .request_idx
-                        .cmp(&requests[*right].request_idx)
-                })
+            let (left, right) = (&jobs[*left].request, &jobs[*right].request);
+            left.arrival_s
+                .total_cmp(&right.arrival_s)
+                .then_with(|| left.request_idx.cmp(&right.request_idx))
         });
         for id in order {
-            let worker = requests[id].worker;
+            let request = &jobs[id].request;
+            let worker = request.worker;
+            if let Some(handoff) = jobs[id].handoff() {
+                if handoff.decode_worker >= workers.len() {
+                    return Err(EngineError::UnknownWorker {
+                        request: id,
+                        worker: handoff.decode_worker,
+                    });
+                }
+                if handoff.decode_worker == worker {
+                    return Err(EngineError::HandoffToSameWorker {
+                        request: id,
+                        worker,
+                    });
+                }
+            }
             let Some(queue) = workers.get_mut(worker) else {
                 return Err(EngineError::UnknownWorker {
                     request: id,
                     worker,
                 });
             };
-            queue.pending.push_back(id);
+            queue.pending.push_back((request.arrival_s, id));
         }
         Ok(Self {
-            requests,
+            jobs,
             limits,
             workers,
-            phases: vec![Phase::NotArrived; requests.len()],
-            timelines: vec![RequestTimeline::default(); requests.len()],
+            phases: vec![Phase::NotArrived; jobs.len()],
+            timelines: vec![RequestTimeline::default(); jobs.len()],
             steps: Vec::new(),
-            ledger: CapacityLedger::new(limits, requests.len()),
+            ledger: CapacityLedger::new(limits, jobs.len()),
+            links: LinkQueues::new(0),
         })
     }
 
-    fn run(&mut self, cost: &mut impl StepCost) {
+    fn request(&self, id: EngineRequestId) -> &'a EngineRequest {
+        &self.jobs[id].request
+    }
+
+    fn run(&mut self, cost: &mut impl WorkerStepCost) {
         while let Some((worker, now_s)) = self.next_worker() {
             self.ledger.apply_releases_until(now_s);
             self.workers[worker].clock_s = now_s;
@@ -174,43 +232,120 @@ impl<'a> Engine<'a> {
         }
     }
 
-    fn next_worker(&self) -> Option<(WorkerId, f64)> {
-        self.workers
+    /// Earliest time a pull into this worker completes.
+    fn next_pull_ready_s(&self, worker: WorkerId) -> Option<f64> {
+        self.workers[worker]
+            .running
             .iter()
-            .enumerate()
-            .filter_map(|(worker, queue)| {
-                queue
-                    .next_event_s(self.requests)
-                    .map(|time_s| (worker, time_s))
+            .filter_map(|id| match self.phases[*id] {
+                Phase::Pulling { ready_s } => Some(ready_s),
+                _ => None,
             })
+            .min_by(f64::total_cmp)
+    }
+
+    fn next_event_s(&self, worker: WorkerId) -> Option<f64> {
+        let queue = &self.workers[worker];
+        let runnable = queue
+            .running
+            .iter()
+            .any(|id| !matches!(self.phases[*id], Phase::Pulling { .. }));
+        if runnable || !queue.waiting.is_empty() {
+            return Some(queue.clock_s);
+        }
+        [
+            queue.pending.front().map(|(time_s, _)| *time_s),
+            self.next_pull_ready_s(worker),
+        ]
+        .into_iter()
+        .flatten()
+        .min_by(f64::total_cmp)
+        .map(|time_s| time_s.max(queue.clock_s))
+    }
+
+    /// When `worker` next changes state on its own: now if it can step,
+    /// otherwise its next arrival, pull completion, or waiting deadline.
+    fn progress_event_s(&self, worker: WorkerId) -> Option<f64> {
+        let queue = &self.workers[worker];
+        if queue
+            .running
+            .iter()
+            .any(|id| !matches!(self.phases[*id], Phase::Pulling { .. }))
+        {
+            return Some(queue.clock_s);
+        }
+        [
+            queue.pending.front().map(|(time_s, _)| *time_s),
+            self.next_pull_ready_s(worker),
+            self.next_waiting_deadline_s(worker),
+        ]
+        .into_iter()
+        .flatten()
+        .min_by(f64::total_cmp)
+    }
+
+    fn next_waiting_deadline_s(&self, worker: WorkerId) -> Option<f64> {
+        self.workers[worker]
+            .waiting
+            .iter()
+            .filter_map(|id| {
+                let request = self.request(*id);
+                let timeout_s = (self.phases[*id] == Phase::Waiting)
+                    .then_some(request.max_queue_delay_s)
+                    .flatten()
+                    .map(|limit_s| request.arrival_s + limit_s + BLOCKED_WAKE_NUDGE_S);
+                match (request.cancellation_s, timeout_s) {
+                    (Some(left), Some(right)) => Some(left.min(right)),
+                    (left, right) => left.or(right),
+                }
+            })
+            .min_by(f64::total_cmp)
+    }
+
+    fn next_worker(&self) -> Option<(WorkerId, f64)> {
+        (0..self.workers.len())
+            .filter_map(|worker| self.next_event_s(worker).map(|time_s| (worker, time_s)))
             .min_by(|left, right| left.1.total_cmp(&right.1).then(left.0.cmp(&right.0)))
     }
 
     fn enqueue_arrivals(&mut self, worker: WorkerId, now_s: f64) {
-        while let Some(&id) = self.workers[worker].pending.front() {
-            if self.requests[id].arrival_s > now_s + TIME_EPSILON_S {
+        while let Some(&(time_s, id)) = self.workers[worker].pending.front() {
+            if time_s > now_s + TIME_EPSILON_S {
                 break;
             }
             self.workers[worker].pending.pop_front();
-            if let Some(excess) = self.ledger.never_fits(&self.requests[id]) {
-                self.finish_without_running(id, RequestFate::NeverFits(excess));
-                continue;
+            if self.phases[id] == Phase::NotArrived {
+                if let Some(excess) = self.never_fits(id) {
+                    self.finish_without_running(id, RequestFate::NeverFits(excess), now_s);
+                    continue;
+                }
+                self.phases[id] = Phase::Waiting;
             }
-            self.phases[id] = Phase::Waiting;
-            let requests = self.requests;
+            let jobs = self.jobs;
             let waiting = &mut self.workers[worker].waiting;
             let position = waiting.partition_point(|queued| {
-                queue_order(&requests[*queued], &requests[id]) != std::cmp::Ordering::Greater
+                queue_order(&jobs[*queued].request, &jobs[id].request)
+                    != std::cmp::Ordering::Greater
             });
             waiting.insert(position, id);
         }
+    }
+
+    /// The first limit either of the request's footprints exceeds on its own.
+    fn never_fits(&self, id: EngineRequestId) -> Option<super::types::CapacityExcess> {
+        let request = self.request(id);
+        self.ledger.never_fits(request).or_else(|| {
+            let handoff = self.jobs[id].handoff()?;
+            self.ledger
+                .never_fits_on(handoff.decode_worker, request.class, handoff.decode_footprint)
+        })
     }
 
     fn expire(&mut self, worker: WorkerId, now_s: f64) {
         let waiting = std::mem::take(&mut self.workers[worker].waiting);
         let mut kept = Vec::with_capacity(waiting.len());
         for id in waiting {
-            let request = &self.requests[id];
+            let request = self.request(id);
             if let Some(cancellation_s) = request.cancellation_s
                 && cancellation_s <= now_s + TIME_EPSILON_S
             {
@@ -219,12 +354,18 @@ impl<'a> Engine<'a> {
                     RequestFate::Cancelled {
                         at_s: cancellation_s,
                     },
+                    now_s,
                 );
-            } else if let Some(limit_s) = request.max_queue_delay_s
+            } else if self.phases[id] == Phase::Waiting
+                && let Some(limit_s) = request.max_queue_delay_s
                 && now_s - request.arrival_s > limit_s + TIME_EPSILON_S
             {
                 let waited_s = now_s - request.arrival_s;
-                self.finish_without_running(id, RequestFate::QueueTimeout { waited_s, limit_s });
+                self.finish_without_running(
+                    id,
+                    RequestFate::QueueTimeout { waited_s, limit_s },
+                    now_s,
+                );
             } else {
                 kept.push(id);
             }
@@ -234,13 +375,13 @@ impl<'a> Engine<'a> {
         let running = std::mem::take(&mut self.workers[worker].running);
         let mut kept = Vec::with_capacity(running.len());
         for id in running {
-            match self.requests[id].cancellation_s {
+            match self.request(id).cancellation_s {
                 Some(cancellation_s) if cancellation_s <= now_s + TIME_EPSILON_S => {
                     self.phases[id] = Phase::Finished;
                     self.timelines[id].fate = Some(RequestFate::Cancelled {
                         at_s: cancellation_s,
                     });
-                    self.ledger.release_at(id, now_s);
+                    self.release_all(id, now_s);
                 }
                 _ => kept.push(id),
             }
@@ -250,12 +391,13 @@ impl<'a> Engine<'a> {
     }
 
     fn plan_step(&mut self, worker: WorkerId, now_s: f64) -> Option<StepPlan> {
+        self.promote_pulled(worker, now_s);
         let step_limits = self.limits.workers[worker].step;
         let mut budget = StepBudget::new(step_limits, self.limits);
         let mut plan = StepPlan::default();
 
         for &id in &self.workers[worker].running {
-            let request = &self.requests[id];
+            let request = self.request(id);
             match self.phases[id] {
                 Phase::Decoding { emitted } => {
                     let tokens = u64::from(request.sequences.max(1));
@@ -276,13 +418,39 @@ impl<'a> Engine<'a> {
                     add_chunk(&mut plan.work, request, computed, chunk);
                     plan.chunks.push((id, chunk));
                 }
-                Phase::NotArrived | Phase::Waiting | Phase::Finished => {}
+                Phase::Recomputing => {
+                    let tokens = u64::from(request.sequences.max(1));
+                    if tokens > budget.tokens && !plan.is_empty() {
+                        continue;
+                    }
+                    budget.consume_prefill(request, 1);
+                    plan.work.add_completing_prefill_chunk(
+                        request.sequences.max(1),
+                        request.prompt_tokens().saturating_sub(1),
+                        1,
+                    );
+                    plan.recomputes.push(id);
+                }
+                Phase::NotArrived
+                | Phase::Waiting
+                | Phase::AwaitingDecode
+                | Phase::Pulling { .. }
+                | Phase::Finished => {}
             }
         }
 
         while let Some(&id) = self.workers[worker].waiting.first() {
-            let request = &self.requests[id];
-            if budget.tokens == 0 || !self.ledger.fits(request) {
+            if budget.tokens == 0 {
+                break;
+            }
+            if self.phases[id] == Phase::AwaitingDecode {
+                if !self.admit_for_pull(worker, id, now_s) {
+                    break;
+                }
+                continue;
+            }
+            let request = self.request(id);
+            if !self.ledger.fits(request) {
                 break;
             }
             let chunk = budget.chunk(request, 0, plan.is_empty());
@@ -302,14 +470,78 @@ impl<'a> Engine<'a> {
         (!plan.is_empty()).then_some(plan)
     }
 
-    fn execute(&mut self, worker: WorkerId, now_s: f64, plan: StepPlan, cost: &mut impl StepCost) {
-        let latency = cost.step_latency(&plan.work);
+    /// Pulled requests whose KV has arrived become runnable.
+    fn promote_pulled(&mut self, worker: WorkerId, now_s: f64) {
+        for index in 0..self.workers[worker].running.len() {
+            let id = self.workers[worker].running[index];
+            let Phase::Pulling { ready_s } = self.phases[id] else {
+                continue;
+            };
+            if ready_s > now_s + TIME_EPSILON_S {
+                continue;
+            }
+            let first_token = self.jobs[id]
+                .handoff()
+                .map(|handoff| handoff.first_token)
+                .unwrap_or_default();
+            self.phases[id] = match first_token {
+                FirstTokenSource::DecodeInstance => Phase::Recomputing,
+                FirstTokenSource::PrefillInstance => Phase::Decoding { emitted: 1 },
+            };
+        }
+    }
+
+    /// Admits the head of a decode worker's queue for its KV pull when its
+    /// decode footprint fits; returns whether it was admitted.
+    fn admit_for_pull(&mut self, worker: WorkerId, id: EngineRequestId, now_s: f64) -> bool {
+        let job = &self.jobs[id];
+        let Some(handoff) = job.handoff() else {
+            return false;
+        };
+        if !self
+            .ledger
+            .fits_on(worker, job.request.class, handoff.decode_footprint)
+        {
+            return false;
+        }
+        self.workers[worker].waiting.remove(0);
+        self.ledger.allocate_on(
+            HoldingKey::Decode(id),
+            worker,
+            job.request.class,
+            handoff.decode_footprint,
+        );
+        let window = self.links.reserve(&handoff.plan, now_s, id);
+        // The prefill worker frees the prompt KV once the decode side has it.
+        self.ledger
+            .release_at(HoldingKey::Primary(id), window.finish_s);
+        self.phases[id] = Phase::Pulling {
+            ready_s: window.finish_s,
+        };
+        if let Some(record) = self.timelines[id].handoff.as_mut() {
+            record.decode_admitted_s = Some(now_s);
+            record.transfer = Some(window);
+        }
+        self.workers[worker].running.push(id);
+        true
+    }
+
+    fn execute(
+        &mut self,
+        worker: WorkerId,
+        now_s: f64,
+        plan: StepPlan,
+        cost: &mut impl WorkerStepCost,
+    ) {
+        let latency = cost.worker_step_latency(worker, &plan.work);
         let finish_s = now_s + latency.total_s.max(0.0);
         let step = self.steps.len();
         let running_sequences = self.ledger.worker_sequences(worker);
-        let mut token_requests = Vec::with_capacity(plan.decodes.len() + plan.chunks.len());
+        let mut token_requests =
+            Vec::with_capacity(plan.decodes.len() + plan.chunks.len() + plan.recomputes.len());
         let mut first_token_sequences = 0_u64;
         let mut finished = Vec::new();
+        let mut handed_off = Vec::new();
 
         for &id in &plan.decodes {
             let Phase::Decoding { emitted } = self.phases[id] else {
@@ -323,7 +555,7 @@ impl<'a> Engine<'a> {
             });
             token_requests.push(id);
             self.phases[id] = Phase::Decoding { emitted };
-            if emitted >= self.requests[id].output_tokens {
+            if emitted >= self.request(id).output_tokens {
                 finished.push(id);
             }
         }
@@ -332,7 +564,7 @@ impl<'a> Engine<'a> {
             let Phase::Prefilling { computed } = self.phases[id] else {
                 continue;
             };
-            let request = &self.requests[id];
+            let request = self.request(id);
             let computed = computed + chunk;
             self.timelines[id].chunks.push(ChunkRecord {
                 step,
@@ -345,6 +577,37 @@ impl<'a> Engine<'a> {
                 self.phases[id] = Phase::Prefilling { computed };
                 continue;
             }
+            let handoff = self.jobs[id].handoff();
+            let client_token = handoff
+                .is_none_or(|handoff| handoff.first_token == FirstTokenSource::PrefillInstance);
+            if client_token {
+                self.timelines[id].tokens.push(TokenRecord {
+                    step,
+                    start_s: finish_s,
+                    finish_s,
+                });
+                token_requests.push(id);
+                first_token_sequences += u64::from(request.sequences.max(1));
+            }
+            self.phases[id] = Phase::Decoding { emitted: 1 };
+            let needs_decode = match handoff {
+                None => request.output_tokens > 1,
+                Some(handoff) => match handoff.first_token {
+                    FirstTokenSource::DecodeInstance => true,
+                    FirstTokenSource::PrefillInstance => request.output_tokens > 1,
+                },
+            };
+            if !needs_decode {
+                finished.push(id);
+            } else if handoff.is_some() {
+                handed_off.push(id);
+            }
+        }
+        for &id in &plan.recomputes {
+            if self.phases[id] != Phase::Recomputing {
+                continue;
+            }
+            let request = self.request(id);
             self.timelines[id].tokens.push(TokenRecord {
                 step,
                 start_s: finish_s,
@@ -352,15 +615,21 @@ impl<'a> Engine<'a> {
             });
             token_requests.push(id);
             first_token_sequences += u64::from(request.sequences.max(1));
+            if let Some(record) = self.timelines[id].handoff.as_mut() {
+                record.recompute_step = Some(step);
+            }
             self.phases[id] = Phase::Decoding { emitted: 1 };
             if request.output_tokens <= 1 {
                 finished.push(id);
             }
         }
+        for id in handed_off {
+            self.hand_off(worker, id, finish_s);
+        }
         for id in finished {
             self.phases[id] = Phase::Finished;
             self.timelines[id].fate = Some(RequestFate::Completed);
-            self.ledger.release_at(id, finish_s);
+            self.release_all(id, finish_s);
             self.workers[worker]
                 .running
                 .retain(|running| *running != id);
@@ -380,44 +649,68 @@ impl<'a> Engine<'a> {
         self.workers[worker].clock_s = finish_s;
     }
 
-    /// Nothing could run: either the worker is idle (its next arrival wakes
-    /// it) or its waiting queue is blocked on capacity. A blocked worker sleeps
-    /// until the next arrival, release, waiting deadline, or step elsewhere;
-    /// with none left, its waiting requests can never be admitted.
+    /// Moves a request whose prefill finished at `at_s` to its decode
+    /// worker's queue.
+    fn hand_off(&mut self, worker: WorkerId, id: EngineRequestId, at_s: f64) {
+        let Some(handoff) = self.jobs[id].handoff() else {
+            return;
+        };
+        self.phases[id] = Phase::AwaitingDecode;
+        self.workers[worker]
+            .running
+            .retain(|running| *running != id);
+        self.ledger
+            .release_sequences_at(HoldingKey::Primary(id), at_s);
+        self.timelines[id].handoff = Some(HandoffRecord {
+            prefill_finish_s: at_s,
+            decode_queued_s: at_s,
+            ..HandoffRecord::default()
+        });
+        let request_idx = self.request(id).request_idx;
+        let jobs = self.jobs;
+        let pending = &mut self.workers[handoff.decode_worker].pending;
+        let position = pending.partition_point(|(time_s, queued)| {
+            time_s
+                .total_cmp(&at_s)
+                .then_with(|| jobs[*queued].request.request_idx.cmp(&request_idx))
+                != std::cmp::Ordering::Greater
+        });
+        pending.insert(position, (at_s, id));
+    }
+
+    /// Nothing could run: the worker is idle (its next arrival wakes it), its
+    /// running requests are all waiting for KV pulls, or its waiting queue is
+    /// blocked on capacity. A blocked worker sleeps until the next arrival,
+    /// release, pull completion, waiting deadline, or step elsewhere; with
+    /// none left, its waiting requests can never be admitted.
     fn wait_when_blocked(&mut self, worker: WorkerId, now_s: f64) {
+        let next_pull_s = self.next_pull_ready_s(worker);
         if self.workers[worker].waiting.is_empty() {
+            if let Some(ready_s) = next_pull_s {
+                self.workers[worker].clock_s = ready_s.max(now_s + BLOCKED_WAKE_NUDGE_S);
+            }
             return;
         }
         let next_arrival_s = self.workers[worker]
             .pending
             .front()
-            .map(|id| self.requests[*id].arrival_s);
-        let next_deadline_s = self.workers[worker]
-            .waiting
-            .iter()
-            .filter_map(|id| {
-                let request = &self.requests[*id];
-                let timeout_s = request
-                    .max_queue_delay_s
-                    .map(|limit_s| request.arrival_s + limit_s + BLOCKED_WAKE_NUDGE_S);
-                match (request.cancellation_s, timeout_s) {
-                    (Some(left), Some(right)) => Some(left.min(right)),
-                    (left, right) => left.or(right),
-                }
-            })
-            .min_by(f64::total_cmp);
-        let other_worker_s = self
-            .workers
-            .iter()
-            .enumerate()
-            .filter(|(other, queue)| *other != worker && queue.has_work())
-            .map(|(_, queue)| queue.clock_s.max(now_s + BLOCKED_WAKE_NUDGE_S))
+            .map(|(time_s, _)| *time_s);
+        let next_deadline_s = self.next_waiting_deadline_s(worker);
+        // Another worker's next real event (a step, an arrival, a pull
+        // completion, a waiting deadline) may free capacity or schedule a
+        // release. Another blocked worker's clock is not an event, so two
+        // workers blocked on each other end in starvation, not a livelock.
+        let other_worker_s = (0..self.workers.len())
+            .filter(|other| *other != worker)
+            .filter_map(|other| self.progress_event_s(other))
+            .map(|time_s| time_s.max(now_s + BLOCKED_WAKE_NUDGE_S))
             .min_by(f64::total_cmp);
         let wake_s = [
             next_arrival_s,
             self.ledger.next_release_after(now_s),
             next_deadline_s,
             other_worker_s,
+            next_pull_s,
         ]
         .into_iter()
         .flatten()
@@ -427,15 +720,24 @@ impl<'a> Engine<'a> {
             Some(wake_s) => self.workers[worker].clock_s = wake_s,
             None => {
                 for id in std::mem::take(&mut self.workers[worker].waiting) {
-                    self.finish_without_running(id, RequestFate::Starved { at_s: now_s });
+                    self.finish_without_running(id, RequestFate::Starved { at_s: now_s }, now_s);
                 }
             }
         }
     }
 
-    fn finish_without_running(&mut self, id: EngineRequestId, fate: RequestFate) {
+    fn finish_without_running(&mut self, id: EngineRequestId, fate: RequestFate, now_s: f64) {
         self.phases[id] = Phase::Finished;
         self.timelines[id].fate = Some(fate);
+        self.release_all(id, now_s);
+    }
+
+    /// Releases whatever the request still holds on either worker.
+    fn release_all(&mut self, id: EngineRequestId, at_s: f64) {
+        self.ledger.release_at(HoldingKey::Primary(id), at_s);
+        if self.jobs[id].handoff().is_some() {
+            self.ledger.release_at(HoldingKey::Decode(id), at_s);
+        }
     }
 }
 
