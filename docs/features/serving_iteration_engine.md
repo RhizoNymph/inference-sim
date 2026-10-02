@@ -41,11 +41,13 @@ at a time and prices each step from what that step actually carries.
 
 ## Non-scope
 
-- Disaggregated and partially disaggregated pools, independent batching,
-  split prefill/decode parallelism, and data-parallel replicas stay on the
-  phase-pipeline scheduler (`src/serving/scheduling/pipeline.rs`). Such
-  candidates carry a `phase_pipeline_scheduler` approximation naming the
-  reason.
+- Disaggregated and partially disaggregated pools run on the same loop with
+  handoffs and KV pulls; see `docs/features/disaggregated_serving_engine.md`.
+  Independent batching, data-parallel replicas, colocated candidates with
+  split prefill/decode parallelism, and worker layouts the engine cannot
+  express stay on the phase-pipeline scheduler
+  (`src/serving/scheduling/pipeline.rs`) and carry a
+  `phase_pipeline_scheduler` approximation naming the reason.
 - Preemption. KV is reserved for a request's whole `max_sequence_tokens` at
   admission and never preempted (`iteration_engine_kv_reserved_at_admission`).
   vLLM allocates blocks incrementally and recomputes preempted requests.
@@ -77,7 +79,8 @@ at a time and prices each step from what that step actually carries.
    generates arrivals and request shapes, routes every request, and builds
    one `DecodeRequestState` per request, the same way for both schedulers.
 2. `select_scheduler_model` (src/serving/engine.rs) returns
-   `SchedulerModel::IterationEngine` or
+   `SchedulerModel::IterationEngine`, `SchedulerModel::DisaggregatedEngine`
+   (docs/features/disaggregated_serving_engine.md), or
    `SchedulerModel::PhasePipeline(reason)`.
 3. `run_iteration_engine`:
    - `IterationCostModel::new(cluster, model, decode_score, calibration)`
@@ -96,7 +99,8 @@ at a time and prices each step from what that step actually carries.
      sequences = `batch_size`, cached prompt tokens, prompt tokens to
      compute (at least 1), output tokens, KV footprint, class, cancellation,
      queue limit).
-4. `run_engine` (src/serving/engine/core.rs) loops until every worker is
+4. `run_engine` (src/serving/engine/core.rs; a wrapper over
+   `run_engine_jobs` with only colocated jobs) loops until every worker is
    idle. Each iteration it:
    - picks the worker with the earliest clock;
    - applies capacity releases up to that time (`CapacityLedger`);
@@ -108,7 +112,9 @@ at a time and prices each step from what that step actually carries.
    - advances the worker clock to the step's end, emitting tokens and
      scheduling releases at that instant.
    A worker with nothing runnable sleeps until its next arrival, the next
-   release, a waiting deadline, or another worker's step.
+   release, a waiting deadline, or another worker's next real event (a step,
+   arrival, pull completion, or waiting deadline; another blocked worker's
+   clock does not count, so mutual blocking ends in `Starved`).
 5. `record_engine_outcome` (src/serving/engine/record.rs) writes each
    `RequestTimeline` back into its `DecodeRequestState`:
    - prefill start and finish, chunk count, and `prefill_token_spans`;
@@ -198,10 +204,10 @@ count.
 | `src/serving/engine.rs` | module root, scheduler selection, entry point, frontend-latency hook, approximation records | `SchedulerModel`, `PhasePipelineReason`, `select_scheduler_model`, `run_iteration_engine`, `apply_frontend_latency`, `EngineTimeline`, `IterationEngineError`, `iteration_engine_approximations` (takes the calibration), `phase_pipeline_approximation` |
 | `src/serving/engine/tests/frontend.rs` | frontend latency shifts TTFT/E2EL exactly, leaves TPOT/ITL; approximation code switch | - |
 | `src/serving/engine/types.rs` | engine value types | `EngineRequest`, `KvFootprint`, `CapacityLimits`, `StepLimits`, `WorkerLimits`, `ClassLimits`, `EngineLimits`, `CapacityExcess`, `RequestFate`, `ChunkRecord`, `TokenRecord`, `RequestTimeline`, `EngineStep`, `EngineOutcome`, `StepCost` |
-| `src/serving/engine/core.rs` | the discrete-event loop | `run_engine`, `EngineError` |
+| `src/serving/engine/core.rs` | the discrete-event loop (colocated and disaggregated jobs) | `run_engine`, `run_engine_jobs`, `EngineError` |
 | `src/serving/engine/capacity.rs` | shared capacity ledger with timestamped releases | `CapacityLedger` |
 | `src/serving/engine/limits.rs` | workers, limits, and requests from states and traffic | `EngineWorker`, `engine_workers`, `engine_limits`, `engine_requests` |
-| `src/serving/engine/record.rs` | engine outcome -> request states, operations, decode iterations | `record_engine_outcome` |
+| `src/serving/engine/record.rs` | engine outcome -> request states, operations, decode iterations | `record_engine_outcome`, `record_engine_jobs` |
 | `src/serving/engine/tests.rs`, `tests/serving.rs` | loop semantics with a closed-form cost; end-to-end 3090 checks and the runtime bound | - |
 | `src/serving/scheduling.rs` | request-state construction and scheduler dispatch | `schedule_serving_simulation`, `ServingSimulation` (`scheduler_model`) |
 | `src/serving/scheduling/pipeline.rs` | phase-pipeline scheduler (unchanged behavior) | `schedule_phase_pipeline`, `ScheduledTimeline` |

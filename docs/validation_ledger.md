@@ -29,10 +29,10 @@ them superseded.
 | 10 | 2026-09-30 | 1x RTX 3090 24 GB | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | serving, iteration engine, Poisson 1-10 req/s + inf | PP1 profile (transfer) | see entry | see entry | see entry | superseded by 15 |
 | 11 | 2026-09-30 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-14B-Instruct bf16 | vLLM 0.29.0, Ray | TP1 PP2 | static batch | recalibrated 7B constants (model transfer) | 13.4% | 7.2% | **4.9%** | validated, with caveats |
 | 12 | 2026-09-30 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, Ray | TP2 PP1 | static batch | PP1 profile + measured NCCL curves, no network fit | 12.5% | 7.2% | **4.0%** (all held out) | validated, with caveats |
+| 13 | 2026-09-30 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, Ray | TP1 PP2 | static batch | PP1 profile + measured NCCL curves | 15.3% | 3.5% | 2.4% | validated, with caveats; entry 8 (alpha-beta) is 1.6% |
 | 14 | 2026-10-01 | 1x RTX 3090 (node0; node1 for long context and decode sweep) + 2-node PP=2 | Qwen2.5-7B / 14B bf16 | vLLM 0.29.0 | TP1 PP1, TP1 PP2 | static batch, prefill token sweep 16-4096 + all static regimes | token-dependent efficiency curve (fitted on the sweep) | 0.8-10.4% by regime | unchanged | 0.9-5.1% by regime | validated; see entry |
 | 15 | 2026-10-01 | 1x RTX 3090 24 GB | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | serving, iteration engine, Poisson 1-10 req/s + inf | curve + measured frontend latency (transfer) | see entry | see entry | see entry | validated; low-load TTFT -15% to -19% |
 | 16 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 | recalibrated scalars / curve | 6.0% | 2.7% (batch 1-32) | 3.0% | validated to batch 32; KV exhaustion beyond |
-| 13 | 2026-09-30 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, Ray | TP1 PP2 | static batch | PP1 profile + measured NCCL curves | 15.3% | 3.5% | 2.4% | validated, with caveats; entry 8 (alpha-beta) is 1.6% |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
 
@@ -439,7 +439,9 @@ unvalidated.
   (fp8/int8), eager mode (CUDA graphs off).
 - Serving with TP/PP (the iteration engine prices TP all-reduces and PP
   stages per step but is unmeasured there), disaggregated prefill/decode
-  (still on the phase-pipeline scheduler), KV transfer between nodes,
+  (now on the iteration engine with decode-initiated KV pulls; predictions
+  for the lab case are in docs/features/disaggregated_serving_engine.md),
+  KV transfer between nodes,
   heterogeneous nodes, trace-driven or bursty arrivals, SLO metrics.
 - Other GPUs (A100, H100, L40S, consumer cards other than the 3090) and
   other stacks (SGLang, TensorRT-LLM) or vLLM versions other than 0.29.0.

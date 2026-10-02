@@ -33,13 +33,14 @@ use trace::*;
 
 use crate::{
     DisaggregatedServingConfig, SearchSpace, ServingArrivalPattern, ServingCostModel,
-    ServingDecodeBatching, ServingDecodeCapacityPolicy, ServingDeploymentMode, ServingGpuCostRate,
-    ServingKvRouteConstraints, ServingMetricCeilings, ServingObjective, ServingPoolCandidate,
-    ServingPoolDomainSpread, ServingPoolNodeFilter, ServingPoolSearch, ServingPrefillBatching,
-    ServingRequestSlo, ServingRoutingPolicy, ServingSearchSpace, ServingServiceHealth,
-    ServingServicePhaseConfig, ServingServicesConfig, ServingShapeProfile,
-    ServingSloMissPenaltyWeights, ServingSloPolicy, ServingTraceRequest, ServingTraffic,
-    ServingTrafficClass, ServingValueDistribution, SimulationCalibration, Solver,
+    ServingDecodeBatching, ServingDecodeCapacityPolicy, ServingDeploymentMode,
+    ServingDisaggregatedFirstToken, ServingGpuCostRate, ServingKvRouteConstraints,
+    ServingMetricCeilings, ServingObjective, ServingPoolCandidate, ServingPoolDomainSpread,
+    ServingPoolNodeFilter, ServingPoolSearch, ServingPrefillBatching, ServingRequestSlo,
+    ServingRoutingPolicy, ServingSearchSpace, ServingServiceHealth, ServingServicePhaseConfig,
+    ServingServicesConfig, ServingShapeProfile, ServingSloMissPenaltyWeights, ServingSloPolicy,
+    ServingTraceRequest, ServingTraffic, ServingTrafficClass, ServingValueDistribution,
+    SimulationCalibration, Solver,
     calibration::ComputeEfficiencyCurve,
     topology_graph::{RoutedResourceKind, TopologyGraph},
     types::{

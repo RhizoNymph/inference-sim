@@ -1,36 +1,49 @@
-//! Iteration-level serving engine for colocated continuous-batching serving.
+//! Iteration-level serving engine for continuous-batching serving.
 //!
-//! When prefill and decode share one engine (same parallelism config, same
-//! routed GPUs, continuous batching on both phases), requests are simulated by
-//! a discrete-event loop of engine steps modeled on vLLM V1 (see `core`):
-//! each step decodes one token for every running sequence and fills the rest
-//! of the token budget with prefill chunks, admitting waiting requests only
-//! when their KV blocks fit. Step latency comes from the solver's
-//! `IterationCostModel` for the step's actual composition. Everything else
-//! (disaggregated pools, independent batching, split prefill/decode configs,
-//! data-parallel replicas) keeps the phase pipeline scheduler.
+//! Requests are simulated by a discrete-event loop of engine steps modeled on
+//! vLLM V1 (see `core`): each step decodes one token for every running
+//! sequence and fills the rest of the token budget with prefill chunks,
+//! admitting waiting requests only when their KV blocks fit. Step latency
+//! comes from the solver's `IterationCostModel` for the step's actual
+//! composition.
+//!
+//! Colocated candidates (one parallelism config, every request's prefill and
+//! decode on the same GPUs) run on one worker per routed GPU set.
+//! Disaggregated and partially disaggregated candidates (`disaggregated`)
+//! prefill on prefill workers, pull each request's KV cache over the
+//! topology (`transfer`), and decode on decode workers. Independent batching,
+//! data-parallel replicas, and worker layouts the engine cannot express keep
+//! the phase pipeline scheduler.
 
 use super::*;
 
 mod capacity;
 mod core;
+mod disaggregated;
 mod limits;
 mod record;
 #[cfg(test)]
 mod tests;
+mod transfer;
 mod types;
 
 use crate::solver::IterationCostModel;
 pub(super) use core::EngineError;
 use core::run_engine;
+pub(super) use disaggregated::{DisaggregatedRun, run_disaggregated_engine};
+use disaggregated::{WorkerLayoutError, disaggregated_workers};
 use limits::{engine_limits, engine_requests, engine_workers};
-use record::record_engine_outcome;
+use record::{record_engine_jobs, record_engine_outcome};
+use transfer::KvPlanError;
 pub(super) use types::*;
 
 /// Which scheduler simulates a serving candidate.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub(super) enum SchedulerModel {
+    /// Colocated workers on the iteration engine.
     IterationEngine,
+    /// Prefill and decode workers on the iteration engine with KV pulls.
+    DisaggregatedEngine,
     PhasePipeline(PhasePipelineReason),
 }
 
@@ -41,7 +54,8 @@ pub(super) enum PhasePipelineReason {
     IndependentDecodeBatching,
     SplitPrefillDecodeParallelism,
     DataParallelReplicas,
-    DisaggregatedRoutes,
+    PartiallyOverlappingWorkers,
+    KvTransferUnplannable,
 }
 
 impl PhasePipelineReason {
@@ -51,7 +65,8 @@ impl PhasePipelineReason {
             Self::IndependentDecodeBatching => "independent_decode_batching",
             Self::SplitPrefillDecodeParallelism => "split_prefill_decode_parallelism",
             Self::DataParallelReplicas => "data_parallel_replicas",
-            Self::DisaggregatedRoutes => "disaggregated_routes",
+            Self::PartiallyOverlappingWorkers => "partially_overlapping_workers",
+            Self::KvTransferUnplannable => "kv_transfer_unplannable",
         }
     }
 }
@@ -72,34 +87,68 @@ pub(super) fn select_scheduler_model(
     if matches!(traffic.decode_batching, ServingDecodeBatching::Independent) {
         return SchedulerModel::PhasePipeline(Reason::IndependentDecodeBatching);
     }
-    if prefill_score.config != decode_score.config
-        || prefill_score.placement != decode_score.placement
-        || decode_score.placement.rank_to_gpu.is_empty()
+    if decode_score.placement.rank_to_gpu.is_empty()
+        || prefill_score.placement.rank_to_gpu.is_empty()
     {
         return SchedulerModel::PhasePipeline(Reason::SplitPrefillDecodeParallelism);
     }
-    if decode_score.config.data_ranks > 1 {
+    let colocated = states
+        .iter()
+        .all(|state| state.prefill_route_gpus == state.decode_route_gpus);
+    if colocated
+        && (prefill_score.config != decode_score.config
+            || prefill_score.placement != decode_score.placement)
+    {
+        return SchedulerModel::PhasePipeline(Reason::SplitPrefillDecodeParallelism);
+    }
+    if decode_score.config.data_ranks > 1 || prefill_score.config.data_ranks > 1 {
         return SchedulerModel::PhasePipeline(Reason::DataParallelReplicas);
     }
-    if states
-        .iter()
-        .any(|state| state.prefill_route_gpus != state.decode_route_gpus)
-    {
-        return SchedulerModel::PhasePipeline(Reason::DisaggregatedRoutes);
+    if colocated {
+        return SchedulerModel::IterationEngine;
     }
-    SchedulerModel::IterationEngine
+    match disaggregated_workers(states, prefill_score, decode_score) {
+        Ok(_) => SchedulerModel::DisaggregatedEngine,
+        Err(WorkerLayoutError::PartiallyOverlappingWorkers) => {
+            SchedulerModel::PhasePipeline(Reason::PartiallyOverlappingWorkers)
+        }
+        Err(WorkerLayoutError::SharedWorkerWithSplitParallelism) => {
+            SchedulerModel::PhasePipeline(Reason::SplitPrefillDecodeParallelism)
+        }
+    }
 }
 
 /// Result of simulating a candidate on the iteration engine.
 pub(super) struct EngineTimeline {
     pub(super) operations: Vec<ScheduledOperation>,
     pub(super) decode_iterations: Vec<ServingDecodeIterationObservation>,
+    pub(super) kv_bottlenecks: Vec<String>,
 }
 
 #[derive(Debug)]
 pub(super) enum IterationEngineError {
     StepCost(crate::solver::StepCostError),
     Engine(EngineError),
+    KvPlan(KvPlanError),
+    WorkerLayout(WorkerLayoutError),
+}
+
+impl IterationEngineError {
+    /// The phase-pipeline fallback reason for a candidate the engine could
+    /// not run.
+    pub(super) fn fallback_reason(&self) -> PhasePipelineReason {
+        match self {
+            Self::KvPlan(_) => PhasePipelineReason::KvTransferUnplannable,
+            Self::WorkerLayout(WorkerLayoutError::PartiallyOverlappingWorkers) => {
+                PhasePipelineReason::PartiallyOverlappingWorkers
+            }
+            Self::StepCost(_)
+            | Self::Engine(_)
+            | Self::WorkerLayout(WorkerLayoutError::SharedWorkerWithSplitParallelism) => {
+                PhasePipelineReason::SplitPrefillDecodeParallelism
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for IterationEngineError {
@@ -107,6 +156,10 @@ impl std::fmt::Display for IterationEngineError {
         match self {
             Self::StepCost(error) => write!(formatter, "iteration engine step cost: {error}"),
             Self::Engine(error) => write!(formatter, "iteration engine: {error}"),
+            Self::KvPlan(error) => write!(formatter, "iteration engine KV transfer: {error}"),
+            Self::WorkerLayout(layout) => {
+                write!(formatter, "iteration engine worker layout: {layout:?}")
+            }
         }
     }
 }
@@ -136,6 +189,7 @@ pub(super) fn run_iteration_engine(
     Ok(EngineTimeline {
         operations,
         decode_iterations,
+        kv_bottlenecks: Vec::new(),
     })
 }
 
@@ -148,10 +202,19 @@ fn apply_frontend_latency(
     states: &[DecodeRequestState],
     calibration: SimulationCalibration,
 ) {
-    if !calibration.models_frontend_latency() {
-        return;
-    }
     for (request, state) in requests.iter_mut().zip(states) {
+        add_frontend_latency(request, state, calibration);
+    }
+}
+
+/// Delays one request's engine arrival by the calibrated API-server latency;
+/// shared by the colocated and disaggregated engine paths.
+pub(super) fn add_frontend_latency(
+    request: &mut EngineRequest,
+    state: &DecodeRequestState,
+    calibration: SimulationCalibration,
+) {
+    if calibration.models_frontend_latency() {
         request.arrival_s += calibration.frontend_latency_s(state.prompt_tokens);
     }
 }
@@ -222,6 +285,54 @@ fn frontend_latency_approximation(calibration: SimulationCalibration) -> Simulat
             Some("set calibration.frontend_latency_us (and frontend_latency_per_prompt_token_us) from an isolated-request client benchmark".to_string()),
         )
     }
+}
+
+/// Approximation records attached to every candidate the disaggregated
+/// engine simulated, on top of `iteration_engine_approximations`.
+pub(super) fn disaggregated_engine_approximations(
+    traffic: &ServingTraffic,
+    prefill_score: &ScoredParallelismConfig,
+) -> Vec<SimulationApproximation> {
+    let mut approximations = vec![
+        SimulationApproximation::new(
+            "serving",
+            "network",
+            "kv_transfer",
+            "kv_transfer_fifo_link_queues",
+            "KV pulls hold every directed route resource they cross for their uncontended duration, first come first served; concurrent transfers on a link serialize at full bandwidth instead of sharing it, so aggregate link throughput is right but individual transfer latency is FIFO rather than fair-share. Transfers to different destinations through one NIC contend only where their routes share a resource.",
+            Some("compare against measured concurrent-transfer latency before relying on per-request KV transfer tails".to_string()),
+        ),
+        SimulationApproximation::new(
+            "serving",
+            "runtime",
+            "kv_transfer",
+            "kv_transfer_decode_initiated_pull",
+            "KV transfer follows vLLM's NixlConnector: the decode worker admits the request (reserving its KV blocks and a sequence slot) before pulling the prompt KV, the transfer starts at that admission, the request computes only after the pull completes, and the prefill worker frees the prompt KV when the pull ends. There is no layer-wise overlap of transfer with prefill.",
+            None,
+        ),
+        SimulationApproximation::new(
+            "serving",
+            "runtime",
+            "disaggregated_proxy",
+            "disaggregated_proxy_hop_not_modeled",
+            format!(
+                "Disaggregated TTFT uses the {} first-token convention but no proxy or HTTP latency: the prefill response's return to the proxy and the decode request's dispatch are instantaneous.",
+                traffic.disaggregated_first_token.as_str()
+            ),
+            Some("add a measured proxy-hop latency to TTFT when comparing against client-side benchmarks".to_string()),
+        ),
+    ];
+    if prefill_score.config.pipeline_ranks > 1 {
+        approximations.push(SimulationApproximation::new(
+            "serving",
+            "runtime",
+            "iteration_engine",
+            "iteration_engine_pipeline_stages_serialized",
+            "With pipeline parallelism each engine step runs its stages back to back; vLLM keeps several micro-batches in flight across stages, so steady-state throughput is underestimated.",
+            Some("use a pipeline-aware engine model before relying on pipeline-parallel serving throughput".to_string()),
+        ));
+    }
+    approximations
 }
 
 /// Approximation record for a candidate that kept the phase pipeline.

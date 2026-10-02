@@ -38,7 +38,12 @@ constants an H100 run can fit.
       the network every layer. Expected fixes: one-way-slower links
       (node0->node1 is 3.6 Gb/s vs 9.4 Gb/s back) and a small-message regime
       in the collective cost model.
-- [ ] 3. Disaggregated prefill/decode across nodes (1 prefill + 1-2 decode)
+- [ ] 3. [simulator side done 2026-10-01 on feat/disaggregated-serving-engine:
+      disaggregated pools run on the iteration engine with NIXL-style
+      decode-initiated KV pulls; reference workload
+      examples/rtx3090_qwen7b_disaggregated_workload.toml, predictions in
+      docs/features/disaggregated_serving_engine.md; measurement pending]
+      Disaggregated prefill/decode across nodes (1 prefill + 1-2 decode)
       with a vLLM KV connector, to validate the KV-transfer model for the
       first time. Needs ~30 GB freed on node2 for the 3-node variant.
 - [x] 4. [done 2026-09-30, uncommitted in staging: tools/lab, first real

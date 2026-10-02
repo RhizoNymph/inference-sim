@@ -393,6 +393,18 @@ impl Solver {
         })
     }
 
+    /// A calibration-profile `kv_transfer` fit for a transfer of `bytes`
+    /// whose uncontended routed cost is `cost`: the fitted seconds and the
+    /// fit application evidence.
+    pub(crate) fn fitted_kv_transfer_seconds(
+        profile: Option<&CalibrationProfileMetadata>,
+        bytes: Bytes,
+        cost: &CollectiveCost,
+    ) -> Option<(f64, CalibrationFitApplication)> {
+        Self::fitted_kv_transfer_latency(profile, bytes, cost)
+            .map(|evaluation| (evaluation.seconds, evaluation.application))
+    }
+
     fn fitted_kv_transfer_latency(
         profile: Option<&CalibrationProfileMetadata>,
         bytes: Bytes,

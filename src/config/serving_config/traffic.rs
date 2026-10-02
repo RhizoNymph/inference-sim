@@ -258,6 +258,9 @@ pub(in crate::config) fn parse_serving_traffic(
         decode_capacity_policy: parse_decode_capacity_policy(
             traffic.decode_capacity_policy.as_deref(),
         )?,
+        disaggregated_first_token: parse_disaggregated_first_token(
+            traffic.disaggregated_first_token.as_deref(),
+        )?,
         services: finalize_serving_services(services),
         service_backpressure_penalty_weight: parse_non_negative_f64(
             "serving.traffic.service_backpressure_penalty_weight",
@@ -852,6 +855,22 @@ pub(in crate::config) fn parse_decode_batching(
         }),
         Some(value) => Err(ConfigError::new(format!(
             "unsupported serving.traffic.decode_batching '{value}'; use independent or continuous"
+        ))),
+    }
+}
+
+pub(in crate::config) fn parse_disaggregated_first_token(
+    value: Option<&str>,
+) -> Result<ServingDisaggregatedFirstToken, ConfigError> {
+    match value.map(normalize).as_deref() {
+        None | Some("decode_instance") | Some("decode") | Some("vllm_proxy") => {
+            Ok(ServingDisaggregatedFirstToken::DecodeInstance)
+        }
+        Some("prefill_instance") | Some("prefill") => {
+            Ok(ServingDisaggregatedFirstToken::PrefillInstance)
+        }
+        Some(value) => Err(ConfigError::new(format!(
+            "unsupported serving.traffic.disaggregated_first_token '{value}'; use decode_instance or prefill_instance"
         ))),
     }
 }

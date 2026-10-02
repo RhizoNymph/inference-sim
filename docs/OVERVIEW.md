@@ -78,13 +78,18 @@ Overview:
         disaggregated, and fully disaggregated prefill/decode pools, arrivals
         and traffic classes, batching, queueing, KV transfer routing, SLOs,
         capacity and memory pressure, rejections, objective scoring, and
-        calibrated serving metrics. Colocated continuous-batching candidates
-        run on an iteration-level engine (vLLM V1-style steps priced from
-        their composition); all others on the phase-pipeline scheduler.
+        calibrated serving metrics. Continuous-batching candidates run on an
+        iteration-level engine (vLLM V1-style steps priced from their
+        composition): colocated pools on one worker per GPU set,
+        disaggregated and partially disaggregated pools as prefill and
+        decode workers joined by decode-initiated KV pulls over FIFO
+        directed link queues. Independent batching and data-parallel
+        replicas stay on the phase-pipeline scheduler.
       key_files:
         - src/serving.rs (module root, ServingSolver)
         - src/serving/scheduling.rs (request states, scheduler dispatch)
         - src/serving/engine/ (iteration-level serving engine)
+        - src/serving/engine/disaggregated.rs, engine/transfer/ (disaggregated workers, KV transfer plans and link queues)
         - src/serving/scheduling/pipeline.rs (phase-pipeline scheduler)
         - src/serving/scheduling/summary.rs (shared metric summary)
         - src/serving/scheduling/ (prefill/decode batching for the pipeline)
@@ -158,10 +163,14 @@ Overview:
     makespan becomes estimated_latency_s. serving reuses the solver per pool and
     layers arrivals, batching, queueing, KV transfer, and SLO accounting on top,
     applying its own serving-scope fits through
-    Solver::fitted_latency_from_features. For colocated continuous-batching
-    candidates, serving builds a solver IterationCostModel from the placed
-    config and runs the discrete-event engine (src/serving/engine/), which
-    prices every engine step from its prefill/decode composition and writes
+    Solver::fitted_latency_from_features. For continuous-batching
+    candidates, serving builds solver IterationCostModels from the placed
+    configs and runs the discrete-event engine (src/serving/engine/), which
+    prices every engine step from its prefill/decode composition; for
+    disaggregated pools it also builds per-request KV transfer plans from
+    the topology graph and measured send_recv curves
+    (src/serving/engine/transfer/) and moves each request from its prefill
+    worker to its decode worker through FIFO link queues. The engine writes
     request lifecycles back into the same request states the phase-pipeline
     scheduler fills; both feed one shared metric summary. cli then ranks, gates (calibration and
     approximation policies), and renders text/JSON/CSV, carrying every fit
@@ -254,6 +263,24 @@ Features Index:
       - src/solver/step_cost.rs::IterationCostModel
     depends_on: [compute_roofline]
     doc: docs/features/serving_iteration_engine.md
+  disaggregated_serving_engine:
+    description: >
+      Disaggregated and partially disaggregated prefill/decode serving on the
+      iteration engine, modeled on vLLM's NixlConnector: prefill workers run
+      chunked-prefill steps, finished prompts queue on their decode worker,
+      decode admission reserves KV and starts a pull of the request's
+      TP/PP-sharded prompt KV priced from directed send_recv curves or routed
+      alpha-beta, FIFO per directed link, and the decode worker recomputes
+      the last prompt token to emit the client's first token (vLLM proxy
+      TTFT convention, configurable).
+    entry_points:
+      - src/serving/engine.rs::select_scheduler_model
+      - src/serving/engine/disaggregated.rs::run_disaggregated_engine
+      - src/serving/engine/core.rs::run_engine_jobs
+      - src/serving/engine/transfer/plan.rs::KvTransferPlanner
+      - examples/rtx3090_qwen7b_disaggregated_workload.toml
+    depends_on: [serving_iteration_engine, collective_curves]
+    doc: docs/features/disaggregated_serving_engine.md
   lab_harness:
     description: >
       Turn-key measurement-to-calibration pipeline: TOML experiment specs

@@ -2,6 +2,8 @@ use super::core::run_engine;
 use super::*;
 use crate::solver::{StepLatency, StepWork};
 
+mod disaggregated;
+mod disaggregated_serving;
 mod frontend;
 mod serving;
 
