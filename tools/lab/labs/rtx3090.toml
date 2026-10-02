@@ -17,8 +17,11 @@ ray_port = 6379
 # Simulator cluster describing the same hardware (relative to this file).
 cluster_toml = "rtx3090_cluster.toml"
 
-# Extra environment for every vLLM process (none needed today).
+# Extra environment for every vLLM process. CUDA_HOME: node2 also has
+# Ubuntu's CUDA 12.0 nvcc in /usr/bin, which FlashInfer's JIT would otherwise
+# pick up and fail with ("Unknown option '--compress-mode=size'").
 [lab.env]
+CUDA_HOME = "/usr/local/cuda"
 
 [[nodes]]
 name = "node0"
