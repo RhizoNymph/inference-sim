@@ -425,8 +425,12 @@ def _process_alive(pattern: str) -> str:
 
 
 def _nohup(env: dict[str, str], layout: _Layout, command: str, log: str) -> str:
+    # `cd X && cmd ... &` would background the whole list as a subshell that
+    # keeps ssh's stdio open until cmd exits; only the redirected command may
+    # be backgrounded, so the cd runs on its own line.
     return (
-        f'cd "{layout.run_dir}" && nohup {_env_prefix(env)} {command} '
+        f'cd "{layout.run_dir}" || exit 1\n'
+        f'nohup {_env_prefix(env)} {command} '
         f'> "{layout.run_dir}/{log}" 2>&1 < /dev/null &'
     )
 
