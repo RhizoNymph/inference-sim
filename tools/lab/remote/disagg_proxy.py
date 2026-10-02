@@ -57,7 +57,9 @@ def build_app(prefill_url: str, decode_url: str) -> FastAPI:
         }
         prefill_response = await client.post(f"{prefill_url}/v1/completions", json=prefill_body)
         if prefill_response.status_code != 200:
-            logger.error("prefill failed status=%s body=%s", prefill_response.status_code, prefill_response.text[:500])
+            logger.error(
+                "prefill failed status=%s body=%s", prefill_response.status_code, prefill_response.text[:500]
+            )
             return Response(prefill_response.content, status_code=prefill_response.status_code)
         kv_transfer_params = prefill_response.json().get("kv_transfer_params")
 
@@ -67,8 +69,11 @@ def build_app(prefill_url: str, decode_url: str) -> FastAPI:
 
         if not body.get("stream"):
             decode_response = await client.post(f"{decode_url}/v1/completions", json=decode_body)
-            return Response(decode_response.content, status_code=decode_response.status_code,
-                            media_type="application/json")
+            return Response(
+                decode_response.content,
+                status_code=decode_response.status_code,
+                media_type="application/json",
+            )
 
         async def stream():
             async with client.stream("POST", f"{decode_url}/v1/completions", json=decode_body) as response:

@@ -41,6 +41,29 @@ def test_dry_run_matches_golden(case: str) -> None:
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
+def test_cleanup_kills_orphaned_vllm_engine_processes(case: str) -> None:
+    # A killed benchmark can leave VLLM::EngineCore holding the GPU, which made
+    # the next run fail at startup with no free GPU memory.
+    plan = _plan(case)
+    clean = [a.script for a in plan.actions if not isinstance(a, Wait) and a.phase is Phase.CLEAN]
+    teardown = [step.script for step in plan.teardown]
+    for name, scripts in (("clean", clean), ("teardown", teardown)):
+        assert scripts and all("pkill -f '[V]LLM::'" in s for s in scripts), name
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+def test_detached_commands_do_not_background_an_and_list(case: str) -> None:
+    # `cd X && cmd > log 2>&1 < /dev/null &` backgrounds the whole && list as a
+    # subshell that holds ssh's stdio until cmd exits, so the launch step would
+    # block for the whole benchmark (and be killed by the step timeout).
+    for action in _plan(case).actions:
+        step = action.as_step() if isinstance(action, Wait) else action
+        for line in step.script.splitlines():
+            if line.rstrip().endswith("&") and not line.rstrip().endswith("&&"):
+                assert "&&" not in line, f"backgrounded && list in {step.name}: {line[:120]}"
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
 def test_remote_scripts_never_on_the_command_line(case: str) -> None:
     for action in _plan(case).actions:
         step = action.as_step() if isinstance(action, Wait) else action

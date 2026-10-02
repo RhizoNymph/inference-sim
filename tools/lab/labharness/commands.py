@@ -322,6 +322,10 @@ def _kill_steps(exp: Experiment, layout: _Layout, phase: Phase) -> list[Step]:
             "pkill -f '[b]ench_latency.py' || true",
             "pkill -f '[v]llm bench serve' || true",
             "pkill -f '[v]llm serve' || true",
+            # vLLM's engine runs in a child titled VLLM::EngineCore (and
+            # VLLM::Worker); killing the parent script can orphan it holding
+            # the GPU. This also stops any other vLLM on the node.
+            "pkill -f '[V]LLM::' || true",
         ]
         if _uses_docker(node, exp):
             commands.append(f"docker rm -f {layout.container} >/dev/null 2>&1 || true")
@@ -425,8 +429,12 @@ def _process_alive(pattern: str) -> str:
 
 
 def _nohup(env: dict[str, str], layout: _Layout, command: str, log: str) -> str:
+    # `cd X && cmd ... &` would background the whole list as a subshell that
+    # keeps ssh's stdio open until cmd exits; only the redirected command may
+    # be backgrounded, so the cd runs on its own line.
     return (
-        f'cd "{layout.run_dir}" && nohup {_env_prefix(env)} {command} '
+        f'cd "{layout.run_dir}" || exit 1\n'
+        f"nohup {_env_prefix(env)} {command} "
         f'> "{layout.run_dir}/{log}" 2>&1 < /dev/null &'
     )
 

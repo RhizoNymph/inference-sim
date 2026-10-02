@@ -1,0 +1,58 @@
+{
+  "record": "lab.manifest.v1",
+  "run_id": "2026-10-01-qwen7b-decode-batch-sweep",
+  "experiment": "qwen7b-decode-batch-sweep",
+  "mode": "static-batch",
+  "vllm_version_pin": "0.29.0",
+  "nodes": [
+    "node1"
+  ],
+  "launch": "venv",
+  "remote_run_dir": "$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-decode-batch-sweep",
+  "status": "failed",
+  "error": {
+    "type": "RemoteCommandError",
+    "message": "step timed out after 900s",
+    "step": "start static-batch benchmark",
+    "returncode": null
+  },
+  "started_at": "2026-10-02T03:15:19+00:00",
+  "finished_at": "2026-10-02T03:30:38+00:00",
+  "simulator_git_sha": "941339e93c84cb4388c8fc391d0e30a90216a643",
+  "simulator_git_dirty": true,
+  "probes": {
+    "node1": {
+      "record": "lab.probe.v1",
+      "hostname": "node1",
+      "python": "3.12.3",
+      "vllm_version": "0.29.0",
+      "torch_version": "2.13.0+cu130",
+      "ray_version": "2.58.0",
+      "transformers_version": "5.17.0",
+      "cuda_version": "13.0",
+      "nccl_version": "2.29.7",
+      "kernel": "6.14.0-37-generic",
+      "gpus": [
+        {
+          "name": "NVIDIA GeForce RTX 3090",
+          "memory_mib": 24576,
+          "pcie_gen_max": "3"
+        }
+      ],
+      "driver_version": "580.65.06"
+    }
+  },
+  "spec_file": "spec.toml",
+  "lab_file": "lab.toml",
+  "commands": [
+    "ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'\nmkdir -p \"$HOME/inference-sim-lab/bench\" \"$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-decode-batch-sweep\"\nLAB_EOF",
+    "scp -q /home/nymph/Code/ai/inference-sim/rtx3090-lab-sweeps/tools/lab/remote/bench_latency.py /home/nymph/Code/ai/inference-sim/rtx3090-lab-sweeps/tools/lab/remote/probe_env.py node1:inference-sim-lab/bench/",
+    "ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'\npkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; \"$HOME/inference-sim-lab/.venv/bin/ray\" stop --force >/dev/null 2>&1 || true\nLAB_EOF",
+    "ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'\nenv PATH=\"$HOME/inference-sim-lab/.venv/bin:$PATH\" HF_HOME=\"$HOME/.cache/huggingface\" NCCL_SOCKET_IFNAME=\"bond0\" GLOO_SOCKET_IFNAME=\"bond0\" VLLM_HOST_IP=\"10.1.1.68\" PYTHONUNBUFFERED=\"1\" python \"$HOME/inference-sim-lab/bench/probe_env.py\"\nLAB_EOF",
+    "ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'\ncd \"$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-decode-batch-sweep\" && nohup env PATH=\"$HOME/inference-sim-lab/.venv/bin:$PATH\" HF_HOME=\"$HOME/.cache/huggingface\" NCCL_SOCKET_IFNAME=\"bond0\" GLOO_SOCKET_IFNAME=\"bond0\" VLLM_HOST_IP=\"10.1.1.68\" PYTHONUNBUFFERED=\"1\" python \"$HOME/inference-sim-lab/bench/bench_latency.py\" --model Qwen/Qwen2.5-7B-Instruct --shapes 1x512,2x512,3x512,4x512,6x512,8x512,12x512,16x512,20x512,24x512,28x512,32x512,40x512,48x512,56x512,64x512 --decode 128 --warmup 2 --iters 5 --tp 1 --pp 1 --dtype bfloat16 --gpu-memory-utilization 0.85 --max-model-len 4096 --max-num-batched-tokens 32768 --max-num-seqs 64 --seed 0 --output \"$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-decode-batch-sweep/results.jsonl\" > \"$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-decode-batch-sweep/bench.log\" 2>&1 < /dev/null &\nLAB_EOF",
+    "ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'\nn=$(grep -c '^{.*\"record\": \"lab.static_batch.v1\"' \"$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-decode-batch-sweep/results.jsonl\" 2>/dev/null); d=$(grep -c '^{.*\"record\": \"lab.done.v1\"' \"$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-decode-batch-sweep/results.jsonl\" 2>/dev/null); if pgrep -f '[b]ench_latency.py.*2026-10-01-qwen7b-decode-batch-sweep' >/dev/null; then a=1; else a=0; fi; if [ \"${d:-0}\" -ge 1 ] && [ \"${n:-0}\" -ge 16 ]; then c=1; else c=0; fi; echo \"complete=$c progress=${n:-0} alive=$a\"\nLAB_EOF",
+    "scp -q node1:inference-sim-lab/runs/2026-10-01-qwen7b-decode-batch-sweep/results.jsonl /home/nymph/Code/ai/inference-sim/rtx3090-lab-sweeps/lab-runs/2026-10-01-qwen7b-decode-batch-sweep/measured.jsonl",
+    "scp -q node1:inference-sim-lab/runs/2026-10-01-qwen7b-decode-batch-sweep/bench.log /home/nymph/Code/ai/inference-sim/rtx3090-lab-sweeps/lab-runs/2026-10-01-qwen7b-decode-batch-sweep/bench.log",
+    "ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'\npkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; \"$HOME/inference-sim-lab/.venv/bin/ray\" stop --force >/dev/null 2>&1 || true\nLAB_EOF"
+  ]
+}
