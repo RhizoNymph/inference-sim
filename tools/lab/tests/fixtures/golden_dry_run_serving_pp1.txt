@@ -8,7 +8,7 @@ LAB_EOF
 scp -q /src/tools/lab/remote/bench_latency.py /src/tools/lab/remote/probe_env.py node0:inference-sim-lab/bench/
 # [clean] stop stale processes on node0
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
-pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; docker rm -f lab-2026-09-30-qwen7b-serving-pp1 >/dev/null 2>&1 || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; pkill -f '[V]LLM::' || true; docker rm -f lab-2026-09-30-qwen7b-serving-pp1 >/dev/null 2>&1 || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
 LAB_EOF
 # [preflight] probe node0 -> probe-node0.json
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
@@ -121,5 +121,5 @@ scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/bench_rate_inf
 scp -q node0:inference-sim-lab/runs/2026-09-30-qwen7b-serving-pp1/server.log /runs/2026-09-30-qwen7b-serving-pp1/server.log
 # [teardown] stop stale processes on node0
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
-pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; docker rm -f lab-2026-09-30-qwen7b-serving-pp1 >/dev/null 2>&1 || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; pkill -f '[V]LLM::' || true; docker rm -f lab-2026-09-30-qwen7b-serving-pp1 >/dev/null 2>&1 || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
 LAB_EOF

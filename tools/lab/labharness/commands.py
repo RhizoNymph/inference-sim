@@ -322,6 +322,10 @@ def _kill_steps(exp: Experiment, layout: _Layout, phase: Phase) -> list[Step]:
             "pkill -f '[b]ench_latency.py' || true",
             "pkill -f '[v]llm bench serve' || true",
             "pkill -f '[v]llm serve' || true",
+            # vLLM's engine runs in a child titled VLLM::EngineCore (and
+            # VLLM::Worker); killing the parent script can orphan it holding
+            # the GPU. This also stops any other vLLM on the node.
+            "pkill -f '[V]LLM::' || true",
         ]
         if _uses_docker(node, exp):
             commands.append(f"docker rm -f {layout.container} >/dev/null 2>&1 || true")

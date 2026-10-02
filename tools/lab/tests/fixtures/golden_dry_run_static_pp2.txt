@@ -14,11 +14,11 @@ LAB_EOF
 scp -q /src/tools/lab/remote/bench_latency.py /src/tools/lab/remote/probe_env.py node1:inference-sim-lab/bench/
 # [clean] stop stale processes on node0
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
-pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; pkill -f '[V]LLM::' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
 LAB_EOF
 # [clean] stop stale processes on node1
 ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
-pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; pkill -f '[V]LLM::' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
 LAB_EOF
 # [preflight] probe node0 -> probe-node0.json
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
@@ -55,9 +55,9 @@ scp -q node0:inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2/results.jsonl /
 scp -q node0:inference-sim-lab/runs/2026-09-28-qwen7b-static-pp2/bench.log /runs/2026-09-28-qwen7b-static-pp2/bench.log
 # [teardown] stop stale processes on node0
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
-pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; pkill -f '[V]LLM::' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
 LAB_EOF
 # [teardown] stop stale processes on node1
 ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
-pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; pkill -f '[V]LLM::' || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
 LAB_EOF
