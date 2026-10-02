@@ -430,7 +430,7 @@ def _nohup(env: dict[str, str], layout: _Layout, command: str, log: str) -> str:
     # be backgrounded, so the cd runs on its own line.
     return (
         f'cd "{layout.run_dir}" || exit 1\n'
-        f'nohup {_env_prefix(env)} {command} '
+        f"nohup {_env_prefix(env)} {command} "
         f'> "{layout.run_dir}/{log}" 2>&1 < /dev/null &'
     )
 
