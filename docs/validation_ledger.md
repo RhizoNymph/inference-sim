@@ -33,6 +33,8 @@ them superseded.
 | 14 | 2026-10-01 | 1x RTX 3090 (node0; node1 for long context and decode sweep) + 2-node PP=2 | Qwen2.5-7B / 14B bf16 | vLLM 0.29.0 | TP1 PP1, TP1 PP2 | static batch, prefill token sweep 16-4096 + all static regimes | token-dependent efficiency curve (fitted on the sweep) | 0.8-10.4% by regime | unchanged | 0.9-5.1% by regime | validated; see entry |
 | 15 | 2026-10-01 | 1x RTX 3090 24 GB | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | serving, iteration engine, Poisson 1-10 req/s + inf | curve + measured frontend latency (transfer) | see entry | see entry | see entry | validated; low-load TTFT -15% to -19% |
 | 16 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 | recalibrated scalars / curve | 6.0% | 2.7% (batch 1-32) | 3.0% | validated to batch 32; KV exhaustion beyond |
+| 17 | 2026-10-01 | 1x RTX 3090 (node2), graphics clock locked at 1200 MHz | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, degraded GPU | recalibrated constants, peak scaled to the locked clock | 13.8% | 22.8% | 9.6% (offsetting errors) | **not accurate**: see entry |
+| 18 | 2026-10-01 | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst | curve + frontend profile (blind prediction) | see entry | see entry | see entry | validated below saturation; burst not accurate |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
 
@@ -421,6 +423,70 @@ prompts below ~100 tokens are weight-read bound.)
   The simulator itself has no KV-capacity model (serving capacity comes from
   `max_resident_tokens` / `max_kv_blocks`); every recorded validation uses
   vLLM's logged capacity, so none of their numbers change.
+
+## 17. RTX 3090, Qwen2.5-7B, static batch with the GPU clock locked at 1200 MHz
+
+Data: `lab-runs/2026-10-01-qwen7b-static-node2-clock1200/`, predictions in
+`lab-runs/2026-10-01-degraded-sim/` (cluster with `peak_f16_tflops` scaled from
+88 to 50.29 = 88 x 1200/2100; memory bandwidth unchanged; recalibrated
+constants; nothing refitted). The clock was locked with `nvidia-smi -lgc`
+through `tools/lab/remote/run_with_gpu_clock.sh`, which always resets it.
+
+| shape | prefill slowdown real / sim | decode/step full clock -> 1200 MHz real (sim) |
+|---|---|---|
+| 1x512 | 1.55x / 1.49x | 19.26 -> 24.30 ms (19.45) |
+| 1x2048 | 1.54x / 1.75x | 19.34 -> 24.34 ms (19.56) |
+| 8x512 | 1.52x / 1.75x | 19.75 -> 26.47 ms (19.75) |
+| 8x2048 | 1.53x / 1.75x | 20.76 -> 27.80 ms (20.65) |
+| 32x512 | 1.52x / 1.75x | 20.77 -> 27.07 ms (20.76) |
+
+Mean |error|: prefill 13.8%, decode step 22.8%, end-to-end 9.6% (the two
+errors partly offset). Findings: (1) under sustained prefill the unlocked GPU
+does not run at its 2100 MHz maximum: the 1.53x slowdown implies ~1835 MHz
+sustained, so clock-scaled peaks must use the sustained clock, not the
+maximum; (2) decode slows 1.26x with memory clocks untouched, because the
+achievable memory bandwidth depends on the SM clock. A degraded-GPU state
+therefore needs both a compute factor (relative to the sustained clock) and a
+bandwidth factor; scaling peak FLOPs alone misses decode entirely.
+
+## 18. RTX 3090 x2, Qwen2.5-7B, disaggregated prefill/decode serving (NIXL)
+
+Data: `lab-runs/2026-10-01-disagg-1p1d/` (rate_*.json from `vllm bench serve`
+through the proxy; prefill/decode/proxy logs, including vLLM's per-transfer
+KV metrics). Blind predictions: `lab-runs/2026-10-01-disagg-sim/` (made
+before the measurement was read). Setup: prefill on node0, decode on node1,
+vLLM 0.29.0 with NixlConnector (nixl-cu13 1.4.1, `UCX_TLS=tcp,cuda_copy,self,sm`
+on bond0), the toy-proxy pattern (prefill max_tokens=1 non-streaming, then
+decode streaming with the returned kv_transfer_params), the colocated
+baseline's traffic (512 in / 128 out, 200 requests). Scripts:
+`tools/lab/remote/run_disagg.sh`, `tools/lab/remote/disagg_proxy.py`.
+
+| rate | TTFT p50 real / scalar / curve+frontend | TPOT p50 real / sim | out tok/s real / sim | colocated TTFT / TPOT |
+|---|---|---|---|---|
+| 1 | 317 / 226 (-29%) / 256 (-19%) | 19.65 / 19.56 | 126 / 136 | 162 / 21.8 |
+| 2 | 331 / 227 (-31%) / 258 (-22%) | 21.23 / 19.66 | 249 / 268 | 168 / 24.7 |
+| 4 | 337 / 234 (-31%) / 274 (-19%) | 21.68 / 19.91 | 480 / 520 | 193 / 35.9 |
+| 6 | 423 / 311 (-26%) / 391 (-7%) | 20.95 / 20.14 | 692 / 754 | 468 / 62.6 |
+| 8 | 647 / 589 (-9%) / 639 (-1%) | 21.01 / 20.34 | 890 / 970 | 3,703 / 76.4 |
+| burst | 19,777 / 10,256 / 10,309 (-48%) | 21.75 / 20.54 | 795 / 1,139 | 13,207 / 65.7 |
+
+- Reproduced: decode TPOT stays flat at ~21 ms (within 0-8%) while colocated
+  TPOT degraded to 76 ms, i.e. the simulator captures that disaggregation
+  removes prefill/decode interference; TTFT within 1-22% below saturation with
+  the curve + frontend profile (9-31% with scalars only).
+- KV transfer per request: vLLM logs ~95-115 ms average (P90 ~120-135 ms) for
+  28 MB at low load; the simulator prices 81 ms from the node0->node1 send
+  curve's derived (unmeasured, sender-timed) region below 64 MiB. Next: the
+  receiver-timed collective bench.
+- Burst: per-transfer time balloons (290 ms, then 2.8 s average, P90 4.8 s)
+  while aggregate KV throughput stays near the link (~300 MB/s), i.e. the link
+  is fair-shared across many concurrent pulls; the simulator's FIFO link
+  queues get aggregate throughput roughly right but serialize transfers, so
+  burst TTFT and throughput are off (-48% / +43%). Fair-share link modeling
+  is the fix.
+- Remaining low-load TTFT gap (~60 ms) is consistent with the proxy's two
+  HTTP hops, which the simulator does not model
+  (`disaggregated_proxy_hop_not_modeled`).
 
 ## Untested regimes
 

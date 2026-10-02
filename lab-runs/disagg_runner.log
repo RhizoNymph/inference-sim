@@ -1,0 +1,11 @@
+healthy http://10.1.1.68:8200
+healthy http://10.1.1.69:8100
+proxy ready
+RATE_DONE 1
+RATE_DONE 2
+RATE_DONE 4
+RATE_DONE 6
+RATE_DONE 8
+RATE_DONE inf
+ALL_DONE results in /home/nymph/inference-sim-lab/controller/lab-runs/2026-10-01-disagg-1p1d
+teardown

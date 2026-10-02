@@ -1,0 +1,10 @@
+{"tag": "clock1200", "batch": 1, "prompt": 512, "prefill": 170.73, "decode": 2489.87, "end_to_end": 2660.6}
+{"tag": "clock1200", "batch": 1, "prompt": 2048, "prefill": 697.7, "decode": 2504.24, "end_to_end": 3201.94}
+{"tag": "clock1200", "batch": 8, "prompt": 512, "prefill": 1365.85, "decode": 2527.62, "end_to_end": 3893.47}
+{"tag": "clock1200", "batch": 8, "prompt": 2048, "prefill": 5581.63, "decode": 2642.57, "end_to_end": 8224.2}
+{"tag": "clock1200", "batch": 32, "prompt": 512, "prefill": 5463.39, "decode": 2657.05, "end_to_end": 8120.44}
+{"tag": "full", "batch": 1, "prompt": 512, "prefill": 97.57, "decode": 2489.87, "end_to_end": 2587.44}
+{"tag": "full", "batch": 1, "prompt": 2048, "prefill": 398.72, "decode": 2504.24, "end_to_end": 2902.96}
+{"tag": "full", "batch": 8, "prompt": 512, "prefill": 780.55, "decode": 2527.62, "end_to_end": 3308.17}
+{"tag": "full", "batch": 8, "prompt": 2048, "prefill": 3189.78, "decode": 2642.57, "end_to_end": 5832.34}
+{"tag": "full", "batch": 32, "prompt": 512, "prefill": 3122.2, "decode": 2657.05, "end_to_end": 5779.25}

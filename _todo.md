@@ -38,14 +38,15 @@ constants an H100 run can fit.
       the network every layer. Expected fixes: one-way-slower links
       (node0->node1 is 3.6 Gb/s vs 9.4 Gb/s back) and a small-message regime
       in the collective cost model.
-- [ ] 3. [simulator side done 2026-10-01 on feat/disaggregated-serving-engine:
-      disaggregated pools run on the iteration engine with NIXL-style
-      decode-initiated KV pulls; reference workload
-      examples/rtx3090_qwen7b_disaggregated_workload.toml, predictions in
-      docs/features/disaggregated_serving_engine.md; measurement pending]
+- [x] 3. [done 2026-10-01, ledger 18: 1P(node0)+1D(node1) over NIXL/UCX
+      TCP; TTFT p50 -19..-1% below saturation with curve + frontend, TPOT
+      within 0-8%; burst -48% because links are FIFO, not fair-shared]
       Disaggregated prefill/decode across nodes (1 prefill + 1-2 decode)
       with a vLLM KV connector, to validate the KV-transfer model for the
-      first time. Needs ~30 GB freed on node2 for the 3-node variant.
+      first time.
+      - [ ] fair-share link bandwidth across concurrent KV pulls (burst:
+        per-transfer 0.1 s -> 2.8 s at ~300 MB/s aggregate).
+      - [ ] proxy hops (~60 ms remaining low-load TTFT gap).
 - [x] 4. [done 2026-09-30, uncommitted in staging: tools/lab, first real
       runs succeeded] Turn-key measurement pipeline: unattended benchmark harness, a fitter
       that emits a complete calibration TOML with holdout stats and feature
@@ -79,8 +80,15 @@ constants an H100 run can fit.
         and are 8-16% under. Measure 2x512/4x512 on node0 to tell node
         variance from a batching effect.
 - [ ] 7. Degraded states: throttled NIC, lowered GPU clocks, node removed
-      mid-run. Blocked: `tc` and `nvidia-smi -lgc` need root on the nodes and
-      there is no passwordless sudo.
+      mid-run.
+      - [x] [done 2026-10-01, ledger 17] GPU clock locked at 1200 MHz:
+        prefill 1.53x slower (sustained clock is ~1835 MHz, not 2100), decode
+        1.26x slower with memory clocks untouched. Peak-only scaling: prefill
+        13.8%, decode 22.8% error. Needs a degraded-GPU compute factor
+        relative to the sustained clock plus a bandwidth factor.
+      - [ ] throttled NIC (`tc` on bond0).
+      - [ ] node removed mid-run: not modeled (the simulator has no failure
+        or re-routing events); out of scope before H100s.
 - [x] Write the H100 plan before getting hardware: fixed matrix of models x
       parallelism x shapes x rates, unattended scripts, time budget
       (docs/h100_validation_plan.md, 2026-10-01).
