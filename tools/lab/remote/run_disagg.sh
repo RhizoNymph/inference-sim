@@ -36,9 +36,9 @@ for node in "$P_SSH" "$D_SSH"; do
 done
 scp -q "$HERE/disagg_proxy.py" "$P_SSH":inference-sim-lab/runs/disagg/
 
-ssh -o BatchMode=yes $D_SSH "cd $REMOTE_RUN && nohup env $COMMON_ENV VLLM_NIXL_SIDE_CHANNEL_HOST=$D_HOST VLLM_NIXL_SIDE_CHANNEL_PORT=5600 \
+ssh -o BatchMode=yes $D_SSH "cd $REMOTE_RUN || exit 1; nohup env $COMMON_ENV VLLM_NIXL_SIDE_CHANNEL_HOST=$D_HOST VLLM_NIXL_SIDE_CHANNEL_PORT=5600 \
   vllm serve $MODEL --host $D_HOST --port 8200 $ENGINE_ARGS --kv-transfer-config '$KV_CONFIG' > decode_server.log 2>&1 < /dev/null &"
-ssh -o BatchMode=yes $P_SSH "cd $REMOTE_RUN && nohup env $COMMON_ENV VLLM_NIXL_SIDE_CHANNEL_HOST=$P_HOST VLLM_NIXL_SIDE_CHANNEL_PORT=5600 \
+ssh -o BatchMode=yes $P_SSH "cd $REMOTE_RUN || exit 1; nohup env $COMMON_ENV VLLM_NIXL_SIDE_CHANNEL_HOST=$P_HOST VLLM_NIXL_SIDE_CHANNEL_PORT=5600 \
   vllm serve $MODEL --host $P_HOST --port 8100 $ENGINE_ARGS --kv-transfer-config '$KV_CONFIG' > prefill_server.log 2>&1 < /dev/null &"
 
 wait_healthy() {
@@ -53,7 +53,7 @@ wait_healthy() {
 wait_healthy "$D_SSH" "http://$D_HOST:8200"
 wait_healthy "$P_SSH" "http://$P_HOST:8100"
 
-ssh -o BatchMode=yes $P_SSH "cd $REMOTE_RUN && nohup env $COMMON_ENV python disagg_proxy.py --prefill http://$P_HOST:8100 --decode http://$D_HOST:8200 --port 8000 > proxy.log 2>&1 < /dev/null &"
+ssh -o BatchMode=yes $P_SSH "cd $REMOTE_RUN || exit 1; nohup env $COMMON_ENV python disagg_proxy.py --prefill http://$P_HOST:8100 --decode http://$D_HOST:8200 --port 8000 > proxy.log 2>&1 < /dev/null &"
 for _ in $(seq 1 30); do ssh -o BatchMode=yes $P_SSH "curl -sf http://127.0.0.1:8000/health >/dev/null" && break; sleep 2; done
 ssh -o BatchMode=yes $P_SSH "curl -sf http://127.0.0.1:8000/health >/dev/null" || { echo "PROXY_NOT_READY"; exit 1; }
 echo "proxy ready"
