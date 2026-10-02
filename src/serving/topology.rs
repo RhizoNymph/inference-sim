@@ -911,6 +911,22 @@ fn format_optional_f64(value: Option<f64>) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Queue key of one direction of a KV route resource: like
+/// `kv_route_resource_id`, but `from->to` in travel order, so the two
+/// directions of a full-duplex link are separate resources.
+pub(super) fn kv_route_directed_resource_id(
+    resource: &ServingKvTransferPathResourceObservation,
+) -> String {
+    format!(
+        "kv_route:{}|{}|rail={}|{}->{}",
+        resource.kind,
+        resource.label,
+        optional_u32_key(resource.rail_id),
+        kv_route_endpoint_key(resource.from.as_ref()),
+        kv_route_endpoint_key(resource.to.as_ref())
+    )
+}
+
 fn kv_route_resource_id(resource: &ServingKvTransferPathResourceObservation) -> String {
     let left = kv_route_endpoint_key(resource.from.as_ref());
     let right = kv_route_endpoint_key(resource.to.as_ref());

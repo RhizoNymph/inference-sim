@@ -605,6 +605,7 @@ mod tests {
             vocab_size: 32000,
             parameters: Bytes::from_gigabytes(16.0),
             parameter_count: None,
+            parameter_count_source: crate::workload::ParameterCountSource::Explicit,
             dtype: DType::Bf16,
             kv_dtype: None,
             experts: None,

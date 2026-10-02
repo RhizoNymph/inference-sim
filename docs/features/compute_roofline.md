@@ -22,14 +22,58 @@ and decode operations before scheduling. It covers:
   after another, so they shard weight and KV memory but not one batch's
   latency. Expert ranks partition MLP expert weights, not attention heads
   or KV cache.
+- Prefill weight-read floor: one prefill pass still reads every weight once,
+  so prefill latency is `max(compute, weight_bytes_per_rank / bandwidth *
+  decode_compute_scale)`. Short prompts (below ~100 tokens for a 7B model on
+  a 3090) are weight-read bound, exactly like the serving step cost.
 - Effective peaks: minimum per-placement GPU peak TFLOPs (dtype-selected)
-  times `calibration.compute_efficiency`; minimum HBM bandwidth times
+  times the compute efficiency for the pass; minimum HBM bandwidth times
   `calibration.decode_memory_bandwidth_scale`.
+- Token-dependent compute efficiency: `SimulationCalibration::
+  compute_efficiency_at(tokens_per_pass)` returns the optional
+  `calibration.compute_efficiency_curve` interpolated at the pass's token
+  count, or the scalar `compute_efficiency` when no curve is set. Tokens per
+  pass are `batch x prompt` for a static prefill, `batch` for a decode step,
+  and the step's total tokens (prefill chunk tokens plus decodes) in the
+  serving engine. Tensor parallelism does not change the token count (each
+  rank's GEMMs keep the full token dimension).
+- Parameter-count consistency: when the workload gives `parameters_gb` but
+  neither `ffn_hidden_size` nor `parameter_count_billion`, FLOPs come from a
+  default MLP width of 4 x hidden. If that derived count differs from
+  `parameters_gb / dtype_bytes` by more than 10%, every scored config carries
+  the approximation `model_parameter_count_mismatch` (phase `model`, category
+  `model`) naming both counts and the fix.
+
+### Compute-efficiency curve
+
+```toml
+[calibration]
+compute_efficiency = 0.8494                  # still the default without a curve
+compute_efficiency_curve = [[128, 0.654], [256, 0.618], [512, 0.724],
+                            [1024, 0.838], [2048, 0.847], [4096, 0.874]]
+```
+
+Points are `[tokens per forward pass, efficiency]`. Validation (config
+error otherwise): at least 2 and at most 32 points, strictly increasing
+positive token counts, efficiencies finite in `(0, 1]`. Evaluation is
+piecewise linear in `ln(tokens)` and clamps to the first point's efficiency
+below the range and the last point's above it. The curve is accepted in a
+workload `[calibration]`, a calibration profile `[calibration]` (a workload
+curve overrides the profile's), and a run scenario's `[scenarios.calibration]`.
+The JSON `calibration` block reports `compute_efficiency_curve` (or null).
+`tools/lab/lab.py fit-curve` fits it from a batch-1 prefill token sweep
+(docs/features/lab_harness.md).
 
 ## Non-scope
 
-Layer-aware kernel decomposition (attention vs MLP vs logits), tensor-core
-utilization curves, batch-roofline nonlinearity beyond the two-term max,
+Layer-aware kernel decomposition (attention vs MLP vs logits; the
+efficiency curve applies one efficiency to dense and attention FLOPs alike),
+per-kernel tensor-core utilization tables (the curve is one aggregate
+efficiency per token count, not a GEMM-shape table), batch-roofline
+nonlinearity beyond the two-term max, CUDA-graph capture-size padding of
+decode batches (measured negligible on the 3090: decode steps are
+memory-bound, see validation ledger entry 16), a separate effective bandwidth
+for paged KV reads,
 paged-attention block effects, speculative decoding, prefix-cache-aware
 decode reads, backend microbatch scheduling inside one pipelined batch,
 and any backend-specific behavior. Fitted
@@ -41,9 +85,14 @@ calibration models override these baselines when a profile matches.
    `ParallelismConfig`, places ranks, then calls
    `Solver::estimate_compute_latency_s`.
 2. Per `InferencePhase`:
-   - Prefill: `Solver::prefill_baseline_s` = (dense FLOPs / shard +
-     `prefill_attention_flops` / attention shard) / effective peak FLOPs,
-     scaled by `prefill_compute_scale`.
+   - Effective FLOP/s per phase: `Solver::peak_flops` x
+     `compute_efficiency_at(prefill_tokens_per_pass)` (`batch x prompt`) for
+     prefill and x `compute_efficiency_at(decode_tokens_per_pass)` (`batch`)
+     for decode.
+   - Prefill: `Solver::prefill_baseline_s` = max((dense FLOPs / shard +
+     `prefill_attention_flops` / attention shard) / effective FLOP/s x
+     `prefill_compute_scale`, weight bytes / shard / bandwidth x
+     `decode_compute_scale`).
    - Decode: `Solver::decode_compute_latency_s` computes the FLOP term
      (dense + `decode_attention_flops`) and the memory term (weight reads +
      `decode_kv_read_bytes` / attention shard / bandwidth) and takes the max.
@@ -87,7 +136,9 @@ calibration models override these baselines when a profile matches.
    context, and one weight read plus every active sequence's KV read, with
    per-step TP all-reduces and PP send/recvs sized by the step's tokens. A
    pure-decode step at context `prompt + 1` equals the `decode_tokens = 1`
-   score; a compute-bound pure-prefill step equals the prefill score (see
+   score; a pure-prefill step equals the prefill score at any prompt length
+   (both take the weight-read floor). The engine evaluates the efficiency
+   curve at each step's total token count (see
    docs/features/serving_iteration_engine.md).
 6. The phase-pipeline serving scheduler derives per-token decode cost from a
    `decode_tokens = 1` score and a whole-decode score (`decode_tail_scale`,
@@ -96,12 +147,27 @@ calibration models override these baselines when a profile matches.
 
 ## Related files
 
+- `src/calibration/efficiency_curve.rs` — `ComputeEfficiencyCurve` (`new`,
+  `efficiency_at`, `points`), `EfficiencyPoint`, `EfficiencyCurveError`,
+  `MAX_EFFICIENCY_CURVE_POINTS`; fixed-capacity so `SimulationCalibration`
+  stays `Copy`.
+- `src/calibration.rs` — `SimulationCalibration::compute_efficiency_at`
+  (curve or scalar), `compute_efficiency_curve` field.
+- `src/config/calibration_config.rs` — `parse_compute_efficiency_curve`,
+  `calibration_with_defaults` (validates the curve and frontend keys).
+- `src/workload.rs` — `ParameterCountSource`, `ParameterCountMismatch`,
+  `ModelSpec::parameter_count_mismatch`, `PARAMETER_COUNT_MISMATCH_TOLERANCE`.
+- `src/solver/placement.rs` — `parameter_count_mismatch_approximation`,
+  `MODEL_PARAMETER_COUNT_MISMATCH`.
+- `src/solver/efficiency_curve_tests.rs`, `src/config/calibration_curve_tests.rs`
+  — curve, floor, and mismatch tests.
 - `src/solver.rs` — `estimate_compute_latency_s`, `prefill_baseline_s`,
+  `peak_flops`, `prefill_tokens_per_pass`, `decode_tokens_per_pass`,
   `decode_compute_latency_s`, `flop_latency_s`, `latency_shard_factor`,
   `attention_shard_factor`, `kv_cache_bytes`,
   `prefill_attention_flops`, `decode_attention_flops`,
   `decode_kv_read_bytes`, `average_decode_context_tokens`,
-  `effective_peak_flops`, `effective_hbm_bandwidth`.
+  `effective_hbm_bandwidth`.
 - `src/workload.rs` — `ModelSpec` (layers, hidden size, heads, kv_heads,
   dtypes, parameter count) and `InferenceRequest` shapes.
 - `src/calibration.rs` — `SimulationCalibration` scales applied to the
@@ -117,6 +183,19 @@ calibration models override these baselines when a profile matches.
   `IterationCostModel`, `StepWork`, `StepLatency`, `StepCostError`.
 
 ## Invariants and constraints
+
+- Without `compute_efficiency_curve`, every pass uses the scalar
+  `compute_efficiency` (existing configs are unchanged). With a curve, the
+  scalar is ignored for latency but still reported.
+- A curve value always has 2-32 points with strictly increasing positive
+  tokens and efficiencies in (0, 1]; invalid curves are config errors, never
+  sanitized.
+- Prefill is never cheaper than one weight read (`decode_compute_scale`
+  applies to it, as to every memory term).
+- `model_parameter_count_mismatch` fires only for
+  `ParameterCountSource::ShapeWithDefaultFfnWidth` with more than 10%
+  disagreement; an explicit `ffn_hidden_size` or `parameter_count_billion`
+  silences it.
 
 - Attention terms use the mean decode context so total decode work stays
   closed-form; they never depend on scheduler state.

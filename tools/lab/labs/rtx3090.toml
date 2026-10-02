@@ -17,8 +17,11 @@ ray_port = 6379
 # Simulator cluster describing the same hardware (relative to this file).
 cluster_toml = "rtx3090_cluster.toml"
 
-# Extra environment for every vLLM process (none needed today).
+# Extra environment for every vLLM process. CUDA_HOME: node2 also has
+# Ubuntu's CUDA 12.0 nvcc in /usr/bin, which FlashInfer's JIT would otherwise
+# pick up and fail with ("Unknown option '--compress-mode=size'").
 [lab.env]
+CUDA_HOME = "/usr/local/cuda"
 
 [[nodes]]
 name = "node0"
@@ -60,7 +63,7 @@ address = "10.1.1.67"
 sim_node_id = 2
 gpu_count = 1
 default_launch = "venv"
-notes = "No nvidia container runtime; only ~9 GB free disk, so it cannot hold the vLLM image or 7B+ weights yet. Venv not provisioned as of 2026-09-30."
+notes = "No nvidia container runtime; dual-boot with a 244 GB Linux root. Venv (copied from node1) and Qwen2.5-7B weights provisioned 2026-10-01, leaving ~4 GB free: no room for the vLLM image or a second model."
 
 [nodes.venv]
 path = "$HOME/inference-sim-lab/.venv"

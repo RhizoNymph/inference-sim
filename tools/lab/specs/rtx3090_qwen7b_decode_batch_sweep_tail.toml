@@ -1,0 +1,55 @@
+# Tail of the decode batch-size sweep (the first run was cut off at batch 40
+# by a harness launch bug). Batch 32 repeats as a run-to-run check.
+# Decode batch-size sweep on node1: vLLM pads decode batches to captured
+# CUDA-graph sizes (1,2,4,8,16,24,32,...), so step time may step at boundaries.
+
+[experiment]
+name = "qwen7b-decode-batch-sweep-tail"
+description = "Decode step time across batch sizes 1-64 at 512-token prompts: CUDA-graph capture-size effects."
+mode = "static-batch"
+lab = "../labs/rtx3090.toml"
+nodes = ["node1"]
+launch = "auto"            # node1 default: venv
+vllm_version = "0.29.0"
+
+[model]
+hf_id = "Qwen/Qwen2.5-7B-Instruct"
+name = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+max_model_len = 4096
+
+# The simulator's [model] section. ffn_hidden_size is the real MLP width
+# (config.json intermediate_size); without it the simulator derives FLOPs
+# from a 4x-hidden default and miscounts compute (see
+# lab-runs/2026-09-30-recalibration/).
+[model.sim]
+layers = 28
+hidden_size = 3584
+attention_heads = 28
+kv_heads = 4
+ffn_hidden_size = 18944
+vocab_size = 152064
+parameters_gb = 15.23
+dtype = "bf16"
+
+[parallelism]
+tp = 1
+pp = 1
+
+[engine]
+gpu_memory_utilization = 0.85
+max_num_batched_tokens = 32768
+max_num_seqs = 64
+enable_prefix_caching = false
+enforce_eager = false
+seed = 0
+
+[static_batch]
+shapes = ["32x512", "40x512", "48x512", "56x512", "64x512"]
+decode_tokens = 128
+warmup = 2
+iters = 5
+
+[runner]
+poll_interval_s = 15
+run_timeout_s = 3600

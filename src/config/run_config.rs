@@ -396,8 +396,20 @@ pub(super) fn parse_run_scenario_calibration(
         &format!("{prefix}.request_arrival_gap_s"),
         section.request_arrival_gap_s,
     )?;
+    validate_nonnegative_optional_f64(
+        &format!("{prefix}.frontend_latency_us"),
+        section.frontend_latency_us,
+    )?;
+    validate_nonnegative_optional_f64(
+        &format!("{prefix}.frontend_latency_per_prompt_token_us"),
+        section.frontend_latency_per_prompt_token_us,
+    )?;
+    parse_compute_efficiency_curve(
+        &format!("{prefix}.compute_efficiency_curve"),
+        section.compute_efficiency_curve.as_deref(),
+    )?;
 
-    Ok(calibration_overrides_from_section(Some(section)))
+    calibration_overrides_from_section(Some(section))
 }
 
 pub(super) fn parse_run_scenario_topology(
@@ -1400,13 +1412,17 @@ pub(super) fn sort_dedup_or_error(ids: &mut [u32], name: &str) -> Result<(), Con
 
 pub(super) fn calibration_overrides_from_section(
     section: Option<&CalibrationSection>,
-) -> RunScenarioCalibrationConfig {
+) -> Result<RunScenarioCalibrationConfig, ConfigError> {
     let Some(section) = section else {
-        return RunScenarioCalibrationConfig::default();
+        return Ok(RunScenarioCalibrationConfig::default());
     };
 
-    RunScenarioCalibrationConfig {
+    Ok(RunScenarioCalibrationConfig {
         compute_efficiency: section.compute_efficiency,
+        compute_efficiency_curve: parse_compute_efficiency_curve(
+            "calibration.compute_efficiency_curve",
+            section.compute_efficiency_curve.as_deref(),
+        )?,
         prefill_compute_scale: section.prefill_compute_scale,
         decode_compute_scale: section.decode_compute_scale,
         decode_memory_bandwidth_scale: section.decode_memory_bandwidth_scale,
@@ -1424,5 +1440,7 @@ pub(super) fn calibration_overrides_from_section(
         serving_pipeline_depth: section.serving_pipeline_depth,
         request_arrival_gap_s: section.request_arrival_gap_s,
         allow_compute_comm_overlap: section.allow_compute_comm_overlap,
-    }
+        frontend_latency_us: section.frontend_latency_us,
+        frontend_latency_per_prompt_token_us: section.frontend_latency_per_prompt_token_us,
+    })
 }

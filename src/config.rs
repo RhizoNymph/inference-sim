@@ -20,9 +20,9 @@ use calibration_config::{
     calibration_applicability_warnings, calibration_coverage_report, calibration_gate_violations,
     calibration_invalid_shape_warnings, calibration_with_defaults, load_calibration_profile,
     nonempty_metadata, parse_approximation_policy, parse_calibration_policy,
-    validate_nonnegative_optional_f64, validate_optional_max_sequence_tokens,
-    validate_positive_fraction_optional_f64, validate_positive_optional_f64,
-    validate_positive_optional_u32,
+    parse_compute_efficiency_curve, validate_nonnegative_optional_f64,
+    validate_optional_max_sequence_tokens, validate_positive_fraction_optional_f64,
+    validate_positive_optional_f64, validate_positive_optional_u32,
 };
 use cluster::*;
 use collective_curves::{CollectiveCurveSection, parse_collective_curves};
@@ -33,13 +33,15 @@ use trace::*;
 
 use crate::{
     DisaggregatedServingConfig, SearchSpace, ServingArrivalPattern, ServingCostModel,
-    ServingDecodeBatching, ServingDecodeCapacityPolicy, ServingDeploymentMode, ServingGpuCostRate,
-    ServingKvRouteConstraints, ServingMetricCeilings, ServingObjective, ServingPoolCandidate,
-    ServingPoolDomainSpread, ServingPoolNodeFilter, ServingPoolSearch, ServingPrefillBatching,
-    ServingRequestSlo, ServingRoutingPolicy, ServingSearchSpace, ServingServiceHealth,
-    ServingServicePhaseConfig, ServingServicesConfig, ServingShapeProfile,
-    ServingSloMissPenaltyWeights, ServingSloPolicy, ServingTraceRequest, ServingTraffic,
-    ServingTrafficClass, ServingValueDistribution, SimulationCalibration, Solver,
+    ServingDecodeBatching, ServingDecodeCapacityPolicy, ServingDeploymentMode,
+    ServingDisaggregatedFirstToken, ServingGpuCostRate, ServingKvRouteConstraints,
+    ServingMetricCeilings, ServingObjective, ServingPoolCandidate, ServingPoolDomainSpread,
+    ServingPoolNodeFilter, ServingPoolSearch, ServingPrefillBatching, ServingRequestSlo,
+    ServingRoutingPolicy, ServingSearchSpace, ServingServiceHealth, ServingServicePhaseConfig,
+    ServingServicesConfig, ServingShapeProfile, ServingSloMissPenaltyWeights, ServingSloPolicy,
+    ServingTraceRequest, ServingTraffic, ServingTrafficClass, ServingValueDistribution,
+    SimulationCalibration, Solver,
+    calibration::ComputeEfficiencyCurve,
     topology_graph::{RoutedResourceKind, TopologyGraph},
     types::{
         common::{
@@ -62,7 +64,9 @@ use crate::{
         gpu::{Gpu, GpuProfile},
         topology::{Cluster, Node, NodeOperationalState, NodeTopologyMetadata},
     },
-    workload::{DType, ExpertSpec, InferencePhase, InferenceRequest, ModelSpec},
+    workload::{
+        DType, ExpertSpec, InferencePhase, InferenceRequest, ModelSpec, ParameterCountSource,
+    },
 };
 
 const SUPPORTED_SCHEMA_VERSION: u32 = 1;
@@ -180,6 +184,7 @@ pub struct RunScenarioConfig {
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct RunScenarioCalibrationConfig {
     pub compute_efficiency: Option<f64>,
+    pub compute_efficiency_curve: Option<ComputeEfficiencyCurve>,
     pub prefill_compute_scale: Option<f64>,
     pub decode_compute_scale: Option<f64>,
     pub decode_memory_bandwidth_scale: Option<f64>,
@@ -195,6 +200,8 @@ pub struct RunScenarioCalibrationConfig {
     pub serving_pipeline_depth: Option<u32>,
     pub request_arrival_gap_s: Option<f64>,
     pub allow_compute_comm_overlap: Option<bool>,
+    pub frontend_latency_us: Option<f64>,
+    pub frontend_latency_per_prompt_token_us: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -870,7 +877,7 @@ fn parse_workload_with_base_dir(
             .and_then(|serving| nonempty_metadata(serving.serving_stack.clone()))
     });
     let serving_runtime_features = parse_serving_runtime_features(&file)?;
-    let calibration_overrides = calibration_overrides_from_section(file.calibration.as_ref());
+    let calibration_overrides = calibration_overrides_from_section(file.calibration.as_ref())?;
     let calibration_profile = load_calibration_profile(file.calibration_profile, base_dir)?;
     let calibration_defaults = calibration_profile
         .as_ref()
@@ -902,6 +909,14 @@ fn parse_workload_with_base_dir(
         vocab_size: file.model.vocab_size,
         parameters: Bytes::from_gigabytes(parameters_gb),
         parameter_count: Some(model_parameter_count),
+        parameter_count_source: match (
+            file.model.parameter_count_billion,
+            file.model.ffn_hidden_size,
+        ) {
+            (Some(_), _) => ParameterCountSource::Explicit,
+            (None, Some(_)) => ParameterCountSource::ShapeWithFfnWidth,
+            (None, None) => ParameterCountSource::ShapeWithDefaultFfnWidth,
+        },
         dtype: model_dtype,
         kv_dtype: file
             .model
@@ -980,7 +995,11 @@ fn parse_workload_with_base_dir(
         placement,
         serving_prefill_placement,
         serving_decode_placement,
-        calibration: calibration_with_defaults(file.calibration, calibration_defaults),
+        calibration: calibration_with_defaults(
+            "calibration",
+            file.calibration,
+            calibration_defaults,
+        )?,
         calibration_overrides,
         calibration_policy,
         approximation_policy,
@@ -1269,5 +1288,7 @@ fn normalize(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace(['-', ' '], "_")
 }
 
+#[cfg(test)]
+mod calibration_curve_tests;
 #[cfg(test)]
 mod tests;

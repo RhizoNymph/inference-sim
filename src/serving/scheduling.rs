@@ -222,52 +222,62 @@ pub(super) fn schedule_serving_simulation(
         });
     }
 
-    let scheduler_model =
-        select_scheduler_model(traffic, prefill_score, decode_score, &decode_states);
-    let (scheduler_model, timeline) = match scheduler_model {
+    let selected = select_scheduler_model(traffic, prefill_score, decode_score, &decode_states);
+    let engine_result = match selected {
         SchedulerModel::IterationEngine => {
             let mut engine_states = decode_states.clone();
-            match run_iteration_engine(
-                &mut engine_states,
-                cluster,
-                model,
-                decode_score,
-                traffic,
-                calibration,
-            ) {
-                Ok(engine) => {
-                    decode_states = engine_states;
-                    (
-                        SchedulerModel::IterationEngine,
-                        ScheduledTimeline {
-                            operations: engine.operations,
-                            decode_iterations: engine.decode_iterations,
-                            kv_bottlenecks: Vec::new(),
-                        },
-                    )
-                }
-                // Unreachable for a placed config; keep a result rather than
-                // dropping the candidate.
-                Err(_) => (
-                    SchedulerModel::PhasePipeline(
-                        PhasePipelineReason::SplitPrefillDecodeParallelism,
-                    ),
-                    schedule_phase_pipeline(
-                        &mut decode_states,
-                        prefill_score,
-                        decode_one_score,
+            Some(
+                run_iteration_engine(
+                    &mut engine_states,
+                    cluster,
+                    model,
+                    decode_score,
+                    traffic,
+                    calibration,
+                )
+                .map(|engine| (engine_states, engine)),
+            )
+        }
+        SchedulerModel::DisaggregatedEngine => {
+            let mut engine_states = decode_states.clone();
+            Some(
+                run_disaggregated_engine(
+                    &mut engine_states,
+                    DisaggregatedRun {
                         cluster,
                         model,
-                        request,
+                        prefill_score,
+                        decode_score,
                         traffic,
                         calibration,
                         calibration_profile,
-                        decode_tail_scale,
-                    ),
-                ),
-            }
+                    },
+                )
+                .map(|engine| (engine_states, engine)),
+            )
         }
-        SchedulerModel::PhasePipeline(reason) => (
+        SchedulerModel::PhasePipeline(_) => None,
+    };
+    let phase_pipeline_reason = match (selected, engine_result) {
+        (_, Some(Ok((engine_states, engine)))) => {
+            decode_states = engine_states;
+            Ok(ScheduledTimeline {
+                operations: engine.operations,
+                decode_iterations: engine.decode_iterations,
+                kv_bottlenecks: engine.kv_bottlenecks,
+            })
+        }
+        // A placed config always prices; keep a result rather than dropping
+        // the candidate when the engine cannot express it after all.
+        (_, Some(Err(error))) => Err(error.fallback_reason()),
+        (SchedulerModel::PhasePipeline(reason), None) => Err(reason),
+        (SchedulerModel::IterationEngine | SchedulerModel::DisaggregatedEngine, None) => {
+            Err(PhasePipelineReason::SplitPrefillDecodeParallelism)
+        }
+    };
+    let (scheduler_model, timeline) = match phase_pipeline_reason {
+        Ok(timeline) => (selected, timeline),
+        Err(reason) => (
             SchedulerModel::PhasePipeline(reason),
             schedule_phase_pipeline(
                 &mut decode_states,

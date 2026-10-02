@@ -123,6 +123,21 @@ pub(super) fn write_calibration<W: Write>(
         "{indent}  \"allow_compute_comm_overlap\": {},",
         calibration.allow_compute_comm_overlap
     )?;
+    writeln!(
+        writer,
+        "{indent}  \"frontend_latency_us\": {},",
+        json_f64(calibration.frontend_latency_us)
+    )?;
+    writeln!(
+        writer,
+        "{indent}  \"frontend_latency_per_prompt_token_us\": {},",
+        json_f64(calibration.frontend_latency_per_prompt_token_us)
+    )?;
+    write_compute_efficiency_curve(
+        writer,
+        calibration.compute_efficiency_curve.as_ref(),
+        indent,
+    )?;
     write_calibration_profile(writer, context.profile, indent, true)?;
     write_calibration_coverage(writer, context.coverage, indent, true)?;
     write_calibration_policy(writer, context.policy, indent, true)?;
@@ -139,6 +154,26 @@ pub(super) fn write_calibration<W: Write>(
     write_calibration_gate_violations(writer, context.gate_violations, indent, true)?;
     write_calibration_applicability_warnings(writer, context.warnings, indent, false)?;
     writeln!(writer, "{indent}}}{}", comma(trailing_comma))
+}
+
+fn write_compute_efficiency_curve<W: Write>(
+    writer: &mut W,
+    curve: Option<&ComputeEfficiencyCurve>,
+    indent: &str,
+) -> Result<(), io::Error> {
+    let Some(curve) = curve else {
+        return writeln!(writer, "{indent}  \"compute_efficiency_curve\": null,");
+    };
+    let points = curve
+        .points()
+        .iter()
+        .map(|point| format!("[{}, {}]", point.tokens(), json_f64(point.efficiency())))
+        .collect::<Vec<_>>()
+        .join(", ");
+    writeln!(
+        writer,
+        "{indent}  \"compute_efficiency_curve\": [{points}],"
+    )
 }
 
 fn calibration_applicability_status(

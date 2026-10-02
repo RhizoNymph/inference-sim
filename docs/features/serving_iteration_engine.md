@@ -26,7 +26,14 @@ at a time and prices each step from what that step actually carries.
 - Per-step latency from the solver's roofline for the step's composition
   (`IterationCostModel`, src/solver/step_cost.rs): one forward pass,
   `max(compute, memory)`, plus per-step tensor/expert/pipeline communication,
-  plus `scheduler_overhead_us`.
+  plus `scheduler_overhead_us`. Compute efficiency is evaluated at the
+  step's total token count when the calibration has a
+  `compute_efficiency_curve`.
+- Calibrated per-request frontend (API-server) latency:
+  `calibration.frontend_latency_us + frontend_latency_per_prompt_token_us x
+  prompt_tokens` delays each request's arrival at the engine
+  (`apply_frontend_latency`), so client-observed TTFT and E2EL include it
+  while TPOT and ITL do not.
 - Queueing instead of rejection. A request is rejected only when its own
   footprint exceeds a limit (it can never fit), when it waits longer than
   `max_queue_delay`, or when capacity held by other workers can never be
@@ -34,16 +41,26 @@ at a time and prices each step from what that step actually carries.
 
 ## Non-scope
 
-- Disaggregated and partially disaggregated pools, independent batching,
-  split prefill/decode parallelism, and data-parallel replicas stay on the
-  phase-pipeline scheduler (`src/serving/scheduling/pipeline.rs`). Such
-  candidates carry a `phase_pipeline_scheduler` approximation naming the
-  reason.
+- Disaggregated and partially disaggregated pools run on the same loop with
+  handoffs and KV pulls; see `docs/features/disaggregated_serving_engine.md`.
+  Independent batching, data-parallel replicas, colocated candidates with
+  split prefill/decode parallelism, and worker layouts the engine cannot
+  express stay on the phase-pipeline scheduler
+  (`src/serving/scheduling/pipeline.rs`) and carry a
+  `phase_pipeline_scheduler` approximation naming the reason.
 - Preemption. KV is reserved for a request's whole `max_sequence_tokens` at
   admission and never preempted (`iteration_engine_kv_reserved_at_admission`).
   vLLM allocates blocks incrementally and recomputes preempted requests.
-- API-server latency (tokenization, detokenization, HTTP streaming)
-  (`iteration_engine_no_frontend_overhead`).
+- Load-dependent API-server latency. The frontend latency is a constant
+  per-request delay; it never contends with engine steps or grows with load
+  (`iteration_engine_constant_frontend_latency`). With both frontend keys
+  unset (the default) no frontend latency is modeled
+  (`iteration_engine_no_frontend_overhead`). The phase-pipeline scheduler
+  ignores the frontend keys.
+- Preemption under KV exhaustion: vLLM preempts and recomputes requests when
+  KV blocks run out (2.4x step time measured at batch 48-64 in
+  lab-runs/2026-10-01-qwen7b-decode-batch-sweep-tail); the engine never
+  preempts.
 - Pipeline micro-batching. A step runs its stages back to back
   (`iteration_engine_pipeline_stages_serialized`), like the static solver.
 - Calibration-profile phase fits (fitted prefill/decode latency models) do
@@ -62,7 +79,8 @@ at a time and prices each step from what that step actually carries.
    generates arrivals and request shapes, routes every request, and builds
    one `DecodeRequestState` per request, the same way for both schedulers.
 2. `select_scheduler_model` (src/serving/engine.rs) returns
-   `SchedulerModel::IterationEngine` or
+   `SchedulerModel::IterationEngine`, `SchedulerModel::DisaggregatedEngine`
+   (docs/features/disaggregated_serving_engine.md), or
    `SchedulerModel::PhasePipeline(reason)`.
 3. `run_iteration_engine`:
    - `IterationCostModel::new(cluster, model, decode_score, calibration)`
@@ -81,7 +99,8 @@ at a time and prices each step from what that step actually carries.
      sequences = `batch_size`, cached prompt tokens, prompt tokens to
      compute (at least 1), output tokens, KV footprint, class, cancellation,
      queue limit).
-4. `run_engine` (src/serving/engine/core.rs) loops until every worker is
+4. `run_engine` (src/serving/engine/core.rs; a wrapper over
+   `run_engine_jobs` with only colocated jobs) loops until every worker is
    idle. Each iteration it:
    - picks the worker with the earliest clock;
    - applies capacity releases up to that time (`CapacityLedger`);
@@ -93,7 +112,9 @@ at a time and prices each step from what that step actually carries.
    - advances the worker clock to the step's end, emitting tokens and
      scheduling releases at that instant.
    A worker with nothing runnable sleeps until its next arrival, the next
-   release, a waiting deadline, or another worker's step.
+   release, a waiting deadline, or another worker's next real event (a step,
+   arrival, pull completion, or waiting deadline; another blocked worker's
+   clock does not count, so mutual blocking ends in `Starved`).
 5. `record_engine_outcome` (src/serving/engine/record.rs) writes each
    `RequestTimeline` back into its `DecodeRequestState`:
    - prefill start and finish, chunk count, and `prefill_token_spans`;
@@ -129,23 +150,46 @@ at a time and prices each step from what that step actually carries.
 | `request_timeout`, deadlines | applied to completed requests by `apply_terminal_statuses` |
 | `kv_block_tokens` | block size for each request's `kv_cache_blocks` footprint |
 
-No new knobs were added.
+Calibration knobs the engine reads: `compute_efficiency` /
+`compute_efficiency_curve`, `decode_memory_bandwidth_scale`,
+`prefill_compute_scale`, `decode_compute_scale`, `scheduler_overhead_us`,
+`allow_compute_comm_overlap`, and `frontend_latency_us` /
+`frontend_latency_per_prompt_token_us`.
+
+### Frontend latency: why calibration, how it was measured
+
+The frontend latency is a property of the serving stack and host (vLLM's
+API server, tokenizer, HTTP streaming on that CPU), not of the workload, so
+it lives in `[calibration]` next to `scheduler_overhead_us` and travels with
+a calibration profile. Lab value (3090 node0, vLLM 0.29.0):
+`frontend_latency_us = 5081`, `frontend_latency_per_prompt_token_us =
+14.44`, from `lab-runs/2026-09-30-frontend/` (isolated one-output-token
+requests at 0.5 req/s: median TTFT 27.05 ms at 16 prompt tokens, 126.88 ms at
+512) minus the engine-only batch-1 static prefill of the same prompts
+(`lab-runs/2026-10-01-qwen7b-prefill-token-sweep/`: 21.73 ms, 114.37 ms),
+i.e. 5.3 ms and 12.5 ms of overhead, fitted as a line in prompt length by
+`lab.py fit-curve --frontend-dir`. The engine applies it as an ingress delay:
+shifting every arrival by a constant leaves inter-arrival gaps and queueing
+unchanged, so every request's TTFT and E2EL grow by exactly the delay
+(tested in `src/serving/engine/tests/frontend.rs`).
 
 ### Step cost
 
 For a step with prefill chunks (c tokens on top of p cached tokens, for s
 lockstep sequences) and decoding sequences at context n:
 
-- compute = `[2 P (sum s c) + 2 L H (sum s ((p + c)^2 - p^2)) / tp] / F *
+- compute = `[2 P (sum s c) + 2 L H (sum s ((p + c)^2 - p^2)) / tp] / F(T) *
   prefill_compute_scale + [2 P (sum s) + 4 L H (sum s n) / tp] / F *
-  decode_compute_scale`
+  decode_compute_scale`, with `F(T)` the effective FLOP/s at the step's
+  total tokens `T = sum s c + sum s`
 - memory = `[W / (tp ep) + kv_bytes_per_token (sum s n + sum s p) / tp] / B *
   decode_compute_scale`
 - total = `max(compute, memory) + communication + scheduler_overhead_us`
   (`max(forward, communication)` with `allow_compute_comm_overlap`)
 
 Here P is the parameter count / (tp ep), L layers, H hidden size,
-F = peak FLOPs x `compute_efficiency`, B = HBM bandwidth x
+F(T) = peak FLOPs x `compute_efficiency_at(T)` (the curve, or the scalar
+`compute_efficiency`), B = HBM bandwidth x
 `decode_memory_bandwidth_scale`, and W is weight bytes. Communication prices
 each per-step collective with a message of `step tokens x hidden x dtype`
 through `Solver::estimate_collective_with_calibration`, cached per token
@@ -157,12 +201,13 @@ count.
 |---|---|---|
 | `src/solver/step_cost.rs` | per-step roofline | `IterationCostModel` (`new`, `step_latency`), `StepWork` (`add_prefill_chunk`, `add_decode`), `StepLatency`, `StepCostError` |
 | `src/solver/step_cost/tests.rs` | static/step agreement, flat decode, TP/PP | - |
-| `src/serving/engine.rs` | module root, scheduler selection, entry point, approximation records | `SchedulerModel`, `PhasePipelineReason`, `select_scheduler_model`, `run_iteration_engine`, `EngineTimeline`, `IterationEngineError`, `iteration_engine_approximations`, `phase_pipeline_approximation` |
+| `src/serving/engine.rs` | module root, scheduler selection, entry point, frontend-latency hook, approximation records | `SchedulerModel`, `PhasePipelineReason`, `select_scheduler_model`, `run_iteration_engine`, `apply_frontend_latency`, `EngineTimeline`, `IterationEngineError`, `iteration_engine_approximations` (takes the calibration), `phase_pipeline_approximation` |
+| `src/serving/engine/tests/frontend.rs` | frontend latency shifts TTFT/E2EL exactly, leaves TPOT/ITL; approximation code switch | - |
 | `src/serving/engine/types.rs` | engine value types | `EngineRequest`, `KvFootprint`, `CapacityLimits`, `StepLimits`, `WorkerLimits`, `ClassLimits`, `EngineLimits`, `CapacityExcess`, `RequestFate`, `ChunkRecord`, `TokenRecord`, `RequestTimeline`, `EngineStep`, `EngineOutcome`, `StepCost` |
-| `src/serving/engine/core.rs` | the discrete-event loop | `run_engine`, `EngineError` |
+| `src/serving/engine/core.rs` | the discrete-event loop (colocated and disaggregated jobs) | `run_engine`, `run_engine_jobs`, `EngineError` |
 | `src/serving/engine/capacity.rs` | shared capacity ledger with timestamped releases | `CapacityLedger` |
 | `src/serving/engine/limits.rs` | workers, limits, and requests from states and traffic | `EngineWorker`, `engine_workers`, `engine_limits`, `engine_requests` |
-| `src/serving/engine/record.rs` | engine outcome -> request states, operations, decode iterations | `record_engine_outcome` |
+| `src/serving/engine/record.rs` | engine outcome -> request states, operations, decode iterations | `record_engine_outcome`, `record_engine_jobs` |
 | `src/serving/engine/tests.rs`, `tests/serving.rs` | loop semantics with a closed-form cost; end-to-end 3090 checks and the runtime bound | - |
 | `src/serving/scheduling.rs` | request-state construction and scheduler dispatch | `schedule_serving_simulation`, `ServingSimulation` (`scheduler_model`) |
 | `src/serving/scheduling/pipeline.rs` | phase-pipeline scheduler (unchanged behavior) | `schedule_phase_pipeline`, `ScheduledTimeline` |
@@ -190,8 +235,10 @@ count.
   prefix-cache hit still runs one step to sample its first token.
 - Pure-decode steps equal the static solver's one-token decode latency at
   context `prompt + 1`. Pure-prefill steps equal the static prefill latency
-  whenever compute exceeds the weight read. Small prefill-only steps pay at
-  least one weight read, which the static prefill does not.
+  at every prompt length (both pay at least one weight read), with or
+  without an efficiency curve.
+- A request's engine arrival is its client arrival plus the frontend
+  latency; request states keep the client arrival.
 - The cost model and the engine never panic. A config without a placement is
   `StepCostError::EmptyPlacement` (the scheduler then falls back to the
   phase pipeline); a request routed to an unknown worker is
@@ -201,6 +248,13 @@ count.
   memory headroom.
 
 ## Validation
+
+Current (validation ledger entry 15): with the token-dependent efficiency
+curve and the measured frontend latency, low-load TTFT p50 is -15% / -17% /
+-19% at 1 / 2 / 4 req/s (was -33% / -35% / -39%); mean |error| over 7 rates
+TTFT p50 17.7%, TPOT p50 6.5%, ITL p50 2.9%, E2EL p50 7.1%, throughput 8.4%.
+
+History:
 
 `lab-runs/2026-09-30-serving-baseline/report-iteration-engine.md` and
 `docs/validation_ledger.md` entry 6, from the static-batch-fitted 3090

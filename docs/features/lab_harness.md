@@ -31,12 +31,19 @@ changes.
   with leave-one-shape-out validation and calibration-profile emission,
   verified by loading the profile in the simulator.
 - Markdown/JSON comparison per regime with mean |error| per metric.
+- `fit-curve`: a compute-efficiency curve over tokens per forward pass from
+  a batch-1 prefill token sweep, plus (optionally) the per-request frontend
+  latency from isolated-request `vllm bench serve` runs, written into a copy
+  of a base profile and verified by the simulator.
+- A vLLM KV-capacity estimate (`kv_estimate.py`) that mirrors vLLM's memory
+  profiler, used when no measured capacity is available.
 
 ## Non-scope
 
-- Fitting anything beyond the two roofline scalars (no `[[fits]]` linear
-  models; `tools/aisimulate_calibration` owns those), and no serving-metric
-  fits. Serving is validated, never fitted.
+- Fitting anything beyond the two roofline scalars, the efficiency curve,
+  and the frontend latency (no `[[fits]]` linear models;
+  `tools/aisimulate_calibration` owns those), and no serving-metric fits.
+  Serving is validated, never fitted.
 - Fixing simulator physics. The harness reports gaps (for example the serving
   loop's linear decode scaling, below); fixes belong in `src/`.
 - Provisioning nodes (installing vLLM, pulling images, downloading weights).
@@ -66,6 +73,14 @@ specs/*.toml ──parse_experiment──> Experiment (spec.py; resolves labs/*.
     │
     ├─ validate ──> evaluate.evaluate_static | evaluate_serving under a calibration
     │               writes validation-<tag>.json, report-validation-<tag>.md
+    │
+    ├─ fit-curve ─> evaluate.fit_curve_static: sweeps at efficiency 0.005 and 1.0
+    │                 → efficiency_curve.fit_efficiency_curve
+    │               [frontend.fit_frontend_latency from --frontend-dir]
+    │               → curve_profile.render_curve_profile (base profile + keys)
+    │               → evaluate.verify_curve_profile (simulator echoes the curve)
+    │               writes calibration_profile-<tag>.toml, efficiency-curve-<tag>.json,
+    │                      report-calibration-<tag>.md
     │
     └─ report ────> report.md = concatenated report-*.md fragments
 ```
@@ -211,6 +226,51 @@ but one, re-simulates the held-out shape with that fold's scalars, and reports
 mean |error| per metric. Validation always re-simulates rather than assuming
 the proportionality, because roofline phases mix compute and memory terms.
 
+### Efficiency curve (`efficiency_curve.py`, `curve_profile.py`)
+
+The simulator prices a prefill pass as `max(compute(e), weight_read)` with
+`compute(e) = compute(1) / e`. For each measured prefill, `fit-curve` runs
+the simulator at a scalar efficiency of 0.005 (compute dominates every
+shape, so `compute(1) = 0.005 x sim`) and at 1.0 (a result above
+`compute(1)` is the weight-read floor), both with the base profile's
+`decode_memory_bandwidth_scale`. A shape measured below `(1 + margin) x
+floor` (default margin 0.25, `--memory-bound-margin`) is weight-read bound
+and skipped: its efficiency is not identifiable, and the curve clamps there.
+Every other shape gives `efficiency = compute(1) / measured`; shapes with
+equal `batch x prompt` take the median. Fewer than two compute-bound token
+counts, or an efficiency above 1, is a `FitError`.
+
+`render_curve_profile` inserts `compute_efficiency_curve` (and the frontend
+keys) right after the base profile's `[calibration]` header, keeps every
+other byte, and prepends a provenance comment; it refuses a base that already
+sets those keys. `verify_curve_profile` loads the result in the simulator and
+requires the JSON `calibration.compute_efficiency_curve` to echo the fitted
+points.
+
+### Frontend latency (`frontend.py`)
+
+`load_frontend_ttfts` reads `median_ttft_ms` from `in<N>_out1.json`
+(one-output-token runs; they have no TPOT, so the full serving parser does
+not apply). Each prompt length's overhead is that TTFT minus the batch-1
+static prefill of the same length from the curve run; a least-squares line
+in prompt tokens (exact for two lengths, a constant for one) gives
+`frontend_latency_us` and `frontend_latency_per_prompt_token_us`. Negative
+terms are a `FitError`.
+
+### KV capacity estimate (`kv_estimate.py`)
+
+Used by `kv_budget` only when neither `serving.kv_cache_tokens` nor a
+`server.log` capacity is available. vLLM 0.29 gives the KV cache
+`utilization x visible memory - (weights + load overhead) - peak activation`,
+where peak activation comes from a profiling pass over
+`max_num_batched_tokens`. The model: visible = nominal HBM (GiB) - 0.44
+GiB, load overhead 0.24 GiB, peak activation = 0.825 GiB + 1.31 x (2 x ffn
++ hidden) x dtype bytes x max_num_batched_tokens / tp, fitted from the
+memory lines vLLM logged in five 3090 runs. It reproduces vLLM's logged
+capacity within 10% in all five (82,864 tokens at 2048 batched tokens, 24,896
+at 32,768); the previous estimate (utilization x HBM - weights) ignored the
+activation reserve and was 9% to 262% high.
+
 ### Profile emission (`profile.py`)
 
 Same schema as `examples/calibration_h100_vllm_llama31_70b.toml` and
@@ -229,14 +289,18 @@ profile to match the scalar run within 0.01%.
 
 | file | role | key exports |
 |---|---|---|
-| `tools/lab/lab.py` | uv script entry point; subcommands `run`, `sim`, `calibrate`, `validate`, `report` | `main`, `build_parser` |
+| `tools/lab/lab.py` | uv script entry point; subcommands `run`, `sim`, `calibrate`, `validate`, `report`, `curves`, `fit-curve`; `--cluster` overrides the lab's simulator cluster | `main`, `build_parser` |
+| `tools/lab/labharness/efficiency_curve.py` | curve fit math | `CurveSample`, `curve_sample`, `fit_efficiency_curve`, `EfficiencyCurveFit`, `CurvePoint`, `SkippedSample`, `SkipReason`, `CURVE_BASE_EFFICIENCY`, `DEFAULT_MEMORY_BOUND_MARGIN` |
+| `tools/lab/labharness/curve_profile.py` | curve profile TOML | `render_curve_profile`, `CurveProfileInputs` |
+| `tools/lab/labharness/frontend.py` | frontend latency fit | `FrontendSample`, `FrontendFit`, `fit_frontend_latency`, `load_frontend_ttfts` |
+| `tools/lab/labharness/kv_estimate.py` | vLLM KV-capacity estimate | `estimate_kv_tokens`, `KvCapacityInputs`, `VllmMemoryModel` |
 | `tools/lab/labharness/spec.py` | typed specs and parsing | `parse_experiment`, `parse_lab`, `Experiment`, `Lab`, `Node`, `DockerLaunch`, `VenvLaunch`, `StaticBatchWorkload`, `ServingWorkload`, `Shape`, `ReferenceBatch`, `SimAdmission`, `rate_label`, `rate_text` |
 | `tools/lab/labharness/commands.py` | pure plan generation | `build_plan`, `Plan`, `Step`, `Wait`, `Phase`, `bench_serve_args` |
 | `tools/lab/labharness/runner.py` | plan execution, manifest | `Runner`, `dry_run`, `Executor`, `ProbeStatus`, `parse_probe` |
 | `tools/lab/labharness/results.py` | measured-result parsers | `parse_static_lines`, `load_static`, `count_static_results`, `parse_bench_serve`, `load_bench_serve`, `parse_kv_cache_tokens`, `StaticMeasurement`, `ServeMeasurement`, `LatencyStats` |
 | `tools/lab/labharness/simulate.py` | workload rendering and simulator runs | `SimRunner`, `sweep_static`, `sweep_serving`, `littles_law_batch` (phase-pipeline reference batch), `static_workload_toml`, `serving_workload_toml`, `kv_budget`, `Calibration` variants |
 | `tools/lab/labharness/fitting.py` | fit math and error metrics | `fit_scalars`, `leave_one_out_folds`, `match`, `shape_errors`, `summarize`, `pct_error` |
-| `tools/lab/labharness/evaluate.py` | orchestration of sims + fits | `calibrate_static`, `evaluate_static`, `evaluate_serving`, `verify_profile` |
+| `tools/lab/labharness/evaluate.py` | orchestration of sims + fits | `calibrate_static`, `evaluate_static`, `evaluate_serving`, `verify_profile`, `fit_curve_static`, `verify_curve_profile` |
 | `tools/lab/labharness/profile.py` | profile TOML | `render_profile`, `Provenance` |
 | `tools/lab/labharness/report.py` | markdown tables and JSON | `static_table`, `serving_table`, `static_json`, `serving_json`, `fit_json` |
 | `tools/lab/labharness/toml_emit.py` | byte-stable TOML values (mirrors the AISimulate converter) | `fmt_float`, `kv_lines`, `table` |
@@ -332,6 +396,20 @@ works from the repo root as well.
 
 ### Reproducing the recorded runs
 
+Efficiency curve, frontend latency, and the 2026-10-01 re-validation
+(validation ledger entries 14-16):
+
+```sh
+R=lab-runs/2026-10-01-qwen7b-prefill-token-sweep
+B=lab-runs/2026-09-28-static-batch/calibration_profile-pp1-recalibrated.toml
+python3 tools/lab/lab.py fit-curve tools/lab/specs/rtx3090_qwen7b_prefill_token_sweep.toml \
+    --run-dir $R --base-profile $B --tag curve-only
+python3 tools/lab/lab.py fit-curve tools/lab/specs/rtx3090_qwen7b_prefill_token_sweep.toml \
+    --run-dir $R --base-profile $B --frontend-dir lab-runs/2026-09-30-frontend --tag curve
+# needs the base-commit binary for the "before" column (see the script's docstring)
+python3 lab-runs/2026-10-01-structural-calibration/revalidate.py
+```
+
 ```sh
 R=lab-runs/2026-09-28-static-batch; S=tools/lab/specs
 python3 tools/lab/lab.py calibrate $S/rtx3090_qwen7b_static_pp1.toml --run-dir $R --measured real_pp1.jsonl --tag pp1
@@ -359,11 +437,12 @@ python3 tools/lab/lab.py report --run-dir $R2
 
 ## Known limits
 
-- Serving TTFT at low load is under-predicted by 33-39% on the 3090 run: the
-  engine does not model API-server latency, and the static profile
-  under-predicts the 512-token forward pass by ~15%
-  (`docs/validation_ledger.md` entry 6). TPOT, ITL, E2EL, and saturation
-  throughput are within ~15% at most rates.
+- Serving TTFT at low load is under-predicted by 15-19% at 1-4 req/s with
+  the curve + frontend profile (was 33-39%, `docs/validation_ledger.md`
+  entry 15); the rest is in-load interference (arrivals waiting on in-flight
+  steps) the engine does not capture.
+- The efficiency curve was fitted on node0; node1 runs large prefills ~3%
+  slower, so node1 prefills are 3-6% under-predicted with it.
 - Simulated Poisson arrivals use the simulator's RNG, not vLLM's, so arrival
   sample paths differ; compare distributions, not individual requests.
 - The static benchmark times whole `generate()` calls, so its prefill includes

@@ -27,15 +27,9 @@ pub(in crate::serving) struct EngineWorker {
     pub(in crate::serving) members: Vec<usize>,
 }
 
-/// Groups request states by routed GPU set, in first-appearance order.
-pub(in crate::serving) fn engine_workers(states: &[DecodeRequestState]) -> Vec<EngineWorker> {
-    let mut workers: Vec<EngineWorker> = Vec::new();
-    for (state_idx, state) in states.iter().enumerate() {
-        let gpus = route_worker_gpus(&state.decode_route_gpus, state.decode_node);
-        if let Some(worker) = workers.iter_mut().find(|worker| worker.gpus == gpus) {
-            worker.members.push(state_idx);
-            continue;
-        }
+impl EngineWorker {
+    /// A worker on `gpus` (sorted, unique) with no members yet.
+    pub(in crate::serving) fn on_gpus(gpus: Vec<GpuAddr>) -> Self {
         let mut nodes = gpus.iter().map(|gpu| gpu.node_id).collect::<Vec<_>>();
         nodes.sort_unstable();
         nodes.dedup();
@@ -49,12 +43,27 @@ pub(in crate::serving) fn engine_workers(states: &[DecodeRequestState]) -> Vec<E
             })
             .collect::<Vec<_>>();
         resources.sort();
-        workers.push(EngineWorker {
+        Self {
             gpus,
             nodes,
             resources,
-            members: vec![state_idx],
-        });
+            members: Vec::new(),
+        }
+    }
+}
+
+/// Groups request states by routed GPU set, in first-appearance order.
+pub(in crate::serving) fn engine_workers(states: &[DecodeRequestState]) -> Vec<EngineWorker> {
+    let mut workers: Vec<EngineWorker> = Vec::new();
+    for (state_idx, state) in states.iter().enumerate() {
+        let gpus = route_worker_gpus(&state.decode_route_gpus, state.decode_node);
+        if let Some(worker) = workers.iter_mut().find(|worker| worker.gpus == gpus) {
+            worker.members.push(state_idx);
+            continue;
+        }
+        let mut worker = EngineWorker::on_gpus(gpus);
+        worker.members.push(state_idx);
+        workers.push(worker);
     }
     workers
 }
@@ -158,32 +167,42 @@ pub(in crate::serving) fn engine_requests(
         .iter()
         .enumerate()
         .map(|(state_idx, state)| {
-            let sequences = state.batch_size.max(1);
-            let prompt_tokens = state.prompt_tokens.max(1);
-            let prefill_tokens = state.effective_prefill_tokens.clamp(1, prompt_tokens);
-            EngineRequest {
-                worker: worker_of_state[state_idx],
-                arrival_s: state.arrival_s,
-                priority: state.priority,
-                request_idx: state.request_idx,
-                sequences,
-                cached_prompt_tokens: prompt_tokens - prefill_tokens,
-                prefill_tokens,
-                output_tokens: state.decode_tokens.max(1),
-                footprint: KvFootprint {
-                    sequences: u64::from(sequences),
-                    tokens: u64::from(sequences) * u64::from(state.max_sequence_tokens.max(1)),
-                    blocks: state.kv_cache_blocks,
-                },
-                class: state
-                    .traffic_class
-                    .as_deref()
-                    .and_then(|name| limits.classes.iter().position(|class| class.name == name)),
-                cancellation_s: state.cancellation_s,
-                max_queue_delay_s: state.max_queue_delay_s.or(traffic.max_queue_delay_s),
-            }
+            engine_request(state, traffic, limits, worker_of_state[state_idx])
         })
         .collect()
+}
+
+/// The engine request for one routed state, running on `worker`.
+pub(in crate::serving) fn engine_request(
+    state: &DecodeRequestState,
+    traffic: &ServingTraffic,
+    limits: &EngineLimits,
+    worker: WorkerId,
+) -> EngineRequest {
+    let sequences = state.batch_size.max(1);
+    let prompt_tokens = state.prompt_tokens.max(1);
+    let prefill_tokens = state.effective_prefill_tokens.clamp(1, prompt_tokens);
+    EngineRequest {
+        worker,
+        arrival_s: state.arrival_s,
+        priority: state.priority,
+        request_idx: state.request_idx,
+        sequences,
+        cached_prompt_tokens: prompt_tokens - prefill_tokens,
+        prefill_tokens,
+        output_tokens: state.decode_tokens.max(1),
+        footprint: KvFootprint {
+            sequences: u64::from(sequences),
+            tokens: u64::from(sequences) * u64::from(state.max_sequence_tokens.max(1)),
+            blocks: state.kv_cache_blocks,
+        },
+        class: state
+            .traffic_class
+            .as_deref()
+            .and_then(|name| limits.classes.iter().position(|class| class.name == name)),
+        cancellation_s: state.cancellation_s,
+        max_queue_delay_s: state.max_queue_delay_s.or(traffic.max_queue_delay_s),
+    }
 }
 
 fn min_option<const N: usize>(values: [Option<u64>; N]) -> Option<u64> {

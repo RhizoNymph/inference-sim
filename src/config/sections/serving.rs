@@ -608,6 +608,7 @@ pub(in crate::config) struct ServingTrafficSection {
     pub(in crate::config) decode_batching: Option<String>,
     #[serde(alias = "decode_admission_policy", alias = "capacity_policy")]
     pub(in crate::config) decode_capacity_policy: Option<String>,
+    pub(in crate::config) disaggregated_first_token: Option<String>,
     #[serde(
         alias = "backpressure_penalty_weight",
         alias = "queue_backpressure_penalty_weight"

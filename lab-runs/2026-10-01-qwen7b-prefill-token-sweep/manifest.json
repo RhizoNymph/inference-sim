@@ -1,0 +1,54 @@
+{
+  "record": "lab.manifest.v1",
+  "run_id": "2026-10-01-qwen7b-prefill-token-sweep",
+  "experiment": "qwen7b-prefill-token-sweep",
+  "mode": "static-batch",
+  "vllm_version_pin": "0.29.0",
+  "nodes": [
+    "node0"
+  ],
+  "launch": "docker",
+  "remote_run_dir": "$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-prefill-token-sweep",
+  "status": "complete",
+  "error": null,
+  "started_at": "2026-10-02T03:06:23+00:00",
+  "finished_at": "2026-10-02T03:13:10+00:00",
+  "simulator_git_sha": "85e39eab6ea99c5a99e2313ab04d1c6cce5984b4",
+  "simulator_git_dirty": true,
+  "probes": {
+    "node0": {
+      "record": "lab.probe.v1",
+      "hostname": "d151615b43d0",
+      "python": "3.12.3",
+      "vllm_version": "0.29.0",
+      "torch_version": "2.13.0+cu130",
+      "ray_version": null,
+      "transformers_version": "5.16.1",
+      "cuda_version": "13.0",
+      "nccl_version": "2.29.7",
+      "kernel": "6.17.0-35-generic",
+      "gpus": [
+        {
+          "name": "NVIDIA GeForce RTX 3090",
+          "memory_mib": 24576,
+          "pcie_gen_max": "4"
+        }
+      ],
+      "driver_version": "590.48.01"
+    }
+  },
+  "spec_file": "spec.toml",
+  "lab_file": "lab.toml",
+  "commands": [
+    "ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'\nmkdir -p \"$HOME/inference-sim-lab/bench\" \"$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-prefill-token-sweep\"\nLAB_EOF",
+    "scp -q /home/nymph/Code/ai/inference-sim/rtx3090-lab-sweeps/tools/lab/remote/bench_latency.py /home/nymph/Code/ai/inference-sim/rtx3090-lab-sweeps/tools/lab/remote/probe_env.py node0:inference-sim-lab/bench/",
+    "ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'\npkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; docker rm -f lab-2026-10-01-qwen7b-prefill-token-sweep >/dev/null 2>&1 || true; \"$HOME/inference-sim-lab/.venv/bin/ray\" stop --force >/dev/null 2>&1 || true\nLAB_EOF",
+    "ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'\ndocker run --rm --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --ipc=host --user \"$(id -u):$(id -g)\" -e HF_HOME=\"/hf\" -e HOME=\"/tmp\" -e VLLM_CACHE_ROOT=\"/tmp/vllm-cache\" -e PYTHONUNBUFFERED=\"1\" -v \"$HOME/.cache/huggingface:/hf\" -v \"$HOME/inference-sim-lab:/lab\" --entrypoint python3 vllm/vllm-openai:v0.29.0 /lab/bench/probe_env.py\nLAB_EOF",
+    "ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'\ndocker run -d --name lab-2026-10-01-qwen7b-prefill-token-sweep --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --ipc=host --user \"$(id -u):$(id -g)\" -e HF_HOME=\"/hf\" -e HOME=\"/tmp\" -e VLLM_CACHE_ROOT=\"/tmp/vllm-cache\" -e PYTHONUNBUFFERED=\"1\" -v \"$HOME/.cache/huggingface:/hf\" -v \"$HOME/inference-sim-lab:/lab\" --entrypoint python3 vllm/vllm-openai:v0.29.0 /lab/bench/bench_latency.py --model Qwen/Qwen2.5-7B-Instruct --shapes 1x16,1x32,1x64,1x128,1x256,1x512,1x1024,1x2048,1x4096 --decode 128 --warmup 2 --iters 5 --tp 1 --pp 1 --dtype bfloat16 --gpu-memory-utilization 0.85 --max-model-len 4352 --max-num-batched-tokens 16384 --max-num-seqs 64 --seed 0 --output /lab/runs/2026-10-01-qwen7b-prefill-token-sweep/results.jsonl\nLAB_EOF",
+    "ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'\nn=$(grep -c '^{.*\"record\": \"lab.static_batch.v1\"' \"$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-prefill-token-sweep/results.jsonl\" 2>/dev/null); d=$(grep -c '^{.*\"record\": \"lab.done.v1\"' \"$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-prefill-token-sweep/results.jsonl\" 2>/dev/null); if [ -n \"$(docker ps -q --filter name=^lab-2026-10-01-qwen7b-prefill-token-sweep$)\" ]; then a=1; else a=0; fi; if [ \"${d:-0}\" -ge 1 ] && [ \"${n:-0}\" -ge 9 ]; then c=1; else c=0; fi; echo \"complete=$c progress=${n:-0} alive=$a\"\nLAB_EOF",
+    "ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'\ndocker logs lab-2026-10-01-qwen7b-prefill-token-sweep > \"$HOME/inference-sim-lab/runs/2026-10-01-qwen7b-prefill-token-sweep/bench.log\" 2>&1\nLAB_EOF",
+    "scp -q node0:inference-sim-lab/runs/2026-10-01-qwen7b-prefill-token-sweep/results.jsonl /home/nymph/Code/ai/inference-sim/rtx3090-lab-sweeps/lab-runs/2026-10-01-qwen7b-prefill-token-sweep/measured.jsonl",
+    "scp -q node0:inference-sim-lab/runs/2026-10-01-qwen7b-prefill-token-sweep/bench.log /home/nymph/Code/ai/inference-sim/rtx3090-lab-sweeps/lab-runs/2026-10-01-qwen7b-prefill-token-sweep/bench.log",
+    "ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'\npkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; docker rm -f lab-2026-10-01-qwen7b-prefill-token-sweep >/dev/null 2>&1 || true; \"$HOME/inference-sim-lab/.venv/bin/ray\" stop --force >/dev/null 2>&1 || true\nLAB_EOF"
+  ]
+}

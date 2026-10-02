@@ -8,15 +8,15 @@ LAB_EOF
 scp -q /src/tools/lab/remote/bench_latency.py /src/tools/lab/remote/probe_env.py node0:inference-sim-lab/bench/
 # [clean] stop stale processes on node0
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
-pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; docker rm -f lab-2026-09-28-qwen7b-static-pp1 >/dev/null 2>&1 || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; pkill -f '[V]LLM::' || true; docker rm -f lab-2026-09-28-qwen7b-static-pp1 >/dev/null 2>&1 || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
 LAB_EOF
 # [preflight] probe node0 -> probe-node0.json
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
-docker run --rm --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --ipc=host --user "$(id -u):$(id -g)" -e HF_HOME="/hf" -e HOME="/tmp" -e VLLM_CACHE_ROOT="/tmp/vllm-cache" -e PYTHONUNBUFFERED="1" -v "$HOME/.cache/huggingface:/hf" -v "$HOME/inference-sim-lab:/lab" --entrypoint python3 vllm/vllm-openai:v0.29.0 /lab/bench/probe_env.py
+docker run --rm --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --ipc=host --user "$(id -u):$(id -g)" -e HF_HOME="/hf" -e HOME="/tmp" -e VLLM_CACHE_ROOT="/tmp/vllm-cache" -e PYTHONUNBUFFERED="1" -e CUDA_HOME="/usr/local/cuda" -v "$HOME/.cache/huggingface:/hf" -v "$HOME/inference-sim-lab:/lab" --entrypoint python3 vllm/vllm-openai:v0.29.0 /lab/bench/probe_env.py
 LAB_EOF
 # [launch] start static-batch benchmark
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
-docker run -d --name lab-2026-09-28-qwen7b-static-pp1 --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --ipc=host --user "$(id -u):$(id -g)" -e HF_HOME="/hf" -e HOME="/tmp" -e VLLM_CACHE_ROOT="/tmp/vllm-cache" -e PYTHONUNBUFFERED="1" -v "$HOME/.cache/huggingface:/hf" -v "$HOME/inference-sim-lab:/lab" --entrypoint python3 vllm/vllm-openai:v0.29.0 /lab/bench/bench_latency.py --model Qwen/Qwen2.5-7B-Instruct --shapes 1x512,1x2048,8x512,8x2048,32x512 --decode 128 --warmup 2 --iters 5 --tp 1 --pp 1 --dtype bfloat16 --gpu-memory-utilization 0.85 --max-model-len 4096 --max-num-batched-tokens 16384 --max-num-seqs 64 --seed 0 --output /lab/runs/2026-09-28-qwen7b-static-pp1/results.jsonl
+docker run -d --name lab-2026-09-28-qwen7b-static-pp1 --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --ipc=host --user "$(id -u):$(id -g)" -e HF_HOME="/hf" -e HOME="/tmp" -e VLLM_CACHE_ROOT="/tmp/vllm-cache" -e PYTHONUNBUFFERED="1" -e CUDA_HOME="/usr/local/cuda" -v "$HOME/.cache/huggingface:/hf" -v "$HOME/inference-sim-lab:/lab" --entrypoint python3 vllm/vllm-openai:v0.29.0 /lab/bench/bench_latency.py --model Qwen/Qwen2.5-7B-Instruct --shapes 1x512,1x2048,8x512,8x2048,32x512 --decode 128 --warmup 2 --iters 5 --tp 1 --pp 1 --dtype bfloat16 --gpu-memory-utilization 0.85 --max-model-len 4096 --max-num-batched-tokens 16384 --max-num-seqs 64 --seed 0 --output /lab/runs/2026-09-28-qwen7b-static-pp1/results.jsonl
 LAB_EOF
 # [wait] static-batch results (poll until complete=1, expected=5, timeout=3600s)
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
@@ -32,5 +32,5 @@ scp -q node0:inference-sim-lab/runs/2026-09-28-qwen7b-static-pp1/results.jsonl /
 scp -q node0:inference-sim-lab/runs/2026-09-28-qwen7b-static-pp1/bench.log /runs/2026-09-28-qwen7b-static-pp1/bench.log
 # [teardown] stop stale processes on node0
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
-pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; docker rm -f lab-2026-09-28-qwen7b-static-pp1 >/dev/null 2>&1 || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
+pkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; pkill -f '[V]LLM::' || true; docker rm -f lab-2026-09-28-qwen7b-static-pp1 >/dev/null 2>&1 || true; "$HOME/inference-sim-lab/.venv/bin/ray" stop --force >/dev/null 2>&1 || true
 LAB_EOF

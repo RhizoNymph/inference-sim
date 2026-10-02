@@ -78,13 +78,18 @@ Overview:
         disaggregated, and fully disaggregated prefill/decode pools, arrivals
         and traffic classes, batching, queueing, KV transfer routing, SLOs,
         capacity and memory pressure, rejections, objective scoring, and
-        calibrated serving metrics. Colocated continuous-batching candidates
-        run on an iteration-level engine (vLLM V1-style steps priced from
-        their composition); all others on the phase-pipeline scheduler.
+        calibrated serving metrics. Continuous-batching candidates run on an
+        iteration-level engine (vLLM V1-style steps priced from their
+        composition): colocated pools on one worker per GPU set,
+        disaggregated and partially disaggregated pools as prefill and
+        decode workers joined by decode-initiated KV pulls over FIFO
+        directed link queues. Independent batching and data-parallel
+        replicas stay on the phase-pipeline scheduler.
       key_files:
         - src/serving.rs (module root, ServingSolver)
         - src/serving/scheduling.rs (request states, scheduler dispatch)
         - src/serving/engine/ (iteration-level serving engine)
+        - src/serving/engine/disaggregated.rs, engine/transfer/ (disaggregated workers, KV transfer plans and link queues)
         - src/serving/scheduling/pipeline.rs (phase-pipeline scheduler)
         - src/serving/scheduling/summary.rs (shared metric summary)
         - src/serving/scheduling/ (prefill/decode batching for the pipeline)
@@ -158,10 +163,14 @@ Overview:
     makespan becomes estimated_latency_s. serving reuses the solver per pool and
     layers arrivals, batching, queueing, KV transfer, and SLO accounting on top,
     applying its own serving-scope fits through
-    Solver::fitted_latency_from_features. For colocated continuous-batching
-    candidates, serving builds a solver IterationCostModel from the placed
-    config and runs the discrete-event engine (src/serving/engine/), which
-    prices every engine step from its prefill/decode composition and writes
+    Solver::fitted_latency_from_features. For continuous-batching
+    candidates, serving builds solver IterationCostModels from the placed
+    configs and runs the discrete-event engine (src/serving/engine/), which
+    prices every engine step from its prefill/decode composition; for
+    disaggregated pools it also builds per-request KV transfer plans from
+    the topology graph and measured send_recv curves
+    (src/serving/engine/transfer/) and moves each request from its prefill
+    worker to its decode worker through FIFO link queues. The engine writes
     request lifecycles back into the same request states the phase-pipeline
     scheduler fills; both feed one shared metric summary. cli then ranks, gates (calibration and
     approximation policies), and renders text/JSON/CSV, carrying every fit
@@ -225,11 +234,17 @@ Features Index:
       Analytical per-phase latency model: dense parameter FLOPs plus causal
       attention FLOPs for prefill/decode, and weight-read plus KV-cache-read
       HBM bandwidth terms for decode, sharded across tensor/pipeline ranks
-      only for the attention and KV terms.
+      only for the attention and KV terms. Prefill is bounded below by one
+      weight read; compute efficiency is the scalar compute_efficiency or an
+      optional compute_efficiency_curve over tokens per forward pass; a
+      shape-derived parameter count that disagrees with parameters_gb emits
+      model_parameter_count_mismatch.
     entry_points:
       - src/solver.rs::estimate_compute_latency_s
       - src/solver.rs::decode_compute_latency_s
       - src/solver.rs::prefill_baseline_s
+      - src/calibration/efficiency_curve.rs::ComputeEfficiencyCurve
+      - src/workload.rs::ModelSpec::parameter_count_mismatch
     depends_on: [types, workload]
     doc: docs/features/compute_roofline.md
   serving_iteration_engine:
@@ -238,7 +253,9 @@ Features Index:
       colocated continuous-batching candidates: per-step decode tokens plus
       budget-filling prefill chunks, KV-gated admission with a waiting queue
       instead of rejection, and per-step latency from the solver roofline for
-      the step's actual composition (with TP all-reduces and PP stages).
+      the step's actual composition (with TP all-reduces and PP stages,
+      compute efficiency at the step's token count), plus a calibrated
+      per-request frontend (API-server) latency added to TTFT and E2EL.
     entry_points:
       - src/serving/engine.rs::select_scheduler_model
       - src/serving/engine.rs::run_iteration_engine
@@ -246,6 +263,24 @@ Features Index:
       - src/solver/step_cost.rs::IterationCostModel
     depends_on: [compute_roofline]
     doc: docs/features/serving_iteration_engine.md
+  disaggregated_serving_engine:
+    description: >
+      Disaggregated and partially disaggregated prefill/decode serving on the
+      iteration engine, modeled on vLLM's NixlConnector: prefill workers run
+      chunked-prefill steps, finished prompts queue on their decode worker,
+      decode admission reserves KV and starts a pull of the request's
+      TP/PP-sharded prompt KV priced from directed send_recv curves or routed
+      alpha-beta, FIFO per directed link, and the decode worker recomputes
+      the last prompt token to emit the client's first token (vLLM proxy
+      TTFT convention, configurable).
+    entry_points:
+      - src/serving/engine.rs::select_scheduler_model
+      - src/serving/engine/disaggregated.rs::run_disaggregated_engine
+      - src/serving/engine/core.rs::run_engine_jobs
+      - src/serving/engine/transfer/plan.rs::KvTransferPlanner
+      - examples/rtx3090_qwen7b_disaggregated_workload.toml
+    depends_on: [serving_iteration_engine, collective_curves]
+    doc: docs/features/disaggregated_serving_engine.md
   lab_harness:
     description: >
       Turn-key measurement-to-calibration pipeline: TOML experiment specs
@@ -265,4 +300,8 @@ Features Index:
       - docs/validation_ledger.md
     depends_on: [compute_roofline, calibration_fits]
     doc: docs/features/lab_harness.md
+    notes: >
+      fit-curve fits compute_efficiency_curve from a prefill token sweep and
+      frontend latency from isolated-request benchmarks; kv_estimate.py sizes
+      vLLM's KV cache like vLLM's memory profiler when server.log is absent.
 ```

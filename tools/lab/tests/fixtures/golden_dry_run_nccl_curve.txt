@@ -22,19 +22,21 @@ pkill -f '[c]ollective_bench.py' || true
 LAB_EOF
 # [preflight] probe node0 -> probe-node0.json
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
-env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" python "$HOME/inference-sim-lab/bench/probe_env.py"
+env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" CUDA_HOME="/usr/local/cuda" python "$HOME/inference-sim-lab/bench/probe_env.py"
 LAB_EOF
 # [preflight] probe node1 -> probe-node1.json
 ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
-env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" python "$HOME/inference-sim-lab/bench/probe_env.py"
+env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" CUDA_HOME="/usr/local/cuda" python "$HOME/inference-sim-lab/bench/probe_env.py"
 LAB_EOF
 # [launch] start rank 0 on node0
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'
-cd "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" MASTER_ADDR="10.1.1.69" MASTER_PORT="29500" RANK="0" WORLD_SIZE="2" LOCAL_RANK="0" python "$HOME/inference-sim-lab/bench/collective_bench.py" --min-bytes 1024 --max-bytes 268435456 --iters 30 --warmup 5 --ops all_reduce,all_gather,reduce_scatter,all_to_all,send_recv --sim-node-id 0 --output "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl" > "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank0.log" 2>&1 < /dev/null &
+cd "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve" || exit 1
+nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" CUDA_HOME="/usr/local/cuda" MASTER_ADDR="10.1.1.69" MASTER_PORT="29500" RANK="0" WORLD_SIZE="2" LOCAL_RANK="0" python "$HOME/inference-sim-lab/bench/collective_bench.py" --min-bytes 1024 --max-bytes 268435456 --iters 30 --warmup 5 --ops all_reduce,all_gather,reduce_scatter,all_to_all,send_recv --sim-node-id 0 --output "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl" > "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank0.log" 2>&1 < /dev/null &
 LAB_EOF
 # [launch] start rank 1 on node1
 ssh -o BatchMode=yes node1 bash -l -s <<'LAB_EOF'
-cd "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve" && nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" MASTER_ADDR="10.1.1.69" MASTER_PORT="29500" RANK="1" WORLD_SIZE="2" LOCAL_RANK="0" python "$HOME/inference-sim-lab/bench/collective_bench.py" --min-bytes 1024 --max-bytes 268435456 --iters 30 --warmup 5 --ops all_reduce,all_gather,reduce_scatter,all_to_all,send_recv --sim-node-id 1 --output "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl" > "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank1.log" 2>&1 < /dev/null &
+cd "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve" || exit 1
+nohup env PATH="$HOME/inference-sim-lab/.venv/bin:$PATH" NCCL_SOCKET_IFNAME="bond0" GLOO_SOCKET_IFNAME="bond0" PYTHONUNBUFFERED="1" CUDA_HOME="/usr/local/cuda" MASTER_ADDR="10.1.1.69" MASTER_PORT="29500" RANK="1" WORLD_SIZE="2" LOCAL_RANK="0" python "$HOME/inference-sim-lab/bench/collective_bench.py" --min-bytes 1024 --max-bytes 268435456 --iters 30 --warmup 5 --ops all_reduce,all_gather,reduce_scatter,all_to_all,send_recv --sim-node-id 1 --output "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl" > "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank1.log" 2>&1 < /dev/null &
 LAB_EOF
 # [wait] collective results (poll until complete=1, expected=114, timeout=3600s)
 ssh -o BatchMode=yes node0 bash -l -s <<'LAB_EOF'

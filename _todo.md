@@ -38,9 +38,15 @@ constants an H100 run can fit.
       the network every layer. Expected fixes: one-way-slower links
       (node0->node1 is 3.6 Gb/s vs 9.4 Gb/s back) and a small-message regime
       in the collective cost model.
-- [ ] 3. Disaggregated prefill/decode across nodes (1 prefill + 1-2 decode)
+- [x] 3. [done 2026-10-01, ledger 18: 1P(node0)+1D(node1) over NIXL/UCX
+      TCP; TTFT p50 -19..-1% below saturation with curve + frontend, TPOT
+      within 0-8%; burst -48% because links are FIFO, not fair-shared]
+      Disaggregated prefill/decode across nodes (1 prefill + 1-2 decode)
       with a vLLM KV connector, to validate the KV-transfer model for the
-      first time. Needs ~30 GB freed on node2 for the 3-node variant.
+      first time.
+      - [ ] fair-share link bandwidth across concurrent KV pulls (burst:
+        per-transfer 0.1 s -> 2.8 s at ~300 MB/s aggregate).
+      - [ ] proxy hops (~60 ms remaining low-load TTFT gap).
 - [x] 4. [done 2026-09-30, uncommitted in staging: tools/lab, first real
       runs succeeded] Turn-key measurement pipeline: unattended benchmark harness, a fitter
       that emits a complete calibration TOML with holdout stats and feature
@@ -51,15 +57,41 @@ constants an H100 run can fit.
       model (Qwen2.5-14B across 2 nodes), long contexts (8k-16k) and larger
       batches. Tells us which constants are per-GPU vs per-model, which sizes
       the H100 plan.
-- [ ] 6. Small structural gaps already visible: per-iteration overhead floor
-      (short prefill 16% under), pipeline microbatching inside one
-      multi-request batch (0.85x measured vs 1.03x simulated), decode batch
-      non-linearity around CUDA-graph capture sizes.
+- [ ] 6. Small structural gaps already visible:
+      - [x] [done 2026-10-01, ledger 14] short prefill 16% under: not a
+        per-iteration overhead but token-count-dependent GEMM efficiency plus
+        a missing weight-read floor; fixed by `compute_efficiency_curve` and
+        the prefill floor (1x512 -14.9% -> -0.2%).
+      - [x] [done 2026-10-01, ledger 16] decode batch non-linearity around
+        CUDA-graph capture sizes: measured negligible on the 3090 (memory-
+        bound steps), not modeled.
+      - [ ] pipeline microbatching inside one multi-request batch (0.85x
+        measured vs 1.03x simulated).
+      - [ ] engine never preempts; vLLM preempts and recomputes under KV
+        exhaustion (2.4x step time measured at batch 48-64,
+        lab-runs/2026-10-01-qwen7b-decode-batch-sweep-tail). Do after the
+        engine-core disaggregation work lands.
+      - [ ] decode step error trends with total KV (-0.7% at batch 1 to -6.5%
+        at batch 32; -0.9% to -4.4% over 4k-16k contexts): paged KV reads run
+        at about half the weight-read bandwidth. Add a KV-read bandwidth
+        scale and fit it from the decode sweep.
+      - [ ] node1 prefills ~3% slower than node0 (curve fitted on node0);
+        batched small prefills on node1 (2-4 x 512) take per-sequence time
+        and are 8-16% under. Measure 2x512/4x512 on node0 to tell node
+        variance from a batching effect.
 - [ ] 7. Degraded states: throttled NIC, lowered GPU clocks, node removed
-      mid-run. Blocked: `tc` and `nvidia-smi -lgc` need root on the nodes and
-      there is no passwordless sudo.
-- [ ] Write the H100 plan before getting hardware: fixed matrix of models x
-      parallelism x shapes x rates, unattended scripts, time budget.
+      mid-run.
+      - [x] [done 2026-10-01, ledger 17] GPU clock locked at 1200 MHz:
+        prefill 1.53x slower (sustained clock is ~1835 MHz, not 2100), decode
+        1.26x slower with memory clocks untouched. Peak-only scaling: prefill
+        13.8%, decode 22.8% error. Needs a degraded-GPU compute factor
+        relative to the sustained clock plus a bandwidth factor.
+      - [ ] throttled NIC (`tc` on bond0).
+      - [ ] node removed mid-run: not modeled (the simulator has no failure
+        or re-routing events); out of scope before H100s.
+- [x] Write the H100 plan before getting hardware: fixed matrix of models x
+      parallelism x shapes x rates, unattended scripts, time budget
+      (docs/h100_validation_plan.md, 2026-10-01).
 
 ## Progress log
 
@@ -113,13 +145,25 @@ constants an H100 run can fit.
   interference the engine does not yet capture (arrival waiting on in-flight
   decode steps / mixed-step slowdown). Next: model the frontend constant,
   then compare per-request TTFT decomposition at 1 req/s.
-- TODO (small, recommended): warn when a derived parameter count disagrees
-  with parameters_gb (e.g. >10%), since a wrong ffn default is otherwise
-  silently absorbed by fitted constants.
-- TODO: short-prompt prefill is 16% under (1x512) and is not a per-step
-  overhead (fitted overhead is 0.04 ms). Likely GEMM efficiency falling at
-  small token counts; a token-count-dependent efficiency curve (or
-  AISimulate-style GEMM tables) would capture it.
+- [done 2026-10-01] warn when a derived parameter count disagrees with
+  parameters_gb: approximation `model_parameter_count_mismatch` (>10%, only
+  when ffn_hidden_size and parameter_count_billion are both absent).
+- [done 2026-10-01] short-prompt prefill: token-dependent efficiency curve
+  (`[calibration] compute_efficiency_curve`, fitted by `lab.py fit-curve`)
+  and a prefill weight-read floor. Ledger 14: 7B PP=1 prefill 4.3% -> 0.8%,
+  14B PP=2 prefill 13.4% -> 8.7%, PP=2 prefill 14.6% -> 10.4%; node1 long
+  context 1.4% -> 4.2% (node offset, see item 6).
+- 2026-10-01 frontend latency modeled: `[calibration] frontend_latency_us =
+  5081`, `frontend_latency_per_prompt_token_us = 14.44` (fitted from the
+  frontend probe minus the static batch-1 prefill), applied by the iteration
+  engine as an ingress delay. Serving low-load TTFT p50 -33/-35/-39% ->
+  -15/-17/-19% at 1/2/4 req/s with curve + frontend (ledger 15); TPOT p50
+  mean error 10.8% -> 6.5%. Remaining ~25 ms at 1 req/s is in-load
+  interference.
+- 2026-10-01 harness KV-capacity fallback now mirrors vLLM's memory profiler
+  (activation reserve grows with max_num_batched_tokens): within 10% of all
+  five logged capacities (was up to +262%, ledger 16). The simulator has no
+  KV-capacity model of its own; validations use vLLM's logged capacity.
 - [resolved: per-direction NIC/link bandwidth] The simulator could not
   represent a link slower in one direction.
 - 2026-09-30 measured collective curves (workstream B, merged into

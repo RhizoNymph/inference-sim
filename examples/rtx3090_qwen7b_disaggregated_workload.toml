@@ -1,0 +1,97 @@
+schema_version = 1
+
+# Disaggregated serving reference case for the RTX 3090 lab: vLLM 0.29 with
+# NixlConnector, one prefill instance on node0 and one decode instance on
+# node1, behind vLLM's NIXL toy proxy, driven by `vllm bench serve` with
+# random 512-token prompts and 128 output tokens.
+#
+#   inference-sim --cluster examples/rtx3090_lab_cluster_measured_curves.toml \
+#     --workload examples/rtx3090_qwen7b_disaggregated_workload.toml --json --top-k 1
+#
+# Sweep: arrival_rate_per_s = 1..8 (Poisson), and the burst case
+# (arrival = "fixed", arrival_gap_ms = 0.0, i.e. vLLM's --request-rate inf).
+#
+# What the simulator does (docs/features/disaggregated_serving_engine.md):
+# the prefill worker runs vLLM-style chunked-prefill steps; the step that
+# finishes a prompt samples the prefill instance's (internal) token and the
+# request joins node1's decode queue; decode admission reserves its KV blocks
+# and starts the KV pull (29.4 MB per 512-token request, priced from the
+# measured send_recv node0->node1 curve, ~0.36 GB/s, FIFO per directed link);
+# after the pull the decode worker recomputes the last prompt token and
+# samples the client's first token (disaggregated_first_token =
+# "decode_instance", vLLM's proxy convention), then decodes the rest.
+
+[model]
+id = "Qwen2.5-7B-Instruct"
+layers = 28
+hidden_size = 3584
+attention_heads = 28
+kv_heads = 4
+ffn_hidden_size = 18944
+vocab_size = 152064
+parameters_gb = 15.23
+dtype = "bf16"
+
+# Reference shape for the static feasibility/memory scores; the iteration
+# engine prices every step from its own composition.
+[request]
+batch_size = 1
+prompt_tokens = 512
+decode_tokens = 128
+max_sequence_tokens = 640
+phase = "end_to_end"
+
+# 3090 constants refit 2026-09-30 (docs/validation_ledger.md entry 11), with
+# the cluster's 88 TFLOPs peak. Nothing is fitted to disaggregated data.
+[calibration]
+compute_efficiency = 0.8494
+decode_memory_bandwidth_scale = 0.8383
+
+[search]
+tensor_ranks = [1]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]
+
+[serving]
+mode = "fully_disaggregated"
+serving_stack = "vllm"
+objective = "e2el"
+prefill_nodes = [0]
+decode_nodes = [1]
+
+[serving.traffic]
+request_count = 200
+arrival = "poisson"
+arrival_rate_per_s = 4.0
+arrival_seed = 0
+shape_seed = 0
+# Same first-token convention as vLLM's disaggregated proxy (the default).
+disaggregated_first_token = "decode_instance"
+prefill_batching = "continuous"
+max_prefill_batch_tokens = 2048     # vLLM max_num_batched_tokens, per worker
+max_prefill_chunk_tokens = 2048
+decode_batching = "continuous"
+max_decode_batch_tokens = 64        # vLLM max_num_seqs, per worker
+max_decode_sequences_per_gpu = 64
+# KV capacity per GPU (gpu_memory_utilization 0.85, from the colocated run's
+# server.log); per-GPU limits apply to each worker separately.
+kv_block_tokens = 16
+max_resident_tokens_per_gpu = 82864
+max_kv_blocks_per_gpu = 5179
+prefix_cache_hit_rate = 0.0
+batch_sizes = [1]
+prompt_tokens = [512]
+decode_tokens = [128]
+
+[serving.prefill_search]
+tensor_ranks = [1]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]
+
+[serving.decode_search]
+tensor_ranks = [1]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]

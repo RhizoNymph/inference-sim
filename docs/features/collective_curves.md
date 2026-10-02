@@ -26,9 +26,12 @@
 
 ## Non-scope
 
-- KV-cache transfers between serving pools are never priced from curves
-  (they use the routed graph plus any `kv_transfer` calibration fit); they do
-  honour asymmetric links. Their pricing is `AlphaBeta(NotConsulted)`.
+- KV-cache transfers scheduled by the phase pipeline are never priced from
+  curves (they use the routed graph plus any `kv_transfer` calibration fit);
+  they do honour asymmetric links. Their pricing is
+  `AlphaBeta(NotConsulted)`. KV pulls on the disaggregated serving engine do
+  use directed `send_recv` curves per GPU-pair flow
+  (docs/features/disaggregated_serving_engine.md).
 - No curve scaling across rank counts, dtypes, or scopes: a curve prices only
   the exact op / scope / rank count it was measured for. Unmatched calls fall
   back to alpha-beta with `collective_curve_absent`.

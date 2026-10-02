@@ -15,7 +15,7 @@ use crate::{
     ServingArrivalPattern, ServingCostEstimate, ServingKvRouteConstraints, ServingMetricCeilings,
     ServingMetrics, ServingObjective, ServingSolver, ServingSolverOptions, ServingTraffic,
     ServingValueDistribution, SimulationApproximation, Solver, SolverOptions,
-    calibration::SimulationCalibration,
+    calibration::{ComputeEfficiencyCurve, SimulationCalibration},
     config::{
         ApproximationMetricGate, ApproximationPolicy, ApproximationPolicyViolation,
         CalibrationApplicabilityWarning, CalibrationBenchmarkPoint, CalibrationCoverageReport,

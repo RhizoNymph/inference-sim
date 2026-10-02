@@ -1,0 +1,314 @@
+schema_version = 1
+
+[profile]
+name = "rtx3090-lab-vllm-qwen2.5-7b-instruct-tp1-pp1"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+serving_stack = "vllm"
+backend_version = "0.29.0"
+environment_hash = "sha256:55b259a4758cffcdfbc2cfdf716f8cc84a5c0df8b9df866d1fb33fe6925cedc7"
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+date = "2026-09-28"
+notes = "Two-scalar fit by tools/lab: compute_efficiency = 0.35 * median(sim/real prefill), decode_memory_bandwidth_scale = 1 * median(sim/real decode step) over 5 shapes; leave-one-shape-out mean |error| prefill 5.17%, decode step 0.84%, end-to-end 1.27%."
+kernel_settings = ["prefix_caching=off", "cuda_graphs=on", "tensor_ranks=1", "pipeline_ranks=1", "max_num_batched_tokens=16384"]
+
+[valid_shape]
+min_batch_size = 1
+max_batch_size = 32
+min_prompt_tokens = 512
+max_prompt_tokens = 2048
+min_decode_tokens = 128
+max_decode_tokens = 128
+min_sequence_tokens = 640
+max_sequence_tokens = 2176
+
+[calibration]
+collective_latency_scale = 1.824
+compute_efficiency = 0.849357
+decode_memory_bandwidth_scale = 0.838309
+
+[[benchmarks]]
+name = "prefill-tp1-pp1-b1-p512-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 512
+decode_tokens = 1
+sequence_tokens = 513
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 114.678
+predicted_ms = 97.5738
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "decode-tp1-pp1-b1-p512-d128"
+kind = "compute"
+phase = "decode"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 512
+decode_tokens = 128
+sequence_tokens = 640
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 2465.79
+predicted_ms = 2489.84
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "end_to_end-tp1-pp1-b1-p512-d128"
+kind = "compute"
+phase = "end_to_end"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 512
+decode_tokens = 128
+sequence_tokens = 640
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 2562.25
+predicted_ms = 2587.41
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "prefill-tp1-pp1-b1-p2048-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 2048
+decode_tokens = 1
+sequence_tokens = 2049
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 399.359
+predicted_ms = 398.742
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "decode-tp1-pp1-b1-p2048-d128"
+kind = "compute"
+phase = "decode"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 2048
+decode_tokens = 128
+sequence_tokens = 2176
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 2475.99
+predicted_ms = 2504.21
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "end_to_end-tp1-pp1-b1-p2048-d128"
+kind = "compute"
+phase = "end_to_end"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 1
+prompt_tokens = 2048
+decode_tokens = 128
+sequence_tokens = 2176
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 2858.3
+predicted_ms = 2902.95
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "prefill-tp1-pp1-b8-p512-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 8
+prompt_tokens = 512
+decode_tokens = 1
+sequence_tokens = 513
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 780.591
+predicted_ms = 780.591
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "decode-tp1-pp1-b8-p512-d128"
+kind = "compute"
+phase = "decode"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 8
+prompt_tokens = 512
+decode_tokens = 128
+sequence_tokens = 640
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 2527.59
+predicted_ms = 2527.59
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "end_to_end-tp1-pp1-b8-p512-d128"
+kind = "compute"
+phase = "end_to_end"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 8
+prompt_tokens = 512
+decode_tokens = 128
+sequence_tokens = 640
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 3288.84
+predicted_ms = 3308.18
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "prefill-tp1-pp1-b8-p2048-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 8
+prompt_tokens = 2048
+decode_tokens = 1
+sequence_tokens = 2049
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 3095.53
+predicted_ms = 3189.94
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "decode-tp1-pp1-b8-p2048-d128"
+kind = "compute"
+phase = "decode"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 8
+prompt_tokens = 2048
+decode_tokens = 128
+sequence_tokens = 2176
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 2657.54
+predicted_ms = 2642.54
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "end_to_end-tp1-pp1-b8-p2048-d128"
+kind = "compute"
+phase = "end_to_end"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 8
+prompt_tokens = 2048
+decode_tokens = 128
+sequence_tokens = 2176
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 5721.03
+predicted_ms = 5832.48
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "prefill-tp1-pp1-b32-p512-d1"
+kind = "compute"
+phase = "prefill"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 32
+prompt_tokens = 512
+decode_tokens = 1
+sequence_tokens = 513
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 3021.1
+predicted_ms = 3122.36
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "decode-tp1-pp1-b32-p512-d128"
+kind = "compute"
+phase = "decode"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 32
+prompt_tokens = 512
+decode_tokens = 128
+sequence_tokens = 640
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 2658.59
+predicted_ms = 2657.02
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"
+
+[[benchmarks]]
+name = "end_to_end-tp1-pp1-b32-p512-d128"
+kind = "compute"
+phase = "end_to_end"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+model = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+batch_size = 32
+prompt_tokens = 512
+decode_tokens = 128
+sequence_tokens = 640
+tensor_ranks = 1
+pipeline_ranks = 1
+expert_ranks = 1
+data_ranks = 1
+measured_ms = 5648.55
+predicted_ms = 5779.38
+source = "lab-runs/2026-09-28-static-batch; vllm 0.29.0 static-batch medians"

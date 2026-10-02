@@ -12,6 +12,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from labharness.efficiency_curve import (
+    CURVE_BASE_EFFICIENCY,
+    DEFAULT_MEMORY_BOUND_MARGIN,
+    EfficiencyCurveFit,
+    curve_sample,
+    fit_efficiency_curve,
+)
 from labharness.errors import FitError, SimulatorError
 from labharness.fitting import (
     ErrorSummary,
@@ -240,6 +247,91 @@ async def verify_profile(
         applicability_status=str(block.get("applicability_status")),
         max_prediction_drift_pct=drift,
     )
+
+
+# ---------------------------------------------------------------------------
+# Compute-efficiency curve
+# ---------------------------------------------------------------------------
+
+
+async def fit_curve_static(
+    runner: SimRunner,
+    exp: Experiment,
+    measured: Sequence[StaticMeasurement],
+    decode_memory_bandwidth_scale: float,
+    *,
+    memory_bound_margin: float = DEFAULT_MEMORY_BOUND_MARGIN,
+) -> EfficiencyCurveFit:
+    """Fit `compute_efficiency_curve` from measured prefills (see efficiency_curve.py).
+
+    `decode_memory_bandwidth_scale` must be the value the curve will be used
+    with, because it sets the weight-read floor that separates memory-bound
+    samples from compute-bound ones.
+    """
+    check_measured_matches_spec(exp, measured)
+    wl = _static_workload(exp)
+    shapes = [m.shape for m in measured]
+    at_base, at_full = await asyncio.gather(
+        sweep_static(
+            runner, exp.model, exp.parallelism, shapes, wl.decode_tokens,
+            ScalarCalibration(CURVE_BASE_EFFICIENCY, decode_memory_bandwidth_scale),
+        ),
+        sweep_static(
+            runner, exp.model, exp.parallelism, shapes, wl.decode_tokens,
+            ScalarCalibration(1.0, decode_memory_bandwidth_scale),
+        ),
+    )  # fmt: skip
+    base_by_shape = {row.shape: row for row in at_base}
+    full_by_shape = {row.shape: row for row in at_full}
+    samples = [
+        curve_sample(m, base_by_shape[m.shape], full_by_shape[m.shape], base_efficiency=CURVE_BASE_EFFICIENCY)
+        for m in measured
+    ]
+    fit = fit_efficiency_curve(samples, memory_bound_margin=memory_bound_margin)
+    get_logger().info(
+        "fitted efficiency curve",
+        extra={
+            "points": " ".join(f"{p.tokens}:{p.efficiency:.4f}" for p in fit.points),
+            "skipped": " ".join(s.shape.label for s in fit.skipped) or "none",
+        },
+    )
+    return fit
+
+
+async def verify_curve_profile(
+    runner: SimRunner, exp: Experiment, profile_path: Path, fit: EfficiencyCurveFit
+) -> None:
+    """Load a curve profile in the simulator and check it reports the fitted points."""
+    wl = _static_workload(exp)
+    calibration = ProfileCalibration(profile_path)
+    shape = exp.workload.shapes[0] if isinstance(exp.workload, StaticBatchWorkload) else None
+    if shape is None:
+        raise FitError("curve verification needs a static-batch spec")
+    payload = await runner.run(
+        f"{calibration.label}-curve-check",
+        static_workload_toml(
+            exp.model, exp.parallelism, shape, wl.decode_tokens, SimPhase.PREFILL, calibration
+        ),
+        asyncio.Semaphore(1),
+    )
+    block = payload.get("calibration")
+    reported = block.get("compute_efficiency_curve") if isinstance(block, dict) else None
+    if not isinstance(reported, list) or len(reported) != len(fit.points):
+        raise SimulatorError(
+            "simulator did not report the fitted efficiency curve", workload=str(profile_path)
+        )
+    for point, pair in zip(fit.points, reported, strict=True):
+        if (
+            not isinstance(pair, list)
+            or len(pair) != 2
+            or pair[0] != point.tokens
+            or abs(float(pair[1]) - point.efficiency) > 1e-5
+        ):
+            raise SimulatorError(
+                "reported efficiency curve differs from the fit",
+                workload=str(profile_path),
+                stderr_tail=f"expected {point.tokens}:{point.efficiency:.6f}, got {pair!r}",
+            )
 
 
 # ---------------------------------------------------------------------------

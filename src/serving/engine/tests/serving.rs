@@ -39,6 +39,7 @@ fn qwen7b() -> ModelSpec {
         vocab_size: 152_064,
         parameters: Bytes::from_gigabytes(15.23),
         parameter_count: None,
+        parameter_count_source: crate::workload::ParameterCountSource::Explicit,
         dtype: DType::Bf16,
         kv_dtype: None,
         experts: None,

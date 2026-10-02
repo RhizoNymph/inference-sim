@@ -477,8 +477,12 @@ pub fn load_calibration_profile_path(path: &Path) -> Result<LoadedCalibrationPro
         profile_file.fits.unwrap_or_default(),
         profile_file.benchmarks.unwrap_or_default(),
     )?;
-    let calibration =
-        calibration_with_defaults(profile_file.calibration, SimulationCalibration::default());
+    let calibration = calibration_with_defaults(
+        "calibration profile calibration",
+        profile_file.calibration,
+        SimulationCalibration::default(),
+    )
+    .map_err(|err| ConfigError::new(format!("{}: {err}", path.display())))?;
     Ok(LoadedCalibrationProfile {
         metadata,
         calibration,
@@ -1822,18 +1826,49 @@ pub(super) fn validate_finite_f64(name: &str, value: f64) -> Result<(), ConfigEr
     Ok(())
 }
 
+/// Parses and validates an optional `compute_efficiency_curve` array of
+/// `[tokens, efficiency]` pairs.
+pub(super) fn parse_compute_efficiency_curve(
+    name: &str,
+    points: Option<&[(u64, f64)]>,
+) -> Result<Option<ComputeEfficiencyCurve>, ConfigError> {
+    let Some(points) = points else {
+        return Ok(None);
+    };
+    ComputeEfficiencyCurve::new(points)
+        .map(Some)
+        .map_err(|err| ConfigError::new(format!("{name}: {err}")))
+}
+
+/// Overlays a `[calibration]` section on `defaults`. `name` prefixes
+/// validation errors (for example `calibration`).
 pub(super) fn calibration_with_defaults(
+    name: &str,
     section: Option<CalibrationSection>,
     defaults: SimulationCalibration,
-) -> SimulationCalibration {
+) -> Result<SimulationCalibration, ConfigError> {
     let Some(section) = section else {
-        return defaults;
+        return Ok(defaults);
     };
+    let compute_efficiency_curve = parse_compute_efficiency_curve(
+        &format!("{name}.compute_efficiency_curve"),
+        section.compute_efficiency_curve.as_deref(),
+    )?
+    .or(defaults.compute_efficiency_curve);
+    validate_nonnegative_optional_f64(
+        &format!("{name}.frontend_latency_us"),
+        section.frontend_latency_us,
+    )?;
+    validate_nonnegative_optional_f64(
+        &format!("{name}.frontend_latency_per_prompt_token_us"),
+        section.frontend_latency_per_prompt_token_us,
+    )?;
 
-    SimulationCalibration {
+    Ok(SimulationCalibration {
         compute_efficiency: section
             .compute_efficiency
             .unwrap_or(defaults.compute_efficiency),
+        compute_efficiency_curve,
         prefill_compute_scale: section
             .prefill_compute_scale
             .unwrap_or(defaults.prefill_compute_scale),
@@ -1879,6 +1914,12 @@ pub(super) fn calibration_with_defaults(
         allow_compute_comm_overlap: section
             .allow_compute_comm_overlap
             .unwrap_or(defaults.allow_compute_comm_overlap),
+        frontend_latency_us: section
+            .frontend_latency_us
+            .unwrap_or(defaults.frontend_latency_us),
+        frontend_latency_per_prompt_token_us: section
+            .frontend_latency_per_prompt_token_us
+            .unwrap_or(defaults.frontend_latency_per_prompt_token_us),
     }
-    .sanitized()
+    .sanitized())
 }
