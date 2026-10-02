@@ -76,8 +76,9 @@ constants an H100 run can fit.
 - [ ] 7. Degraded states: throttled NIC, lowered GPU clocks, node removed
       mid-run. Blocked: `tc` and `nvidia-smi -lgc` need root on the nodes and
       there is no passwordless sudo.
-- [ ] Write the H100 plan before getting hardware: fixed matrix of models x
-      parallelism x shapes x rates, unattended scripts, time budget.
+- [x] Write the H100 plan before getting hardware: fixed matrix of models x
+      parallelism x shapes x rates, unattended scripts, time budget
+      (docs/h100_validation_plan.md, 2026-10-01).
 
 ## Progress log
 
