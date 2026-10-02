@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Final
 
 from labharness.errors import SimulatorError
+from labharness.kv_estimate import KvCapacityInputs, estimate_kv_tokens
 from labharness.results import LatencyStats, number_or_none
 from labharness.spec import (
     Experiment,
@@ -180,18 +181,32 @@ def kv_budget(exp: Experiment, hbm_gb_per_gpu: float, measured_tokens: int | Non
 
     Prefer `measured_tokens` (vLLM's logged "GPU KV cache size: N tokens",
     via the spec's `kv_cache_tokens` or the run's server.log). Otherwise
-    estimate it the way vLLM sizes it: utilization * HBM minus weights, which
-    ignores activation/CUDA-graph workspace and so over-estimates by ~10%.
+    estimate it the way vLLM's memory profiler sizes it (kv_estimate.py),
+    including the peak activation reserve that grows with
+    `max_num_batched_tokens`.
     """
     if measured_tokens is not None:
         blocks = measured_tokens // KV_BLOCK_TOKENS
         return KvBudget(tokens=blocks * KV_BLOCK_TOKENS, blocks=blocks)
     sim = exp.model.sim
-    kv_bytes = _DTYPE_BYTES.get((sim.kv_dtype or sim.dtype).lower(), 2)
-    bytes_per_token = 2 * sim.layers * sim.kv_heads * sim.head_dim * kv_bytes
-    world = exp.parallelism.world_size
-    free_gb = exp.engine.gpu_memory_utilization * hbm_gb_per_gpu * world - sim.parameters_gb
-    tokens = max(0, math.floor(free_gb * 1e9 / bytes_per_token))
+    dtype_bytes = _DTYPE_BYTES.get(sim.dtype.lower(), 2)
+    tokens = estimate_kv_tokens(
+        KvCapacityInputs(
+            hbm_gib_per_gpu=hbm_gb_per_gpu,
+            gpu_memory_utilization=exp.engine.gpu_memory_utilization,
+            max_num_batched_tokens=exp.engine.max_num_batched_tokens,
+            parameters_gb=sim.parameters_gb,
+            layers=sim.layers,
+            hidden_size=sim.hidden_size,
+            ffn_hidden_size=sim.ffn_hidden_size or 4 * sim.hidden_size,
+            kv_heads=sim.kv_heads,
+            head_dim=sim.head_dim,
+            dtype_bytes=dtype_bytes,
+            kv_dtype_bytes=_DTYPE_BYTES.get((sim.kv_dtype or sim.dtype).lower(), 2),
+            tp=exp.parallelism.tp,
+            pp=exp.parallelism.pp,
+        )
+    )
     blocks = tokens // KV_BLOCK_TOKENS
     return KvBudget(tokens=blocks * KV_BLOCK_TOKENS, blocks=blocks)
 

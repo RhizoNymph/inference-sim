@@ -1,0 +1,91 @@
+{
+  "record": "lab.efficiency_curve.v1",
+  "tag": "curve",
+  "spec": "tools/lab/specs/rtx3090_qwen7b_prefill_token_sweep.toml",
+  "measured": "lab-runs/2026-10-01-qwen7b-prefill-token-sweep/measured.jsonl",
+  "base_profile": "lab-runs/2026-09-28-static-batch/calibration_profile-pp1-recalibrated.toml",
+  "decode_memory_bandwidth_scale": 0.838309,
+  "curve": {
+    "memory_bound_margin": 0.25,
+    "points": [
+      {
+        "tokens": 128,
+        "efficiency": 0.653909,
+        "shapes": [
+          "1x128"
+        ]
+      },
+      {
+        "tokens": 256,
+        "efficiency": 0.618297,
+        "shapes": [
+          "1x256"
+        ]
+      },
+      {
+        "tokens": 512,
+        "efficiency": 0.724381,
+        "shapes": [
+          "1x512"
+        ]
+      },
+      {
+        "tokens": 1024,
+        "efficiency": 0.83777,
+        "shapes": [
+          "1x1024"
+        ]
+      },
+      {
+        "tokens": 2048,
+        "efficiency": 0.846627,
+        "shapes": [
+          "1x2048"
+        ]
+      },
+      {
+        "tokens": 4096,
+        "efficiency": 0.873915,
+        "shapes": [
+          "1x4096"
+        ]
+      }
+    ],
+    "skipped": [
+      {
+        "shape": "1x16",
+        "tokens": 16,
+        "reason": "memory_bound"
+      },
+      {
+        "shape": "1x32",
+        "tokens": 32,
+        "reason": "memory_bound"
+      },
+      {
+        "shape": "1x64",
+        "tokens": 64,
+        "reason": "memory_bound"
+      }
+    ]
+  },
+  "frontend": {
+    "frontend_latency_us": 5081.433,
+    "frontend_latency_per_prompt_token_us": 14.4422,
+    "samples": [
+      {
+        "prompt_tokens": 16,
+        "client_ttft_ms": 27.046,
+        "engine_prefill_ms": 21.733,
+        "overhead_ms": 5.313
+      },
+      {
+        "prompt_tokens": 512,
+        "client_ttft_ms": 126.884,
+        "engine_prefill_ms": 114.408,
+        "overhead_ms": 12.476
+      }
+    ]
+  },
+  "profile": "lab-runs/2026-10-01-qwen7b-prefill-token-sweep/calibration_profile-curve.toml"
+}

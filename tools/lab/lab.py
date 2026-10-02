@@ -17,6 +17,9 @@ Subcommands (see docs/features/lab_harness.md):
   report     assemble the markdown fragments in a run dir into report.md
   curves     turn collective-benchmark JSON lines into the simulator's
              [[collective_curves]] TOML (screens sender-timed send rows)
+  fit-curve  static-batch prefill sweep: fit compute efficiency versus tokens
+             per forward pass (and optionally the frontend latency) into a
+             copy of a base profile, then check the simulator loads it
 
 Only the standard library is needed locally; the remote/ scripts run inside
 the vLLM environment on the nodes.
@@ -32,6 +35,7 @@ import hashlib
 import json
 import re
 import sys
+import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
@@ -40,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from labharness.collective_plan import build_collective_plan
 from labharness.commands import build_plan
+from labharness.curve_profile import CurveProfileInputs, render_curve_profile
 from labharness.curves import (
     DEFAULT_SENDER_TIMED_TOLERANCE,
     CurveOptions,
@@ -50,13 +55,17 @@ from labharness.curves import (
     rank_nodes_from_meta,
 )
 from labharness.curves_toml import check_base_cluster, render_cluster, render_curves
-from labharness.errors import CurveError, LabError, ResultParseError, RunDirError, SpecError
+from labharness.efficiency_curve import DEFAULT_MEMORY_BOUND_MARGIN
+from labharness.errors import CurveError, FitError, LabError, ResultParseError, RunDirError, SpecError
 from labharness.evaluate import (
     calibrate_static,
     evaluate_serving,
     evaluate_static,
+    fit_curve_static,
+    verify_curve_profile,
     verify_profile,
 )
+from labharness.frontend import FrontendFit, FrontendSample, fit_frontend_latency, load_frontend_ttfts
 from labharness.logging_setup import configure_logging, get_logger
 from labharness.profile import Provenance
 from labharness.report import (
@@ -69,6 +78,7 @@ from labharness.report import (
     static_table,
 )
 from labharness.results import (
+    StaticMeasurement,
     load_bench_serve,
     load_static,
     parse_kv_cache_tokens,
@@ -126,6 +136,9 @@ def _add_sim_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--tag", help="output name tag (default: experiment name)")
     parser.add_argument("--binary", type=Path, default=DEFAULT_BINARY)
+    parser.add_argument(
+        "--cluster", type=Path, help="simulator cluster TOML (default: the lab's cluster_toml)"
+    )
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument(
         "--reference-batch",
@@ -162,6 +175,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = sub.add_parser("report", help="assemble report.md from a run dir's fragments")
     report.add_argument("--run-dir", type=Path, required=True)
+
+    fit_curve = sub.add_parser(
+        "fit-curve", help="fit compute efficiency vs tokens per pass from a prefill sweep into a profile"
+    )
+    _add_sim_args(fit_curve)
+    fit_curve.add_argument(
+        "--base-profile", type=Path, required=True, help="profile whose scalars the curve is added to"
+    )
+    fit_curve.add_argument(
+        "--memory-bound-margin",
+        type=float,
+        default=DEFAULT_MEMORY_BOUND_MARGIN,
+        help="skip prefills measured within this fraction above the simulated weight-read floor",
+    )
+    fit_curve.add_argument(
+        "--frontend-dir",
+        type=Path,
+        help="isolated-request bench serve results (in<N>_out1.json) to fit frontend latency from",
+    )
 
     curves = sub.add_parser("curves", help="collective-benchmark JSON lines -> [[collective_curves]] TOML")
     curves.add_argument("input", type=Path, help="collective_curve.jsonl (new or legacy format)")
@@ -237,10 +269,19 @@ def _sim_runner(args: argparse.Namespace, exp: Experiment, tag: str) -> SimRunne
         raise SpecError("simulator binary not found; run `cargo build --release`", path=str(args.binary))
     return SimRunner(
         binary=args.binary.resolve(),
-        cluster=exp.lab.cluster_toml,
+        cluster=_cluster(args, exp),
         work_dir=args.run_dir.resolve() / "sim-work" / tag,
         concurrency=args.concurrency,
     )
+
+
+def _cluster(args: argparse.Namespace, exp: Experiment) -> Path:
+    override = getattr(args, "cluster", None)
+    if override is None:
+        return exp.lab.cluster_toml
+    if not override.is_file():
+        raise SpecError("cluster TOML not found", path=str(override))
+    return override.resolve()
 
 
 def _run_dir(args: argparse.Namespace) -> Path:
@@ -462,6 +503,97 @@ def cmd_report(args: argparse.Namespace) -> None:
     _write(run_dir / "report.md", "\n".join(header) + "\n".join(body), "report")
 
 
+def _frontend_fit(frontend_dir: Path, measured: Sequence[StaticMeasurement]) -> FrontendFit:
+    """Client TTFT of isolated one-token requests minus the batch-1 static prefill."""
+    if not frontend_dir.is_dir():
+        raise RunDirError("frontend directory does not exist", path=str(frontend_dir))
+    prefill = {m.shape.prompt: m.prefill_ms for m in measured if m.shape.batch == 1}
+    samples = []
+    for prompt, ttft in load_frontend_ttfts(frontend_dir).items():
+        if prompt not in prefill:
+            raise FitError(
+                "no batch-1 static prefill for a frontend prompt length", context={"prompt": prompt}
+            )
+        samples.append(FrontendSample(prompt, ttft, prefill[prompt]))
+    return fit_frontend_latency(samples)
+
+
+async def cmd_fit_curve(args: argparse.Namespace) -> None:
+    exp = parse_experiment(args.spec)
+    if not isinstance(exp.workload, StaticBatchWorkload):
+        raise SpecError("fit-curve needs a static-batch spec", path=str(args.spec), field="experiment.mode")
+    tag = args.tag or f"{exp.name}-curve"
+    run_dir = _run_dir(args)
+    measured_path = _measured_path(args)
+    measured = load_static(measured_path)
+    try:
+        base_text = args.base_profile.read_text(encoding="utf-8")
+        base = tomllib.loads(base_text)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise SpecError(f"cannot read base profile: {error}", path=str(args.base_profile)) from error
+    calibration_table = base.get("calibration", {})
+    bandwidth_scale = calibration_table.get("decode_memory_bandwidth_scale", 1.0)
+    if not isinstance(bandwidth_scale, int | float) or bandwidth_scale <= 0:
+        raise SpecError(
+            "base profile decode_memory_bandwidth_scale must be positive", path=str(args.base_profile)
+        )
+
+    runner = _sim_runner(args, exp, tag)
+    fit = await fit_curve_static(
+        runner, exp, measured, float(bandwidth_scale), memory_bound_margin=args.memory_bound_margin
+    )
+    frontend = _frontend_fit(args.frontend_dir, measured) if args.frontend_dir is not None else None
+    profile_text = render_curve_profile(
+        CurveProfileInputs(
+            base_text=base_text,
+            base_label=_repo_relative(args.base_profile),
+            curve=fit,
+            curve_source=_repo_relative(measured_path),
+            frontend=frontend,
+            frontend_source=_repo_relative(args.frontend_dir) if args.frontend_dir is not None else None,
+        )
+    )
+    profile_path = run_dir / f"calibration_profile-{tag}.toml"
+    _write(profile_path, profile_text, "curve profile")
+    await verify_curve_profile(runner, exp, profile_path.resolve(), fit)
+
+    payload = {
+        "record": "lab.efficiency_curve.v1",
+        "tag": tag,
+        "spec": _repo_relative(exp.path),
+        "measured": _repo_relative(measured_path),
+        "base_profile": _repo_relative(args.base_profile),
+        "decode_memory_bandwidth_scale": bandwidth_scale,
+        "curve": fit.to_json(),
+        "frontend": frontend.to_json() if frontend is not None else None,
+        "profile": _repo_relative(profile_path),
+    }
+    _write(run_dir / f"efficiency-curve-{tag}.json", _json(payload), "curve results")
+    fragment = [
+        f"## Compute-efficiency curve: {tag}",
+        "",
+        f"Measurements `{_repo_relative(measured_path)}`, "
+        f"base profile `{_repo_relative(args.base_profile)}`, "
+        f"profile `{_repo_relative(profile_path)}` (loaded and checked by the simulator).",
+        "",
+        "| tokens per pass | efficiency | shapes |",
+        "|---:|---:|---|",
+        *(f"| {p.tokens} | {p.efficiency:.4f} | {', '.join(p.shapes)} |" for p in fit.points),
+        "",
+        "Weight-read bound (skipped): "
+        + (", ".join(s.shape.label for s in fit.skipped) or "none")
+        + f" (margin {fit.memory_bound_margin:g}).",
+        "",
+    ]
+    if frontend is not None:
+        fragment += [
+            f"Frontend latency: {frontend.fixed_us:.0f} us + {frontend.per_prompt_token_us:.2f} us "
+            "per prompt token (client TTFT of isolated one-token requests minus the batch-1 static prefill).",
+            "",
+        ]
+    _write(run_dir / f"report-calibration-{tag}.md", "\n".join(fragment), "report fragment")
+
+
 def cmd_curves(args: argparse.Namespace) -> None:
     source = str(args.input)
     data = load_bench(args.input)
@@ -523,6 +655,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cmd_report(args)
             case "curves":
                 cmd_curves(args)
+            case "fit-curve":
+                asyncio.run(cmd_fit_curve(args))
         return 0
     except (LabError, ExceptionGroup) as raised:
         errors = _lab_errors(raised)
