@@ -18,7 +18,9 @@
 //! The formulas are the static solver's roofline primitives applied to a
 //! step's composition, so a pure-decode step over a batch at context
 //! `prompt + 1` equals the solver's one-token decode latency and a
-//! compute-bound pure-prefill step equals the solver's prefill latency.
+//! pure-prefill step equals the solver's prefill latency. Compute efficiency
+//! is evaluated at the step's total token count, so a calibration curve
+//! prices mixed steps by the size of the forward pass they actually run.
 
 use std::collections::HashMap;
 
@@ -173,6 +175,8 @@ pub struct IterationCostModel<'a> {
     placement: &'a RankPlacement,
     calibration: SimulationCalibration,
     dtype: crate::workload::DType,
+    /// Peak FLOP/s before the efficiency factor, which depends on the step's
+    /// token count (`SimulationCalibration::compute_efficiency_at`).
     peak_flops: f64,
     hbm_bandwidth: f64,
     dense_flops_per_token: f64,
@@ -198,8 +202,7 @@ impl<'a> IterationCostModel<'a> {
         let config = score.config;
         let shard_factor = Solver::latency_shard_factor(config);
         let attention_shard_factor = Solver::attention_shard_factor(config);
-        let peak_flops =
-            Solver::effective_peak_flops(cluster, model, &score.placement, calibration);
+        let peak_flops = Solver::peak_flops(cluster, model, &score.placement);
         let hbm_bandwidth = Solver::effective_hbm_bandwidth(cluster, &score.placement, calibration);
         let layers = f64::from(model.layers);
         let hidden = f64::from(model.hidden_size);
@@ -239,8 +242,12 @@ impl<'a> IterationCostModel<'a> {
             + work.prefill_attention_pairs * self.attention_flops_per_pair;
         let decode_flops = work.decode_sequences as f64 * self.dense_flops_per_token
             + work.decode_context_tokens as f64 * self.decode_attention_flops_per_context_token;
-        let compute_s = prefill_flops / self.peak_flops * self.calibration.prefill_compute_scale
-            + decode_flops / self.peak_flops * self.calibration.decode_compute_scale;
+        let effective_flops = self.peak_flops
+            * self
+                .calibration
+                .compute_efficiency_at(work.total_tokens() as f64);
+        let compute_s = prefill_flops / effective_flops * self.calibration.prefill_compute_scale
+            + decode_flops / effective_flops * self.calibration.decode_compute_scale;
         let kv_read_tokens = (work.decode_context_tokens + work.prefill_context_tokens) as f64;
         let memory_s = (self.weight_bytes + kv_read_tokens * self.kv_bytes_per_context_token)
             / self.hbm_bandwidth

@@ -10,6 +10,7 @@ pub(super) fn serving_approximations(
     serving_stack: Option<&str>,
     serving_runtime_features: &[String],
     calibration_profile: Option<&CalibrationProfileMetadata>,
+    calibration: SimulationCalibration,
     prefill_score: &ScoredParallelismConfig,
     decode_score: &ScoredParallelismConfig,
     decode_one_score: &ScoredParallelismConfig,
@@ -52,7 +53,8 @@ pub(super) fn serving_approximations(
 
     match simulation.scheduler_model {
         Some(SchedulerModel::IterationEngine) => {
-            for approximation in iteration_engine_approximations(traffic, decode_score) {
+            for approximation in iteration_engine_approximations(traffic, decode_score, calibration)
+            {
                 push_serving_approximation(&mut approximations, approximation);
             }
         }

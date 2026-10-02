@@ -42,4 +42,7 @@ pub use solver::{
     CalibrationFitApplication, CalibrationFitFeatureValue, PlacementEvidence,
     ScoredParallelismConfig, SearchSpace, SimulationApproximation, Solver, SolverOptions,
 };
-pub use workload::{DType, ExpertSpec, InferencePhase, InferenceRequest, ModelSpec};
+pub use workload::{
+    DType, ExpertSpec, InferencePhase, InferenceRequest, ModelSpec, ParameterCountMismatch,
+    ParameterCountSource,
+};

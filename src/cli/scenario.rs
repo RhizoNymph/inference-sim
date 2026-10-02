@@ -2555,6 +2555,15 @@ fn apply_scenario_calibration(
     if let Some(value) = override_config.compute_efficiency {
         calibration.compute_efficiency = value;
     }
+    if let Some(curve) = override_config.compute_efficiency_curve {
+        calibration.compute_efficiency_curve = Some(curve);
+    }
+    if let Some(value) = override_config.frontend_latency_us {
+        calibration.frontend_latency_us = value;
+    }
+    if let Some(value) = override_config.frontend_latency_per_prompt_token_us {
+        calibration.frontend_latency_per_prompt_token_us = value;
+    }
     if let Some(value) = override_config.prefill_compute_scale {
         calibration.prefill_compute_scale = value;
     }

@@ -7,6 +7,8 @@ mod calibration_fits;
 mod collective_pricing;
 #[cfg(test)]
 mod curve_tests;
+#[cfg(test)]
+mod efficiency_curve_tests;
 mod network_cost;
 mod operations;
 mod placement;
@@ -466,6 +468,7 @@ impl Solver {
         }
         let approximations = Self::parallelism_approximations(
             cluster,
+            model,
             request,
             config,
             &placement,
@@ -634,7 +637,12 @@ impl Solver {
     ) -> (f64, Vec<CalibrationFitApplication>) {
         let parameter_count = model.parameter_count();
         let shard_factor = Self::latency_shard_factor(config);
-        let peak_flops = Self::effective_peak_flops(cluster, model, placement, calibration);
+        let peak_flops = Self::peak_flops(cluster, model, placement);
+        let prefill_flops =
+            peak_flops * calibration.compute_efficiency_at(Self::prefill_tokens_per_pass(request));
+        let decode_flops =
+            peak_flops * calibration.compute_efficiency_at(Self::decode_tokens_per_pass(request));
+        let hbm_bandwidth = Self::effective_hbm_bandwidth(cluster, placement, calibration);
 
         match request.phase {
             InferencePhase::Prefill => {
@@ -643,7 +651,8 @@ impl Solver {
                     request,
                     config,
                     shard_factor,
-                    peak_flops,
+                    prefill_flops,
+                    hbm_bandwidth,
                     calibration,
                 );
                 if let Some(evaluation) = Self::fitted_phase_latency(
@@ -663,14 +672,13 @@ impl Solver {
             }
             InferencePhase::Decode => {
                 let (decode_s, application) = Self::decode_compute_latency_s(
-                    cluster,
                     model,
                     request,
                     config,
-                    placement,
                     parameter_count,
                     shard_factor,
-                    peak_flops,
+                    decode_flops,
+                    hbm_bandwidth,
                     calibration,
                     calibration_profile,
                 );
@@ -682,7 +690,8 @@ impl Solver {
                     request,
                     config,
                     shard_factor,
-                    peak_flops,
+                    prefill_flops,
+                    hbm_bandwidth,
                     calibration,
                 );
                 let mut applications = Vec::new();
@@ -702,14 +711,13 @@ impl Solver {
                     prefill_baseline
                 };
                 let (decode_s, decode_application) = Self::decode_compute_latency_s(
-                    cluster,
                     model,
                     request,
                     config,
-                    placement,
                     parameter_count,
                     shard_factor,
-                    peak_flops,
+                    decode_flops,
+                    hbm_bandwidth,
                     calibration,
                     calibration_profile,
                 );
@@ -721,14 +729,13 @@ impl Solver {
 
     #[allow(clippy::too_many_arguments)]
     fn decode_compute_latency_s(
-        cluster: &Cluster,
         model: &ModelSpec,
         request: &InferenceRequest,
         config: ParallelismConfig,
-        placement: &RankPlacement,
         parameter_count: f64,
         shard_factor: f64,
         peak_flops: f64,
+        hbm_bandwidth: f64,
         calibration: SimulationCalibration,
         calibration_profile: Option<&CalibrationProfileMetadata>,
     ) -> (f64, Option<CalibrationFitApplication>) {
@@ -741,7 +748,6 @@ impl Solver {
                     / attention_shard_factor
                     / peak_flops;
         let parameter_bytes_per_rank = model.parameters.as_bytes() as f64 / shard_factor;
-        let hbm_bandwidth = Self::effective_hbm_bandwidth(cluster, placement, calibration);
         let kv_read_latency_s =
             Self::decode_kv_read_bytes(model, request) / attention_shard_factor / hbm_bandwidth;
         let memory_latency_s =
@@ -828,12 +834,28 @@ impl Solver {
             * request.batch_size as f64
     }
 
+    // Tokens one prefill forward pass carries: the whole static batch's
+    // prompts run as one pass.
+    pub(super) fn prefill_tokens_per_pass(request: &InferenceRequest) -> f64 {
+        f64::from(request.prompt_tokens) * f64::from(request.batch_size)
+    }
+
+    // Tokens one decode step carries: one per sequence in the batch.
+    pub(super) fn decode_tokens_per_pass(request: &InferenceRequest) -> f64 {
+        f64::from(request.batch_size)
+    }
+
+    // Prefill is one forward pass: compute-bound for long prompts, but it
+    // still reads every weight once, which bounds short prompts from below
+    // (the same `max(compute, memory)` the serving step cost uses).
+    #[allow(clippy::too_many_arguments)]
     fn prefill_baseline_s(
         model: &ModelSpec,
         request: &InferenceRequest,
         config: ParallelismConfig,
         shard_factor: f64,
         peak_flops: f64,
+        hbm_bandwidth: f64,
         calibration: SimulationCalibration,
     ) -> f64 {
         let active_tokens = request.prompt_tokens as f64 * request.batch_size as f64;
@@ -846,14 +868,18 @@ impl Solver {
         let attention_s = Self::prefill_attention_flops(model, request)
             / Self::attention_shard_factor(config)
             / peak_flops;
-        (dense_s + attention_s) * calibration.prefill_compute_scale
+        let compute_s = (dense_s + attention_s) * calibration.prefill_compute_scale;
+        let weight_read_s = model.parameters.as_bytes() as f64 / shard_factor / hbm_bandwidth
+            * calibration.decode_compute_scale;
+        compute_s.max(weight_read_s)
     }
 
-    fn effective_peak_flops(
+    // Minimum dtype-selected peak FLOP/s over the placed GPUs, before any
+    // efficiency factor.
+    pub(super) fn peak_flops(
         cluster: &Cluster,
         model: &ModelSpec,
         placement: &RankPlacement,
-        calibration: SimulationCalibration,
     ) -> f64 {
         let peak_tflops = placement
             .rank_to_gpu
@@ -869,7 +895,7 @@ impl Solver {
             })
             .fold(f64::INFINITY, f64::min);
 
-        peak_tflops.max(1.0) * 1e12 * calibration.compute_efficiency
+        peak_tflops.max(1.0) * 1e12
     }
 
     fn effective_hbm_bandwidth(
@@ -1123,6 +1149,7 @@ mod tests {
             vocab_size: 32000,
             parameters: Bytes::from_gigabytes(16.0),
             parameter_count: None,
+            parameter_count_source: crate::workload::ParameterCountSource::Explicit,
             dtype: DType::Bf16,
             kv_dtype: None,
             experts: None,

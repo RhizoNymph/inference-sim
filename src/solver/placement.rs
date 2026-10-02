@@ -285,8 +285,10 @@ impl Solver {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn parallelism_approximations(
         cluster: &Cluster,
+        model: &ModelSpec,
         request: &InferenceRequest,
         config: ParallelismConfig,
         placement: &RankPlacement,
@@ -324,6 +326,10 @@ impl Solver {
                 ),
             ),
         );
+
+        if let Some(approximation) = parameter_count_mismatch_approximation(model) {
+            push_approximation(&mut approximations, approximation);
+        }
 
         if config.total_ranks() > 1
             && operations
@@ -612,4 +618,34 @@ impl Solver {
     pub(super) fn model_dtype_label(model: &ModelSpec) -> &'static str {
         model.dtype.label()
     }
+}
+
+/// Stable code for a shape-derived parameter count that disagrees with the
+/// configured weight bytes.
+pub const MODEL_PARAMETER_COUNT_MISMATCH: &str = "model_parameter_count_mismatch";
+
+/// Warns when FLOPs come from a default MLP width whose parameter count
+/// disagrees with `parameters_gb` (see `ModelSpec::parameter_count_mismatch`).
+/// The record's phase is `model`: the mismatch is a property of the model
+/// inputs, so every phase's score carries the same record.
+pub(super) fn parameter_count_mismatch_approximation(
+    model: &ModelSpec,
+) -> Option<SimulationApproximation> {
+    let mismatch = model.parameter_count_mismatch()?;
+    Some(SimulationApproximation::new(
+        "model",
+        "model",
+        "parameter_count",
+        MODEL_PARAMETER_COUNT_MISMATCH,
+        format!(
+            "FLOPs use {:.3}B parameters derived from layer shapes with the default MLP width (4 x hidden_size), but parameters_gb / dtype implies {:.3}B ({:+.1}%); compute latency, and any compute_efficiency fitted against it, is off by the same factor.",
+            mismatch.derived_count / 1e9,
+            mismatch.bytes_implied_count / 1e9,
+            mismatch.relative_difference * 100.0
+        ),
+        Some(
+            "set model.ffn_hidden_size to the real MLP width (config.json intermediate_size) or give model.parameter_count_billion"
+                .to_string(),
+        ),
+    ))
 }

@@ -127,7 +127,8 @@ pub(super) fn run_iteration_engine(
         .map_err(IterationEngineError::StepCost)?;
     let workers = engine_workers(states);
     let limits = engine_limits(traffic, &workers);
-    let requests = engine_requests(states, traffic, &workers, &limits);
+    let mut requests = engine_requests(states, traffic, &workers, &limits);
+    apply_frontend_latency(&mut requests, states, calibration);
     let outcome =
         run_engine(&requests, &limits, &mut cost).map_err(IterationEngineError::Engine)?;
     let (operations, decode_iterations) =
@@ -138,10 +139,28 @@ pub(super) fn run_iteration_engine(
     })
 }
 
+/// Delays each request's engine arrival by the calibrated API-server
+/// latency. Request states keep the client arrival, so TTFT and E2EL include
+/// the delay while TPOT and ITL do not. A constant per-request delay leaves
+/// inter-arrival gaps, and therefore queueing, unchanged.
+fn apply_frontend_latency(
+    requests: &mut [EngineRequest],
+    states: &[DecodeRequestState],
+    calibration: SimulationCalibration,
+) {
+    if !calibration.models_frontend_latency() {
+        return;
+    }
+    for (request, state) in requests.iter_mut().zip(states) {
+        request.arrival_s += calibration.frontend_latency_s(state.prompt_tokens);
+    }
+}
+
 /// Approximation records attached to every candidate the engine simulated.
 pub(super) fn iteration_engine_approximations(
     traffic: &ServingTraffic,
     score: &ScoredParallelismConfig,
+    calibration: SimulationCalibration,
 ) -> Vec<SimulationApproximation> {
     let mut approximations = vec![
         SimulationApproximation::new(
@@ -155,14 +174,7 @@ pub(super) fn iteration_engine_approximations(
                     .to_string(),
             ),
         ),
-        SimulationApproximation::new(
-            "serving",
-            "runtime",
-            "iteration_engine",
-            "iteration_engine_no_frontend_overhead",
-            "Step latency covers the forward pass and the calibrated per-step overhead only; API-server tokenization, detokenization, and HTTP streaming time are not modeled, so client-observed TTFT is underestimated at low load.",
-            Some("add a measured per-request frontend latency to TTFT when comparing against client-side benchmarks".to_string()),
-        ),
+        frontend_latency_approximation(calibration),
     ];
     if score.config.pipeline_ranks > 1 {
         approximations.push(SimulationApproximation::new(
@@ -185,6 +197,31 @@ pub(super) fn iteration_engine_approximations(
         ));
     }
     approximations
+}
+
+fn frontend_latency_approximation(calibration: SimulationCalibration) -> SimulationApproximation {
+    if calibration.models_frontend_latency() {
+        SimulationApproximation::new(
+            "serving",
+            "runtime",
+            "iteration_engine",
+            "iteration_engine_constant_frontend_latency",
+            format!(
+                "API-server latency is a calibrated per-request delay ({:.1} us + {:.3} us per prompt token) before the engine sees the request; it adds to TTFT and E2EL but does not vary with load or contend with engine steps.",
+                calibration.frontend_latency_us, calibration.frontend_latency_per_prompt_token_us
+            ),
+            None,
+        )
+    } else {
+        SimulationApproximation::new(
+            "serving",
+            "runtime",
+            "iteration_engine",
+            "iteration_engine_no_frontend_overhead",
+            "Step latency covers the forward pass and the calibrated per-step overhead only; API-server tokenization, detokenization, and HTTP streaming time are not modeled, so client-observed TTFT is underestimated at low load.",
+            Some("set calibration.frontend_latency_us (and frontend_latency_per_prompt_token_us) from an isolated-request client benchmark".to_string()),
+        )
+    }
 }
 
 /// Approximation record for a candidate that kept the phase pipeline.

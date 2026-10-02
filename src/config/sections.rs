@@ -1064,6 +1064,8 @@ pub(super) struct PlacementRankSection {
 #[derive(Deserialize)]
 pub(super) struct CalibrationSection {
     pub(super) compute_efficiency: Option<f64>,
+    /// `[tokens_per_forward_pass, efficiency]` pairs.
+    pub(super) compute_efficiency_curve: Option<Vec<(u64, f64)>>,
     pub(super) prefill_compute_scale: Option<f64>,
     pub(super) decode_compute_scale: Option<f64>,
     pub(super) decode_memory_bandwidth_scale: Option<f64>,
@@ -1079,6 +1081,8 @@ pub(super) struct CalibrationSection {
     pub(super) serving_pipeline_depth: Option<u32>,
     pub(super) request_arrival_gap_s: Option<f64>,
     pub(super) allow_compute_comm_overlap: Option<bool>,
+    pub(super) frontend_latency_us: Option<f64>,
+    pub(super) frontend_latency_per_prompt_token_us: Option<f64>,
 }
 
 #[derive(Deserialize)]

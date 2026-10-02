@@ -2,6 +2,7 @@ use super::core::run_engine;
 use super::*;
 use crate::solver::{StepLatency, StepWork};
 
+mod frontend;
 mod serving;
 
 /// Closed-form step cost: a flat weight-read floor per step, a small cost per
