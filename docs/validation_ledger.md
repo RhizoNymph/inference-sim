@@ -26,9 +26,12 @@ them superseded.
 | 7 | 2026-09-30 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, Ray | TP2 PP1 | static batch | PP1 profile + measured NIC + `collective_latency_scale` fitted on 1 shape (held-out 4) | 7.5% | 14.5% | **9.6%** | superseded by 12 |
 | 8 | 2026-09-30 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, Ray | TP1 PP2 | static batch | as row 7 (network fit transfer) | 14.5% | 3.8% | **1.6%** | validated |
 | 9 | 2026-09-30 | 1x RTX 3090 24 GB (node1, native venv) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, 4k-16k prompts | PP1 profile (transfer to 8x context) | 0.6% | 2.5% | **0.8%** | validated |
-| 10 | 2026-09-30 | 1x RTX 3090 24 GB | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | serving, iteration engine, Poisson 1-10 req/s + inf | PP1 profile (transfer) | see entry | see entry | see entry | validated except low-load TTFT |
+| 10 | 2026-09-30 | 1x RTX 3090 24 GB | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | serving, iteration engine, Poisson 1-10 req/s + inf | PP1 profile (transfer) | see entry | see entry | see entry | superseded by 15 |
 | 11 | 2026-09-30 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-14B-Instruct bf16 | vLLM 0.29.0, Ray | TP1 PP2 | static batch | recalibrated 7B constants (model transfer) | 13.4% | 7.2% | **4.9%** | validated, with caveats |
 | 12 | 2026-09-30 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, Ray | TP2 PP1 | static batch | PP1 profile + measured NCCL curves, no network fit | 12.5% | 7.2% | **4.0%** (all held out) | validated, with caveats |
+| 14 | 2026-10-01 | 1x RTX 3090 (node0; node1 for long context and decode sweep) + 2-node PP=2 | Qwen2.5-7B / 14B bf16 | vLLM 0.29.0 | TP1 PP1, TP1 PP2 | static batch, prefill token sweep 16-4096 + all static regimes | token-dependent efficiency curve (fitted on the sweep) | 0.8-10.4% by regime | unchanged | 0.9-5.1% by regime | validated; see entry |
+| 15 | 2026-10-01 | 1x RTX 3090 24 GB | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | serving, iteration engine, Poisson 1-10 req/s + inf | curve + measured frontend latency (transfer) | see entry | see entry | see entry | validated; low-load TTFT -15% to -19% |
+| 16 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 | recalibrated scalars / curve | 6.0% | 2.7% (batch 1-32) | 3.0% | validated to batch 32; KV exhaustion beyond |
 | 13 | 2026-09-30 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, Ray | TP1 PP2 | static batch | PP1 profile + measured NCCL curves | 15.3% | 3.5% | 2.4% | validated, with caveats; entry 8 (alpha-beta) is 1.6% |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
@@ -276,6 +279,148 @@ constant and only surfaces when the model changes.
   inconsistent with a serial 0.35 GB/s node0->node1 transfer (PP=2 prefill is
   faster than PP=1 at batch 8), pointing at overlap/pipelining in vLLM's PP
   path that the simulator does not model.
+
+## 14. Token-dependent compute efficiency (prefill token sweep) and static re-validation
+
+- Data: [`lab-runs/2026-10-01-qwen7b-prefill-token-sweep/`](../lab-runs/2026-10-01-qwen7b-prefill-token-sweep/)
+  (node0, Docker, batch-1 prefills at 16-4096 prompt tokens, manifest sha in
+  `manifest.json`). Re-validation of every static regime:
+  `lab-runs/2026-10-01-structural-calibration/` (`revalidate.py`,
+  `revalidation.json`, `summary.md`; per-regime `validation-sc-<regime>-<variant>.json`
+  in each measured run dir).
+- Simulator: `feat/structural-calibration-gaps` at ec809ed. Changes:
+  prefill bounded below by one weight read; optional
+  `compute_efficiency_curve` evaluated at tokens per forward pass
+  (`batch x prompt` for prefill, `batch` for a decode step, step tokens in
+  the serving engine).
+- Curve, fitted by `lab.py fit-curve` (tag `curve-only`) with the
+  recalibrated scalars as base (88 TFLOPs peak, `decode_memory_bandwidth_scale
+  = 0.8383`): 128: 0.654, 256: 0.618, 512: 0.724, 1024: 0.838, 2048: 0.847,
+  4096: 0.874. 1x16, 1x32, 1x64 are weight-read bound (measured within 25%
+  of the simulated 19.4 ms floor) and are not curve points. Efficiencies are
+  relative to the simulator's FLOP count, which omits the untied LM head over
+  prompt tokens, so they differ from a hand count.
+- Variants: **before** = base-commit binary (941339e) + recalibrated scalar
+  profile; **floor** = new binary + same scalars (weight-read floor only);
+  **curve** = new binary + curve profile. PP=2 rows use the recalibration
+  cluster (node0 NIC 3.61 Gb/s) and `collective_latency_scale = 1.824`.
+
+| regime | variant | prefill | decode step | end-to-end |
+|---|---|---:|---:|---:|
+| prefill token sweep 1x16-1x4096 (in-sample for the curve) | before | 30.1% | 0.7% | 1.1% |
+| | floor | 10.9% | 0.7% | 1.2% |
+| | curve | **3.2%** | 0.7% | 1.4% |
+| 7B PP=1, 5 shapes (held out) | before | 4.3% | 0.5% | 1.5% |
+| | curve | **0.8%** | 0.5% | **0.9%** |
+| 7B long context 4k-16k (node1, held out) | before | 1.4% | 2.5% | 1.8% |
+| | curve | 4.2% | 2.5% | 3.1% |
+| 7B decode sweep prefills 1-32 x 512 (node1, held out) | before | 5.7% | 2.7% | 2.4% |
+| | curve | 6.0% | 2.7% | 3.0% |
+| 7B PP=2 | before | 14.6% | 3.8% | 1.6% |
+| | curve | **10.4%** | 3.8% | **1.3%** |
+| 14B PP=2 (model transfer) | before | 13.4% | 7.2% | 4.9% |
+| | curve | **8.7%** | 7.2% | 5.1% |
+
+(The floor variant equals before on every regime except the sweep: only
+prompts below ~100 tokens are weight-read bound.)
+
+- Fixed: short-prompt prefill. 1x512 -14.9% -> -0.2% (PP=1), 1x16 -86% ->
+  -11%, 14B 1x512 -14.2% -> -0.2%. Decode steps are unchanged everywhere
+  (memory-bound; the clamped low-token efficiency only affects compute
+  terms far below the weight read).
+- Caveats: node1 runs large prefills ~3% slower than node0 (1x512 117.6 vs
+  114.7 ms; 8x512 813 vs 781 ms), so the node0-fitted curve under-predicts
+  node1 prefills by ~3% (long context -3.3% at 4k to -5.8% at 16k; the
+  scalar happened to sit between the nodes). The long-context trend with
+  context length predates the curve (-0.5% -> -3.0% before) and points at
+  attention running below GEMM efficiency at 8k-16k. Batched small prefills
+  on node1 (2x512, 3x512, 4x512) take nearly per-sequence time (2x512 =
+  235 ms = 2 x 1x512) and stay 8-16% under with or without the curve; there
+  is no node0 measurement of those shapes. 14B PP=2 e2e moves 4.9% -> 5.1%
+  (decode-step errors, untouched here, dominate).
+
+## 15. RTX 3090, Qwen2.5-7B, online serving with the efficiency curve and frontend latency
+
+- Run: the entry 5/10 measurements
+  ([`lab-runs/2026-09-30-serving-baseline/`](../lab-runs/2026-09-30-serving-baseline/));
+  numbers in `validation-sc-serving-<variant>.json`.
+- Simulator ec809ed. Calibration: entry 14's curve profile plus the
+  frontend latency fitted by `lab.py fit-curve --frontend-dir
+  lab-runs/2026-09-30-frontend` (`calibration_profile-curve.toml` in the
+  prefill sweep dir): `frontend_latency_us = 5081`,
+  `frontend_latency_per_prompt_token_us = 14.44` (isolated one-token requests
+  at 0.5 req/s: TTFT 27.05 ms at 16 tokens and 126.88 ms at 512, minus the
+  batch-1 static prefill 21.73 / 114.37 ms = 5.3 / 12.5 ms). Nothing is
+  fitted to the serving data.
+
+| variant | TTFT p50 | TPOT p50 | ITL p50 | E2EL p50 | tok/s | TTFT p50 at 1 / 2 / 4 req/s |
+|---|---:|---:|---:|---:|---:|---|
+| before (entry 10, recalibrated scalars) | 29.8% | 10.8% | 3.3% | 12.7% | 9.0% | -33% / -35% / -39% |
+| curve | 21.3% | 6.5% | 2.9% | 7.3% | 8.5% | -23% / -25% / -26% |
+| **curve + frontend** | **17.7%** | **6.5%** | **2.9%** | **7.1%** | **8.4%** | **-15% / -17% / -19%** |
+
+| rate | TTFT p50 real / sim | TPOT p50 real / sim | ITL p50 real / sim | E2EL p50 real / sim | tok/s real / sim |
+|---|---|---|---|---|---|
+| 1 | 162.3 / 137.2 (-15%) | 21.8 / 21.8 (+0%) | 19.4 / 19.6 (+1%) | 2,911 / 2,909 (-0%) | 126 / 136 |
+| 2 | 168.0 / 139.0 (-17%) | 24.7 / 24.4 (-1%) | 19.8 / 19.7 (-0%) | 3,309 / 3,240 (-2%) | 249 / 268 |
+| 4 | 193.4 / 155.9 (-19%) | 35.9 / 33.7 (-6%) | 20.3 / 20.3 (+0%) | 4,783 / 4,528 (-5%) | 484 / 521 |
+| 6 | 467.8 / 298.9 (-36%) | 62.6 / 52.7 (-16%) | 22.5 / 21.6 (-4%) | 8,635 / 7,327 (-15%) | 701 / 757 |
+| 8 | 3,703 / 2,805 (-24%) | 76.4 / 66.7 (-13%) | 23.3 / 22.1 (-5%) | 11,688 / 9,535 (-18%) | 746 / 847 |
+| 10 | 5,108 / 4,709 (-8%) | 72.9 / 66.2 (-9%) | 23.3 / 22.1 (-5%) | 13,537 / 12,715 (-6%) | 768 / 849 |
+| inf | 13,207 / 12,692 (-4%) | 65.7 / 65.9 (+0%) | 23.3 / 22.1 (-5%) | 21,661 / 21,129 (-2%) | 818 / 853 |
+
+- The curve closes ~17 ms of the low-load gap (512-token prefill step now
+  priced at the measured 114 ms) and raises the price of every mixed step,
+  which is what cut TPOT error at 4-8 req/s. The frontend adds 12.5 ms per
+  512-token request.
+- Remaining low-load gap: ~25 ms at 1 req/s. It is in-load interference
+  (arrivals waiting for an in-flight decode step, mixed-step slowdown) the
+  engine does not capture; near saturation (6 req/s) TTFT is still -36%
+  because the simulated server is ~8% faster (throughput 757 vs 701 tok/s).
+
+## 16. RTX 3090, Qwen2.5-7B, decode batch sweep: CUDA-graph capture sizes and KV exhaustion
+
+- Data: `lab-runs/2026-10-01-qwen7b-decode-batch-sweep/` (node1, batch 1-40)
+  and `-tail/` (32-64), 512-token prompts, 128 decode tokens,
+  `max_num_batched_tokens = 32768`, utilization 0.85; validation on batch
+  1-32 (`measured-b1-32.jsonl`, entry 14's decode row).
+- CUDA-graph capture sizes (vLLM 0.29 captures 1, 2, 4, 8, 16, 24, 32, 40,
+  ...; a batch is padded up to the next size): measured ms/step 1: 19.58, 2:
+  19.25, 3: 19.75, 4: 19.62, 6: 20.06, 8: 20.08, 12: 20.64, 16: 20.97, 20:
+  20.79, 24: 20.95, 28: 21.89, 32: 22.21 (repeat 21.63). Padded batches cost
+  the same as the next captured size within noise (3 vs 4, 6 vs 8, 12 vs 16,
+  20 vs 24, 28 vs 32 differ by < 0.4 ms), and there is no step at any capture
+  boundary, because decode steps are weight-read bound and padding only adds
+  compute far below the read. **Negligible on this hardware; not modeled.**
+  It may matter on GPUs or models where decode is closer to compute-bound
+  (large batches on H100 with small models).
+- Decode step accuracy (batch 1-32): 2.7% mean |error|, but trending from
+  -0.7% (batch 1) to -6.5% (batch 32): the real step grows 2.6 ms from batch
+  1 to 32 while the simulated KV read adds 1.35 ms, so paged KV reads run at
+  roughly half the weight-read bandwidth. Same signature as entry 9's
+  long-context decode drift. Candidate fix: a separate KV-read bandwidth
+  scale (not done here).
+- KV exhaustion, not padding, causes the jump at batch >= 40 (30.4 ms at 40,
+  ~53 ms at 48-64, 2.4x): vLLM logged a KV cache of 24,896 tokens for these
+  settings (the 32,768-token budget reserves 4.28 GiB of peak activation),
+  and 40 x 641 = 25,640 tokens exceeds it, so vLLM preempts and recomputes.
+  **Gap: the serving engine never preempts** (it reserves KV at admission
+  and queues), so it cannot reproduce this regime.
+- KV capacity estimate: the harness's fallback (used without a server.log)
+  ignored vLLM's activation reserve and was 9% to 262% high. The new
+  `kv_estimate.py` model is within 10% of every capacity vLLM logged:
+
+| run | max_num_batched_tokens | vLLM logged | new estimate | old estimate |
+|---|---:|---:|---:|---:|
+| serving baseline (util 0.85) | 2,048 | 82,864 | 85,565 (+3.3%) | 90,157 (+8.8%) |
+| decode batch sweep | 32,768 | 24,896 | 27,356 (+9.9%) | 90,157 (+262%) |
+| prefill token sweep | 16,384 | 63,552 | 58,401 (-8.1%) | 90,157 (+42%) |
+| long context node1 (util 0.90) | 16,384 | 85,568 | 80,459 (-6.0%) | 111,083 (+30%) |
+| 14B PP=2 (per stage) | 16,384 | 43,440 | 42,547 (-2.1%) | n/a |
+
+  The simulator itself has no KV-capacity model (serving capacity comes from
+  `max_resident_tokens` / `max_kv_blocks`); every recorded validation uses
+  vLLM's logged capacity, so none of their numbers change.
 
 ## Untested regimes
 

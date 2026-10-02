@@ -225,11 +225,17 @@ Features Index:
       Analytical per-phase latency model: dense parameter FLOPs plus causal
       attention FLOPs for prefill/decode, and weight-read plus KV-cache-read
       HBM bandwidth terms for decode, sharded across tensor/pipeline ranks
-      only for the attention and KV terms.
+      only for the attention and KV terms. Prefill is bounded below by one
+      weight read; compute efficiency is the scalar compute_efficiency or an
+      optional compute_efficiency_curve over tokens per forward pass; a
+      shape-derived parameter count that disagrees with parameters_gb emits
+      model_parameter_count_mismatch.
     entry_points:
       - src/solver.rs::estimate_compute_latency_s
       - src/solver.rs::decode_compute_latency_s
       - src/solver.rs::prefill_baseline_s
+      - src/calibration/efficiency_curve.rs::ComputeEfficiencyCurve
+      - src/workload.rs::ModelSpec::parameter_count_mismatch
     depends_on: [types, workload]
     doc: docs/features/compute_roofline.md
   serving_iteration_engine:
@@ -238,7 +244,9 @@ Features Index:
       colocated continuous-batching candidates: per-step decode tokens plus
       budget-filling prefill chunks, KV-gated admission with a waiting queue
       instead of rejection, and per-step latency from the solver roofline for
-      the step's actual composition (with TP all-reduces and PP stages).
+      the step's actual composition (with TP all-reduces and PP stages,
+      compute efficiency at the step's token count), plus a calibrated
+      per-request frontend (API-server) latency added to TTFT and E2EL.
     entry_points:
       - src/serving/engine.rs::select_scheduler_model
       - src/serving/engine.rs::run_iteration_engine
@@ -265,4 +273,8 @@ Features Index:
       - docs/validation_ledger.md
     depends_on: [compute_roofline, calibration_fits]
     doc: docs/features/lab_harness.md
+    notes: >
+      fit-curve fits compute_efficiency_curve from a prefill token sweep and
+      frontend latency from isolated-request benchmarks; kv_estimate.py sizes
+      vLLM's KV cache like vLLM's memory profiler when server.log is absent.
 ```
