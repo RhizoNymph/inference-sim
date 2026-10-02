@@ -186,6 +186,16 @@ pub struct IterationCostModel<'a> {
     kv_bytes_per_context_token: f64,
     collectives: Vec<StepCollective>,
     communication_cache: HashMap<(u64, u64), f64>,
+    /// Per-stage clock degradation; `None` when every placed GPU is nominal,
+    /// which keeps the nominal step formula bit-for-bit.
+    stage_clocks: Option<Vec<StepStageClock>>,
+}
+
+/// A pipeline stage's share of a step's layers and its clock degradation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct StepStageClock {
+    layer_fraction: f64,
+    degradation: crate::types::gpu_clock::ClockDegradation,
 }
 
 impl<'a> IterationCostModel<'a> {
@@ -230,6 +240,7 @@ impl<'a> IterationCostModel<'a> {
             kv_bytes_per_context_token: kv_bytes_per_token / attention_shard_factor,
             collectives: step_collectives(model, config, &score.groups),
             communication_cache: HashMap::new(),
+            stage_clocks: step_stage_clocks(cluster, model, score),
         })
     }
 
@@ -252,7 +263,10 @@ impl<'a> IterationCostModel<'a> {
         let memory_s = (self.weight_bytes + kv_read_tokens * self.kv_bytes_per_context_token)
             / self.hbm_bandwidth
             * self.calibration.decode_compute_scale;
-        let forward_s = compute_s.max(memory_s);
+        let (compute_s, memory_s, forward_s) = match &self.stage_clocks {
+            None => (compute_s, memory_s, compute_s.max(memory_s)),
+            Some(stages) => degraded_forward_s(stages, compute_s, memory_s),
+        };
         let communication_s = self.communication_s(work.total_tokens(), work.sampling_sequences());
         let overhead_s = self.calibration.scheduler_overhead_us / 1e6;
         let busy_s = if self.calibration.allow_compute_comm_overlap {
@@ -307,6 +321,61 @@ impl<'a> IterationCostModel<'a> {
         self.communication_cache.insert(key, total_s);
         total_s
     }
+}
+
+/// Stage layer shares and clock factors for a placed config, or `None` when
+/// no placed GPU is clock-degraded.
+fn step_stage_clocks(
+    cluster: &Cluster,
+    model: &ModelSpec,
+    score: &ScoredParallelismConfig,
+) -> Option<Vec<StepStageClock>> {
+    let stages = score.config.pipeline_ranks.max(1);
+    let degradation = clock_degradation::StageClockDegradation::from_placement(
+        cluster,
+        &score.placement,
+        &score.groups,
+        stages,
+    );
+    if degradation.is_nominal() {
+        return None;
+    }
+    let layers = model.layers.max(1);
+    let mut layers_per_stage = vec![0_u32; stages as usize];
+    for layer_idx in 0..layers {
+        let stage = operations::layer_stage(layer_idx, layers, stages) as usize;
+        if let Some(count) = layers_per_stage.get_mut(stage) {
+            *count += 1;
+        }
+    }
+    Some(
+        degradation
+            .stages()
+            .iter()
+            .zip(layers_per_stage)
+            .map(|(stage, stage_layers)| StepStageClock {
+                layer_fraction: f64::from(stage_layers) / f64::from(layers),
+                degradation: stage.degradation,
+            })
+            .collect(),
+    )
+}
+
+/// One forward pass through stages that each run their share of the layers
+/// at their own clock: `sum_s share_s * max(compute / c_s, memory / b_s)`.
+/// Returns the degraded compute, memory, and forward times.
+fn degraded_forward_s(stages: &[StepStageClock], compute_s: f64, memory_s: f64) -> (f64, f64, f64) {
+    stages
+        .iter()
+        .fold((0.0, 0.0, 0.0), |(compute, memory, forward), stage| {
+            let stage_compute = compute_s * stage.layer_fraction / stage.degradation.compute();
+            let stage_memory = memory_s * stage.layer_fraction / stage.degradation.bandwidth();
+            (
+                compute + stage_compute,
+                memory + stage_memory,
+                forward + stage_compute.max(stage_memory),
+            )
+        })
 }
 
 /// The collectives one step issues, mirroring `build_operation_trace`: an
