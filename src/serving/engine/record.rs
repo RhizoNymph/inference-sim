@@ -49,12 +49,8 @@ pub(in crate::serving) fn record_engine_jobs(
         .collect::<Vec<_>>();
     let mut operations = step_operations(&outcome.steps, workers);
     let decode_iterations = step_decode_iterations(&outcome.steps, &requests, workers);
-    let transfer_operations = transfer_operations(
-        states,
-        &outcome.timelines,
-        transfers,
-        outcome.steps.len(),
-    );
+    let transfer_operations =
+        transfer_operations(states, &outcome.timelines, transfers, outcome.steps.len());
     let mut kv_bottlenecks = Vec::new();
     for planned in transfers.iter().flatten() {
         for bottleneck in &planned.bottlenecks {
@@ -375,8 +371,7 @@ fn record_request(
         state.emitted_tokens = timeline.tokens.len().min(u32::MAX as usize) as u32;
         state.remaining_tokens = state.decode_tokens.saturating_sub(state.emitted_tokens);
         if timeline.handoff.is_some() {
-            state.decode_resource_queue_s =
-                finite_or_zero(first_token.start_s - state.kv_finish_s);
+            state.decode_resource_queue_s = finite_or_zero(first_token.start_s - state.kv_finish_s);
         }
         if let (Some(second), Some(last)) = (timeline.tokens.get(1), timeline.tokens.last()) {
             state.worker_assignments.extend(worker_assignments(

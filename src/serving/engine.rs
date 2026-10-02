@@ -22,9 +22,9 @@ mod core;
 mod disaggregated;
 mod limits;
 mod record;
-mod transfer;
 #[cfg(test)]
 mod tests;
+mod transfer;
 mod types;
 
 use crate::solver::IterationCostModel;

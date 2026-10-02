@@ -250,19 +250,20 @@ impl CapacityLedger {
         let slot = key.slot(self.request_count);
         let footprint = match kind {
             ReleaseKind::All => self.held.get_mut(slot).and_then(Option::take),
-            ReleaseKind::Sequences => self
-                .held
-                .get_mut(slot)
-                .and_then(Option::as_mut)
-                .map(|(worker, class, held)| {
-                    let released = KvFootprint {
-                        sequences: held.sequences,
-                        tokens: 0,
-                        blocks: 0,
-                    };
-                    held.sequences = 0;
-                    (*worker, *class, released)
-                }),
+            ReleaseKind::Sequences => {
+                self.held
+                    .get_mut(slot)
+                    .and_then(Option::as_mut)
+                    .map(|(worker, class, held)| {
+                        let released = KvFootprint {
+                            sequences: held.sequences,
+                            tokens: 0,
+                            blocks: 0,
+                        };
+                        held.sequences = 0;
+                        (*worker, *class, released)
+                    })
+            }
         };
         let Some((worker, class, footprint)) = footprint else {
             return;

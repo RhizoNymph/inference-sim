@@ -86,7 +86,12 @@ pub(in crate::serving) fn disaggregated_workers(
     let decode_workers = decodes.iter().copied().collect::<BTreeSet<_>>();
     let prefill_workers = prefills.iter().copied().collect::<BTreeSet<_>>();
     let split_config = prefill_score.config != decode_score.config;
-    if split_config && prefill_workers.intersection(&decode_workers).next().is_some() {
+    if split_config
+        && prefill_workers
+            .intersection(&decode_workers)
+            .next()
+            .is_some()
+    {
         return Err(WorkerLayoutError::SharedWorkerWithSplitParallelism);
     }
     let prefill_only = (0..workers.len())
@@ -218,7 +223,12 @@ pub(in crate::serving) fn run_disaggregated_engine(
         )
         .map_err(IterationEngineError::KvPlan)?;
         let planned = planner
-            .plan(&source, &destination, request.sequences, request.prompt_tokens())
+            .plan(
+                &source,
+                &destination,
+                request.sequences,
+                request.prompt_tokens(),
+            )
             .map_err(IterationEngineError::KvPlan)?;
         let decode_footprint = request.footprint;
         request.footprint = prefill_footprint(state);

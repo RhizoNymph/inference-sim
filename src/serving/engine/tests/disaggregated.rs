@@ -46,7 +46,13 @@ fn job(
     }
 }
 
-fn decode_job(arrival_s: f64, request_idx: u32, prompt: u32, output: u32, service_s: f64) -> EngineJob {
+fn decode_job(
+    arrival_s: f64,
+    request_idx: u32,
+    prompt: u32,
+    output: u32,
+    service_s: f64,
+) -> EngineJob {
     job(
         arrival_s,
         request_idx,
@@ -75,7 +81,10 @@ fn handoff(outcome: &EngineOutcome, id: usize) -> &HandoffRecord {
 }
 
 fn transfer(outcome: &EngineOutcome, id: usize) -> &super::super::transfer::TransferWindow {
-    handoff(outcome, id).transfer.as_ref().expect("pull started")
+    handoff(outcome, id)
+        .transfer
+        .as_ref()
+        .expect("pull started")
 }
 
 const PREFILL_512_S: f64 = 0.020 + 512.0 * 0.0002;
@@ -105,7 +114,10 @@ fn prefill_then_pull_then_decode_with_the_decode_instance_first_token() {
     assert_eq!(timeline.tokens.len(), 4);
     let first_token_s = PREFILL_512_S + 0.05 + RECOMPUTE_S;
     assert!(close(ttft(&outcome, &requests_of(&jobs), 0), first_token_s));
-    assert!(close(timeline.tokens[0].start_s, timeline.tokens[0].finish_s));
+    assert!(close(
+        timeline.tokens[0].start_s,
+        timeline.tokens[0].finish_s
+    ));
     for itl in itls(&outcome, 0) {
         assert!(close(itl, DECODE_1_S));
     }
@@ -173,7 +185,10 @@ fn single_output_token_under_prefill_instance_never_reaches_decode() {
 
 #[test]
 fn decode_admission_waits_for_decode_capacity_before_pulling() {
-    let jobs = [decode_job(0.0, 0, 512, 6, 0.05), decode_job(0.0, 1, 512, 6, 0.05)];
+    let jobs = [
+        decode_job(0.0, 0, 512, 6, 0.05),
+        decode_job(0.0, 1, 512, 6, 0.05),
+    ];
     let mut limits = two_workers(2048);
     limits.workers[DECODE].capacity.sequences = Some(1);
     let outcome = run_jobs(&jobs, &limits);
@@ -205,7 +220,10 @@ fn decode_admission_waits_for_decode_capacity_before_pulling() {
 
 #[test]
 fn decode_kv_blocks_gate_the_pull() {
-    let jobs = [decode_job(0.0, 0, 512, 6, 0.05), decode_job(0.0, 1, 512, 6, 0.05)];
+    let jobs = [
+        decode_job(0.0, 0, 512, 6, 0.05),
+        decode_job(0.0, 1, 512, 6, 0.05),
+    ];
     let mut limits = two_workers(2048);
     // One request's decode KV (518 tokens) fits, two do not.
     limits.workers[DECODE].capacity.tokens = Some(600);
@@ -221,7 +239,10 @@ fn decode_kv_blocks_gate_the_pull() {
 
 #[test]
 fn concurrent_pulls_over_one_link_serialize() {
-    let jobs = [decode_job(0.0, 0, 512, 3, 0.1), decode_job(0.0, 1, 512, 3, 0.1)];
+    let jobs = [
+        decode_job(0.0, 0, 512, 3, 0.1),
+        decode_job(0.0, 1, 512, 3, 0.1),
+    ];
     let outcome = run_jobs(&jobs, &two_workers(2048));
     let (first, second) = (transfer(&outcome, 0), transfer(&outcome, 1));
     assert!(close(first.start_s, second.ready_s));
@@ -235,11 +256,28 @@ fn concurrent_pulls_over_one_link_serialize() {
 #[test]
 fn pulls_on_disjoint_links_overlap() {
     let jobs = [
-        job(0.0, 0, 512, 3, link_plan(0, 0.1), FirstTokenSource::DecodeInstance),
-        job(0.0, 1, 512, 3, link_plan(1, 0.1), FirstTokenSource::DecodeInstance),
+        job(
+            0.0,
+            0,
+            512,
+            3,
+            link_plan(0, 0.1),
+            FirstTokenSource::DecodeInstance,
+        ),
+        job(
+            0.0,
+            1,
+            512,
+            3,
+            link_plan(1, 0.1),
+            FirstTokenSource::DecodeInstance,
+        ),
     ];
     let outcome = run_jobs(&jobs, &two_workers(2048));
-    assert!(close(transfer(&outcome, 0).finish_s, transfer(&outcome, 1).finish_s));
+    assert!(close(
+        transfer(&outcome, 0).finish_s,
+        transfer(&outcome, 1).finish_s
+    ));
     assert!(transfer(&outcome, 1).predecessors.is_empty());
 }
 
@@ -247,7 +285,10 @@ fn pulls_on_disjoint_links_overlap() {
 fn prefill_sequence_slot_frees_at_handoff_but_prompt_kv_waits_for_the_pull() {
     // Sequence-limited prefill worker: the second prefill starts right after
     // the first prompt completes, before its KV is pulled.
-    let jobs = [decode_job(0.0, 0, 512, 3, 0.3), decode_job(0.0, 1, 512, 3, 0.3)];
+    let jobs = [
+        decode_job(0.0, 0, 512, 3, 0.3),
+        decode_job(0.0, 1, 512, 3, 0.3),
+    ];
     let mut limits = two_workers(2048);
     limits.workers[PREFILL].capacity.sequences = Some(1);
     let outcome = run_jobs(&jobs, &limits);
@@ -312,7 +353,10 @@ fn request_whose_decode_kv_never_fits_is_rejected_on_arrival() {
 
 #[test]
 fn cancellation_during_the_pull_frees_decode_capacity() {
-    let mut jobs = vec![decode_job(0.0, 0, 512, 50, 0.2), decode_job(0.0, 1, 512, 3, 0.01)];
+    let mut jobs = vec![
+        decode_job(0.0, 0, 512, 50, 0.2),
+        decode_job(0.0, 1, 512, 3, 0.01),
+    ];
     // Request 0 is cancelled while its KV is in flight.
     jobs[0].request.cancellation_s = Some(PREFILL_512_S + 0.05);
     let mut limits = two_workers(2048);
@@ -383,7 +427,15 @@ fn handoff_to_its_own_prefill_worker_is_a_typed_error() {
 #[test]
 fn disaggregated_engine_is_deterministic() {
     let jobs = (0..40)
-        .map(|idx| decode_job(f64::from(idx) * 0.03, idx, 200 + (idx % 5) * 100, 6 + idx % 4, 0.04))
+        .map(|idx| {
+            decode_job(
+                f64::from(idx) * 0.03,
+                idx,
+                200 + (idx % 5) * 100,
+                6 + idx % 4,
+                0.04,
+            )
+        })
         .collect::<Vec<_>>();
     let mut limits = two_workers(1024);
     limits.workers[DECODE].capacity.sequences = Some(5);

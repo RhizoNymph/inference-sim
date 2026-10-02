@@ -7,7 +7,8 @@ use std::time::Instant;
 use super::super::super::*;
 use crate::config::parse_cluster;
 
-const LAB_CLUSTER: &str = include_str!("../../../../examples/rtx3090_lab_cluster_measured_curves.toml");
+const LAB_CLUSTER: &str =
+    include_str!("../../../../examples/rtx3090_lab_cluster_measured_curves.toml");
 const PROMPT_KV_BYTES: u64 = 512 * 28 * 4 * 128 * 2 * 2;
 
 fn lab_cluster() -> Cluster {
@@ -123,7 +124,11 @@ fn simulate_config(config: &DisaggregatedServingConfig) -> ScoredServingConfig {
 }
 
 /// Prefill on `prefill`, decode on `decode`.
-fn simulate(prefill: NodeId, decode: NodeId, arrival: ServingArrivalPattern) -> ScoredServingConfig {
+fn simulate(
+    prefill: NodeId,
+    decode: NodeId,
+    arrival: ServingArrivalPattern,
+) -> ScoredServingConfig {
     simulate_config(&config(
         ServingDeploymentMode::FullyDisaggregated,
         vec![prefill],
@@ -151,7 +156,10 @@ fn lab_disaggregated_pool_runs_on_the_engine_with_kv_pulls() {
     let result = simulate(0, 1, poisson(2.0));
     assert!(result.feasible, "{:?}", result.rejected_reason);
     assert!(has_approximation(&result, "kv_transfer_fifo_link_queues"));
-    assert!(has_approximation(&result, "kv_transfer_decode_initiated_pull"));
+    assert!(has_approximation(
+        &result,
+        "kv_transfer_decode_initiated_pull"
+    ));
     assert!(!has_approximation(&result, "phase_pipeline_scheduler"));
     assert_eq!(result.metrics.completed_requests, 200);
     assert_eq!(result.metrics.rejected_requests, 0);

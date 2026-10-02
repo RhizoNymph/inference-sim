@@ -294,7 +294,9 @@ unvalidated.
   (fp8/int8), eager mode (CUDA graphs off).
 - Serving with TP/PP (the iteration engine prices TP all-reduces and PP
   stages per step but is unmeasured there), disaggregated prefill/decode
-  (still on the phase-pipeline scheduler), KV transfer between nodes,
+  (now on the iteration engine with decode-initiated KV pulls; predictions
+  for the lab case are in docs/features/disaggregated_serving_engine.md),
+  KV transfer between nodes,
   heterogeneous nodes, trace-driven or bursty arrivals, SLO metrics.
 - Other GPUs (A100, H100, L40S, consumer cards other than the 3090) and
   other stacks (SGLang, TensorRT-LLM) or vLLM versions other than 0.29.0.

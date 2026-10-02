@@ -40,7 +40,10 @@ impl std::fmt::Display for TransferError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidServiceTime { service_s } => {
-                write!(formatter, "KV flow service time {service_s} is not finite and non-negative")
+                write!(
+                    formatter,
+                    "KV flow service time {service_s} is not finite and non-negative"
+                )
             }
         }
     }
@@ -70,16 +73,6 @@ impl KvFlow {
             resources,
             service_s,
         })
-    }
-
-    #[cfg(test)]
-    pub(in crate::serving) fn resources(&self) -> &[LinkId] {
-        &self.resources
-    }
-
-    #[cfg(test)]
-    pub(in crate::serving) fn service_s(&self) -> f64 {
-        self.service_s
     }
 
     fn scaled(&self, factor: f64) -> Self {

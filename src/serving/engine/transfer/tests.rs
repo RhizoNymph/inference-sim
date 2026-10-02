@@ -78,7 +78,10 @@ fn replicated_source_heads_are_read_from_one_replica_each() {
     assert_eq!(moved.len(), 4);
     // Decode rank d reads head d from replica d % 2 of {2d, 2d + 1}.
     assert_eq!(
-        moved.iter().map(|flow| (flow.0, flow.1)).collect::<Vec<_>>(),
+        moved
+            .iter()
+            .map(|flow| (flow.0, flow.1))
+            .collect::<Vec<_>>(),
         vec![(0, 0), (3, 1), (4, 2), (7, 3)]
     );
 }
@@ -363,9 +366,7 @@ fn curves_ignore_calibration_scalars_but_alpha_beta_honours_them() {
         plan_with(&curved, scaled),
         plan_with(&curved, SimulationCalibration::default())
     ));
-    assert!(
-        plan_with(&plain, scaled) > 1.9 * plan_with(&plain, SimulationCalibration::default())
-    );
+    assert!(plan_with(&plain, scaled) > 1.9 * plan_with(&plain, SimulationCalibration::default()));
 }
 
 #[test]

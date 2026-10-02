@@ -74,6 +74,14 @@ impl KvShardLayout {
     }
 }
 
+/// One distinct source shard (pipeline stage x head piece) and the source
+/// ranks holding a copy of it.
+struct SourcePiece {
+    layers: (f64, f64),
+    heads: (f64, f64),
+    holders: Vec<usize>,
+}
+
 /// `fraction` of the request's full KV (all layers, all heads) moves from
 /// source rank `src_rank` to destination rank `dst_rank`.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -91,14 +99,18 @@ fn overlap(left: (f64, f64), right: (f64, f64)) -> f64 {
 /// sorted by (source rank, destination rank).
 pub(in crate::serving) fn kv_shard_flows(src: KvShardLayout, dst: KvShardLayout) -> Vec<ShardFlow> {
     // Distinct source pieces (stage, head key) and the ranks holding each.
-    let mut pieces: BTreeMap<(u32, u32), ((f64, f64), (f64, f64), Vec<usize>)> = BTreeMap::new();
+    let mut pieces: BTreeMap<(u32, u32), SourcePiece> = BTreeMap::new();
     for rank in 0..src.ranks() {
         let (stage, tensor_idx) = src.coordinates(rank);
         let (head_key, heads) = src.head_piece(tensor_idx);
         pieces
             .entry((stage, head_key))
-            .or_insert_with(|| (src.layer_interval(stage), heads, Vec::new()))
-            .2
+            .or_insert_with(|| SourcePiece {
+                layers: src.layer_interval(stage),
+                heads,
+                holders: Vec::new(),
+            })
+            .holders
             .push(rank);
     }
     let mut flows: BTreeMap<(usize, usize), f64> = BTreeMap::new();
@@ -106,7 +118,12 @@ pub(in crate::serving) fn kv_shard_flows(src: KvShardLayout, dst: KvShardLayout)
         let (stage, tensor_idx) = dst.coordinates(dst_rank);
         let layers = dst.layer_interval(stage);
         let (_, heads) = dst.head_piece(tensor_idx);
-        for (src_layers, src_heads, holders) in pieces.values() {
+        for SourcePiece {
+            layers: src_layers,
+            heads: src_heads,
+            holders,
+        } in pieces.values()
+        {
             let fraction = overlap(layers, *src_layers) * overlap(heads, *src_heads);
             if fraction <= 0.0 || holders.is_empty() {
                 continue;

@@ -336,8 +336,11 @@ impl<'a> Engine<'a> {
         let request = self.request(id);
         self.ledger.never_fits(request).or_else(|| {
             let handoff = self.jobs[id].handoff()?;
-            self.ledger
-                .never_fits_on(handoff.decode_worker, request.class, handoff.decode_footprint)
+            self.ledger.never_fits_on(
+                handoff.decode_worker,
+                request.class,
+                handoff.decode_footprint,
+            )
         })
     }
 

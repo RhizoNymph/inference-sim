@@ -28,9 +28,15 @@ use crate::types::collective_curves::{CurveLookup, CurveQuery};
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::serving) enum KvPlanError {
     /// A placed layout lists a different number of GPUs than it has ranks.
-    RankCountMismatch { expected: usize, actual: usize },
+    RankCountMismatch {
+        expected: usize,
+        actual: usize,
+    },
     /// No topology route connects the two GPUs.
-    Unroutable { source: GpuAddr, destination: GpuAddr },
+    Unroutable {
+        source: GpuAddr,
+        destination: GpuAddr,
+    },
     Flow(TransferError),
 }
 
@@ -186,9 +192,8 @@ impl<'a> KvTransferPlanner<'a> {
         sequences: u32,
         prompt_tokens: u32,
     ) -> Result<PlannedTransfer, KvPlanError> {
-        let total_bytes = u64::from(sequences.max(1))
-            * u64::from(prompt_tokens)
-            * self.context.bytes_per_token;
+        let total_bytes =
+            u64::from(sequences.max(1)) * u64::from(prompt_tokens) * self.context.bytes_per_token;
         let key = (source.clone(), destination.clone(), total_bytes);
         if let Some(planned) = self.cache.get(&key) {
             return Ok(planned.clone());
@@ -248,14 +253,10 @@ impl<'a> KvTransferPlanner<'a> {
             })?;
             inter_node |= src.node_id != dst.node_id;
             let query_nodes = [src.node_id, dst.node_id];
-            let lookup = self
-                .context
-                .cluster
-                .collective_curves
-                .lookup(&CurveQuery {
-                    kind: CollectiveKind::SendRecv,
-                    participant_nodes: &query_nodes,
-                });
+            let lookup = self.context.cluster.collective_curves.lookup(&CurveQuery {
+                kind: CollectiveKind::SendRecv,
+                participant_nodes: &query_nodes,
+            });
             let (service_s, flow_pricing) = match lookup {
                 CurveLookup::Matched(curve) => {
                     let evaluation = curve.curve().evaluate(bytes);
@@ -272,14 +273,13 @@ impl<'a> KvTransferPlanner<'a> {
                 CurveLookup::NotConfigured | CurveLookup::Suspended(_) | CurveLookup::NoMatch => {
                     let latency_s = path.latency_s * calibration.collective_latency_scale;
                     let bandwidth_bytes_per_s = path.bottleneck_bandwidth_gbps * 1e9 / 8.0;
-                    let bandwidth_s = if bandwidth_bytes_per_s.is_finite()
-                        && bandwidth_bytes_per_s > 0.0
-                    {
-                        bytes as f64 / bandwidth_bytes_per_s * calibration.kv_transfer_scale
-                            / calibration.collective_bandwidth_scale
-                    } else {
-                        f64::INFINITY
-                    };
+                    let bandwidth_s =
+                        if bandwidth_bytes_per_s.is_finite() && bandwidth_bytes_per_s > 0.0 {
+                            bytes as f64 / bandwidth_bytes_per_s * calibration.kv_transfer_scale
+                                / calibration.collective_bandwidth_scale
+                        } else {
+                            f64::INFINITY
+                        };
                     max_latency_s = max_latency_s.max(latency_s);
                     (latency_s + bandwidth_s, FlowPricing::AlphaBeta)
                 }
@@ -297,9 +297,11 @@ impl<'a> KvTransferPlanner<'a> {
                 link_ids.push(*self.links.entry(id.clone()).or_insert(next));
                 resources.push(id);
             }
-            if let Some(slowest) = path.resource_details.iter().min_by(|left, right| {
-                left.bandwidth_gbps.total_cmp(&right.bandwidth_gbps)
-            }) {
+            if let Some(slowest) = path
+                .resource_details
+                .iter()
+                .min_by(|left, right| left.bandwidth_gbps.total_cmp(&right.bandwidth_gbps))
+            {
                 bottlenecks.push(slowest.label.clone());
             }
             flows.push(KvFlow::new(link_ids, service_s).map_err(KvPlanError::Flow)?);
