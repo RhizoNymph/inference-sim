@@ -22,7 +22,7 @@ mkdir -p "$OUT_LOCAL"
 
 ENGINE_ARGS="--dtype bfloat16 --max-model-len 4096 --max-num-batched-tokens 2048 --max-num-seqs 64 --gpu-memory-utilization 0.85 --no-enable-prefix-caching --seed 0"
 KV_CONFIG='{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
-COMMON_ENV="PATH=$LAB/.venv/bin:\$PATH HF_HOME=\$HOME/.cache/huggingface CUDA_HOME=/usr/local/cuda UCX_TLS=tcp,self,sm UCX_NET_DEVICES=bond0 PYTHONUNBUFFERED=1"
+COMMON_ENV="PATH=$LAB/.venv/bin:\$PATH HF_HOME=\$HOME/.cache/huggingface CUDA_HOME=/usr/local/cuda UCX_TLS=tcp,cuda_copy,self,sm UCX_NET_DEVICES=bond0 PYTHONUNBUFFERED=1"
 
 teardown() {
   echo "teardown"
