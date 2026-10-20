@@ -71,10 +71,17 @@ constants an H100 run can fit.
         exhaustion (2.4x step time measured at batch 48-64,
         lab-runs/2026-10-01-qwen7b-decode-batch-sweep-tail). Do after the
         engine-core disaggregation work lands.
-      - [ ] decode step error trends with total KV (-0.7% at batch 1 to -6.5%
-        at batch 32; -0.9% to -4.4% over 4k-16k contexts): paged KV reads run
-        at about half the weight-read bandwidth. Add a KV-read bandwidth
-        scale and fit it from the decode sweep.
+      - [x] [done 2026-10-01, ledger 20: `kv_read_bandwidth_scale = 0.469`,
+        fitted by `lab.py fit-kv-read` on node1; decode step 2.7% / 2.5% ->
+        1.3% / 1.6% held out, batch-32 -6.5% -> -1.7%; does not transfer to
+        node0, which shows no KV trend] decode step error trends with total
+        KV (-0.7% at batch 1 to -6.5% at batch 32; -0.9% to -4.4% over
+        4k-16k contexts): paged KV reads run at about half the weight-read
+        bandwidth. Add a KV-read bandwidth scale and fit it from the decode
+        sweep.
+      - [ ] node0 vs node1 KV-read bandwidth: node0 static decode has no KV
+        trend (32x512 20.8 vs 22.2 ms on node1). Measure a node0 decode
+        batch sweep; fit the KV-read scale per node if it holds.
       - [ ] node1 prefills ~3% slower than node0 (curve fitted on node0);
         batched small prefills on node1 (2-4 x 512) take per-sequence time
         and are 8-16% under. Measure 2x512/4x512 on node0 to tell node

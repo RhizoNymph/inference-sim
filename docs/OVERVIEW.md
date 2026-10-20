@@ -109,7 +109,7 @@ Overview:
     calibration:
       role: >
         SimulationCalibration scalar knobs (compute efficiency, phase scales,
-        collective scales, scheduler overhead, serving memory fractions) with
+        weight-read and optional KV-read bandwidth scales, collective scales, scheduler overhead, serving memory fractions) with
         sanitizing defaults, consumed by solver and serving.
       key_files:
         - src/calibration.rs
@@ -134,11 +134,12 @@ Overview:
         on real lab GPUs from TOML experiment specs (generating and running
         every ssh/docker/venv/Ray command), runs the simulator over the same
         spec, fits compute_efficiency and decode_memory_bandwidth_scale from
-        static-batch runs, emits and verifies a calibration profile, and
+        static-batch runs (plus the efficiency curve, frontend latency, and a
+        separate KV-read bandwidth scale with dataset holdout), emits and verifies a calibration profile, and
         writes measured-vs-simulated reports into lab-runs/.
       key_files:
         - tools/lab/lab.py (uv script entry point)
-        - tools/lab/labharness/ (spec, commands, collective_plan, runner, results, curves, curves_toml, simulate, fitting, evaluate, profile, report)
+        - tools/lab/labharness/ (spec, commands, collective_plan, runner, results, curves, curves_toml, simulate, fitting, evaluate, profile, report, kv_read_fit, kv_read_eval, kv_read_profile)
         - tools/lab/remote/ (bench_latency.py, collective_bench.py, probe_env.py, run on the nodes)
         - tools/lab/labs/, tools/lab/specs/ (lab inventories and experiment matrices)
         - lab-runs/ (raw measurements and derived reports)
@@ -180,8 +181,8 @@ Overview:
     solver::calibration_fits already evaluates, and writes a profile TOML that a
     later cli run loads through config. lab_harness also runs outside the loop:
     it drives vLLM on lab nodes, invokes the release binary as a subprocess
-    (--json) for every measured shape or request rate, fits the two roofline
-    scalars from static-batch results, and writes a profile TOML that config
+    (--json) for every measured shape or request rate, fits the roofline
+    scalars (and the KV-read bandwidth scale) from static-batch results, and writes a profile TOML that config
     loads; its reports feed docs/validation_ledger.md.
 
 Features Index:
@@ -233,7 +234,8 @@ Features Index:
     description: >
       Analytical per-phase latency model: dense parameter FLOPs plus causal
       attention FLOPs for prefill/decode, and weight-read plus KV-cache-read
-      HBM bandwidth terms for decode, sharded across tensor/pipeline ranks
+      HBM bandwidth terms for decode (KV reads at an optional separate
+      kv_read_bandwidth_scale, also in the serving step cost), sharded across tensor/pipeline ranks
       only for the attention and KV terms. Prefill is bounded below by one
       weight read; compute efficiency is the scalar compute_efficiency or an
       optional compute_efficiency_curve over tokens per forward pass; a
@@ -245,6 +247,8 @@ Features Index:
       - src/solver.rs::prefill_baseline_s
       - src/calibration/efficiency_curve.rs::ComputeEfficiencyCurve
       - src/workload.rs::ModelSpec::parameter_count_mismatch
+      - src/solver.rs::effective_kv_read_bandwidth
+      - src/calibration.rs::SimulationCalibration::effective_kv_read_bandwidth_scale
     depends_on: [types, workload]
     doc: docs/features/compute_roofline.md
   serving_iteration_engine:
@@ -301,6 +305,9 @@ Features Index:
     depends_on: [compute_roofline, calibration_fits]
     doc: docs/features/lab_harness.md
     notes: >
+      fit-kv-read fits kv_read_bandwidth_scale (after or jointly with
+      decode_memory_bandwidth_scale) from decode batch-sweep and long-context
+      runs with leave-one-dataset-out holdout (ledger entry 20).
       fit-curve fits compute_efficiency_curve from a prefill token sweep and
       frontend latency from isolated-request benchmarks; kv_estimate.py sizes
       vLLM's KV cache like vLLM's memory profiler when server.log is absent.
