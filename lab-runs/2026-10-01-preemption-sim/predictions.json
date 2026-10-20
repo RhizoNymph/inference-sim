@@ -1,0 +1,661 @@
+{
+  "kv_tokens": 24896,
+  "rows": [
+    {
+      "batch": 1,
+      "measured": {
+        "prefill_ms": 117.608,
+        "decode_ms": 2506.243,
+        "decode_ms_per_step": 19.58
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 114.408,
+        "decode_ms": 2489.841,
+        "decode_ms_per_step": 19.4519,
+        "error_pct": -0.65,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 114.408,
+        "decode_ms": 2489.841,
+        "decode_ms_per_step": 19.4519,
+        "error_pct": -0.65,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 114.408,
+        "decode_ms": 2489.841,
+        "decode_ms_per_step": 19.4519,
+        "error_pct": -0.65,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 2,
+      "measured": {
+        "prefill_ms": 235.487,
+        "decode_ms": 2463.531,
+        "decode_ms_per_step": 19.2463
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 197.847,
+        "decode_ms": 2495.234,
+        "decode_ms_per_step": 19.494,
+        "error_pct": 1.29,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 197.847,
+        "decode_ms": 2495.234,
+        "decode_ms_per_step": 19.494,
+        "error_pct": 1.29,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 197.847,
+        "decode_ms": 2495.234,
+        "decode_ms_per_step": 19.494,
+        "error_pct": 1.29,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 3,
+      "measured": {
+        "prefill_ms": 321.554,
+        "decode_ms": 2528.514,
+        "decode_ms_per_step": 19.754
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 294.946,
+        "decode_ms": 2500.626,
+        "decode_ms_per_step": 19.5361,
+        "error_pct": -1.1,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 294.946,
+        "decode_ms": 2500.626,
+        "decode_ms_per_step": 19.5361,
+        "error_pct": -1.1,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 294.946,
+        "decode_ms": 2500.626,
+        "decode_ms_per_step": 19.5361,
+        "error_pct": -1.1,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 4,
+      "measured": {
+        "prefill_ms": 432.797,
+        "decode_ms": 2510.995,
+        "decode_ms_per_step": 19.6171
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 391.554,
+        "decode_ms": 2506.019,
+        "decode_ms_per_step": 19.5783,
+        "error_pct": -0.2,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 391.554,
+        "decode_ms": 2506.019,
+        "decode_ms_per_step": 19.5783,
+        "error_pct": -0.2,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 391.554,
+        "decode_ms": 2506.019,
+        "decode_ms_per_step": 19.5783,
+        "error_pct": -0.2,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 6,
+      "measured": {
+        "prefill_ms": 616.432,
+        "decode_ms": 2567.885,
+        "decode_ms_per_step": 20.0616
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 576.462,
+        "decode_ms": 2516.805,
+        "decode_ms_per_step": 19.6625,
+        "error_pct": -1.99,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 576.462,
+        "decode_ms": 2516.805,
+        "decode_ms_per_step": 19.6625,
+        "error_pct": -1.99,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 576.462,
+        "decode_ms": 2516.805,
+        "decode_ms_per_step": 19.6625,
+        "error_pct": -1.99,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 8,
+      "measured": {
+        "prefill_ms": 812.993,
+        "decode_ms": 2570.314,
+        "decode_ms_per_step": 20.0806
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 758.655,
+        "decode_ms": 2527.591,
+        "decode_ms_per_step": 19.7468,
+        "error_pct": -1.66,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 758.655,
+        "decode_ms": 2527.591,
+        "decode_ms_per_step": 19.7468,
+        "error_pct": -1.66,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 758.655,
+        "decode_ms": 2527.591,
+        "decode_ms_per_step": 19.7468,
+        "error_pct": -1.66,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 12,
+      "measured": {
+        "prefill_ms": 1207.278,
+        "decode_ms": 2641.89,
+        "decode_ms_per_step": 20.6398
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 1137.983,
+        "decode_ms": 2549.162,
+        "decode_ms_per_step": 19.9153,
+        "error_pct": -3.51,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 1137.983,
+        "decode_ms": 2549.162,
+        "decode_ms_per_step": 19.9153,
+        "error_pct": -3.51,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 1137.983,
+        "decode_ms": 2549.162,
+        "decode_ms_per_step": 19.9153,
+        "error_pct": -3.51,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 16,
+      "measured": {
+        "prefill_ms": 1594.835,
+        "decode_ms": 2683.651,
+        "decode_ms_per_step": 20.966
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 1517.31,
+        "decode_ms": 2570.733,
+        "decode_ms_per_step": 20.0839,
+        "error_pct": -4.21,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 1517.31,
+        "decode_ms": 2570.733,
+        "decode_ms_per_step": 20.0839,
+        "error_pct": -4.21,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 1517.31,
+        "decode_ms": 2570.733,
+        "decode_ms_per_step": 20.0839,
+        "error_pct": -4.21,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 20,
+      "measured": {
+        "prefill_ms": 1951.036,
+        "decode_ms": 2661.388,
+        "decode_ms_per_step": 20.7921
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 1896.638,
+        "decode_ms": 2592.305,
+        "decode_ms_per_step": 20.2524,
+        "error_pct": -2.6,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 1896.638,
+        "decode_ms": 2592.305,
+        "decode_ms_per_step": 20.2524,
+        "error_pct": -2.6,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 1896.638,
+        "decode_ms": 2592.305,
+        "decode_ms_per_step": 20.2524,
+        "error_pct": -2.6,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 24,
+      "measured": {
+        "prefill_ms": 2348.007,
+        "decode_ms": 2681.942,
+        "decode_ms_per_step": 20.9527
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 2275.965,
+        "decode_ms": 2613.876,
+        "decode_ms_per_step": 20.4209,
+        "error_pct": -2.54,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 2275.965,
+        "decode_ms": 2613.876,
+        "decode_ms_per_step": 20.4209,
+        "error_pct": -2.54,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 2275.965,
+        "decode_ms": 2613.876,
+        "decode_ms_per_step": 20.4209,
+        "error_pct": -2.54,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 28,
+      "measured": {
+        "prefill_ms": 2730.696,
+        "decode_ms": 2801.308,
+        "decode_ms_per_step": 21.8852
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 2655.293,
+        "decode_ms": 2635.447,
+        "decode_ms_per_step": 20.5894,
+        "error_pct": -5.92,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 2655.293,
+        "decode_ms": 2635.447,
+        "decode_ms_per_step": 20.5894,
+        "error_pct": -5.92,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 2655.293,
+        "decode_ms": 2635.447,
+        "decode_ms_per_step": 20.5894,
+        "error_pct": -5.92,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 32,
+      "measured": {
+        "prefill_ms": 3112.983,
+        "decode_ms": 2768.732,
+        "decode_ms_per_step": 21.6307
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 3034.62,
+        "decode_ms": 2657.019,
+        "decode_ms_per_step": 20.758,
+        "error_pct": -4.03,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 3034.62,
+        "decode_ms": 2657.019,
+        "decode_ms_per_step": 20.758,
+        "error_pct": -4.03,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 3034.62,
+        "decode_ms": 2657.019,
+        "decode_ms_per_step": 20.758,
+        "error_pct": -4.03,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 40,
+      "measured": {
+        "prefill_ms": 3873.307,
+        "decode_ms": 3677.786,
+        "decode_ms_per_step": 28.7327
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 3793.275,
+        "decode_ms": 2700.161,
+        "decode_ms_per_step": 21.095,
+        "error_pct": -26.58,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 3793.275,
+        "decode_ms": 5195.06,
+        "decode_ms_per_step": 40.5864,
+        "error_pct": 41.26,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 3793.275,
+        "decode_ms": 3539.87,
+        "decode_ms_per_step": 27.6552,
+        "error_pct": -3.75,
+        "preemptions": 2,
+        "preempted_requests": 2,
+        "recompute_tokens": 1232,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 48,
+      "measured": {
+        "prefill_ms": 4669.678,
+        "decode_ms": 6765.608,
+        "decode_ms_per_step": 52.8563
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 4551.931,
+        "decode_ms": 2743.304,
+        "decode_ms_per_step": 21.4321,
+        "error_pct": -59.45,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 4571.507,
+        "decode_ms": 5208.176,
+        "decode_ms_per_step": 40.6889,
+        "error_pct": -23.02,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 4551.931,
+        "decode_ms": 6259.712,
+        "decode_ms_per_step": 48.904,
+        "error_pct": -7.48,
+        "preemptions": 10,
+        "preempted_requests": 10,
+        "recompute_tokens": 5664,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 56,
+      "measured": {
+        "prefill_ms": 5474.915,
+        "decode_ms": 6846.522,
+        "decode_ms_per_step": 53.4885
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 5310.586,
+        "decode_ms": 2786.447,
+        "decode_ms_per_step": 21.7691,
+        "error_pct": -59.3,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 5310.586,
+        "decode_ms": 5270.895,
+        "decode_ms_per_step": 41.1789,
+        "error_pct": -23.01,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 5310.586,
+        "decode_ms": 6322.264,
+        "decode_ms_per_step": 49.3927,
+        "error_pct": -7.66,
+        "preemptions": 10,
+        "preempted_requests": 10,
+        "recompute_tokens": 5664,
+        "prefill_preemptions": 0
+      }
+    },
+    {
+      "batch": 64,
+      "measured": {
+        "prefill_ms": 6258.197,
+        "decode_ms": 6786.672,
+        "decode_ms_per_step": 53.0209
+      },
+      "uncapped": {
+        "feasible": true,
+        "prefill_ms": 6069.241,
+        "decode_ms": 2829.589,
+        "decode_ms_per_step": 22.1062,
+        "error_pct": -58.31,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "reserved": {
+        "feasible": true,
+        "prefill_ms": 6069.241,
+        "decode_ms": 5314.037,
+        "decode_ms_per_step": 41.5159,
+        "error_pct": -21.7,
+        "preemptions": 0,
+        "preempted_requests": 0,
+        "recompute_tokens": 0,
+        "prefill_preemptions": 0
+      },
+      "preempt": {
+        "feasible": true,
+        "prefill_ms": 6069.241,
+        "decode_ms": 6365.407,
+        "decode_ms_per_step": 49.7297,
+        "error_pct": -6.21,
+        "preemptions": 10,
+        "preempted_requests": 10,
+        "recompute_tokens": 5664,
+        "prefill_preemptions": 0
+      }
+    }
+  ]
+}

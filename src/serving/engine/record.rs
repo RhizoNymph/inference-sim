@@ -158,7 +158,11 @@ fn transfer_operations(
             .map(|planned| planned.resources.clone())
             .filter(|resources| !resources.is_empty())
             .unwrap_or_else(|| vec!["transfer: local".to_string()]);
-        let prefill_step = timelines[index].chunks.last().map(|chunk| chunk.step);
+        let prefill_step = timelines[index]
+            .chunks
+            .iter()
+            .rfind(|chunk| chunk.pass == ChunkPass::Prompt)
+            .map(|chunk| chunk.step);
         operations.push(ScheduledOperation {
             id,
             name: format!(
@@ -279,24 +283,27 @@ fn record_request(
     transfer: Option<RecordedTransfer<'_>>,
 ) {
     let sequences = u64::from(request.sequences.max(1));
-    if let (Some(first), Some(last)) = (timeline.chunks.first(), timeline.chunks.last()) {
-        let computed_tokens = timeline
-            .chunks
-            .iter()
-            .map(|chunk| chunk.tokens)
-            .sum::<u64>()
-            / sequences;
+    // Prefill fields describe the prompt pass; chunks that recompute a
+    // preempted request's context after its first token are decode-side
+    // work, reported through the run's preemption totals.
+    let prompt_chunks = timeline
+        .chunks
+        .iter()
+        .filter(|chunk| chunk.pass == ChunkPass::Prompt)
+        .collect::<Vec<_>>();
+    if let (Some(first), Some(last)) = (prompt_chunks.first(), prompt_chunks.last()) {
+        let computed_tokens =
+            prompt_chunks.iter().map(|chunk| chunk.tokens).sum::<u64>() / sequences;
         state.prefill_start_s = first.start_s;
         state.prefill_finish_s = last.finish_s;
-        state.prefill_chunks = timeline.chunks.len().min(u32::MAX as usize) as u32;
+        state.prefill_chunks = prompt_chunks.len().min(u32::MAX as usize) as u32;
         state.remaining_prefill_tokens = state
             .effective_prefill_tokens
             .saturating_sub(computed_tokens.min(u64::from(u32::MAX)) as u32);
         state.prefill_scheduled = state.remaining_prefill_tokens == 0;
         state.prefill_resource_queue_s =
             finite_or_zero(timeline.admitted_s.unwrap_or(first.start_s) - state.arrival_s);
-        state.prefill_token_spans = timeline
-            .chunks
+        state.prefill_token_spans = prompt_chunks
             .iter()
             .map(|chunk| PrefillTokenSpan {
                 start_s: chunk.start_s,
@@ -309,7 +316,7 @@ fn record_request(
             prefill_gpus,
             first.start_s,
             last.finish_s,
-            timeline.chunks.iter().map(|chunk| chunk.step).collect(),
+            prompt_chunks.iter().map(|chunk| chunk.step).collect(),
         ));
     } else {
         state.prefill_start_s = f64::INFINITY;

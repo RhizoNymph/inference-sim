@@ -35,6 +35,7 @@ them superseded.
 | 16 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 | recalibrated scalars / curve | 6.0% | 2.7% (batch 1-32) | 3.0% | validated to batch 32; KV exhaustion beyond |
 | 17 | 2026-10-01 | 1x RTX 3090 (node2), graphics clock locked at 1200 MHz | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, degraded GPU | recalibrated constants, peak scaled to the locked clock | 13.8% | 22.8% | 9.6% (offsetting errors) | **not accurate**: see entry |
 | 18 | 2026-10-01 | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst | curve + frontend profile (blind prediction) | see entry | see entry | see entry | validated below saturation; burst not accurate |
+| 19 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 on the iteration engine, KV-exhaustion preemption | curve-only profile scalars, logged KV capacity (transfer) | 2.7% (40-64) | **6.3%** (40-64; was 50.9% uncapped / 27.2% reserved), 2.5% (1-32, unchanged) | see entry | validated; preemption cliff reproduced |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
 
@@ -487,6 +488,44 @@ baseline's traffic (512 in / 128 out, 200 requests). Scripts:
 - Remaining low-load TTFT gap (~60 ms) is consistent with the proxy's two
   HTTP hops, which the simulator does not model
   (`disaggregated_proxy_hop_not_modeled`).
+
+## 19. RTX 3090, Qwen2.5-7B, decode batch sweep on the iteration engine: KV-exhaustion preemption
+
+Data: entry 16's runs (`lab-runs/2026-10-01-qwen7b-decode-batch-sweep/` and
+`-tail/`, node1; the tail's batch 32 and 40 values are used). Simulation:
+`lab-runs/2026-10-01-preemption-sim/` (`predict.py`, `predictions.json`,
+`report.md`), simulator on branch `feat/serving-engine-preemption` (base
+7ef3439). Each shape is B requests at t = 0 with 512-token prompts on the
+serving iteration engine, run with 1 and with 1 + 128 output tokens; decode
+= difference of the makespans (as `bench_latency.py` measures).
+`max_num_batched_tokens` 32,768, 64 sequences, vLLM's logged KV cache of
+24,896 tokens (1,556 blocks of 16), curve-only profile scalars, no frontend
+latency. Nothing was fitted.
+
+| batch | real ms/step | no KV limit | reserved at admission | preempt (recompute) | preempted requests / recomputed tokens |
+|---:|---:|---:|---:|---:|---|
+| 1-32 | 19.25-21.89 | 2.5% mean \|err\| | identical | identical | 0 |
+| 40 | 28.73 | 21.09 (-26.6%) | 40.59 (+41.3%) | **27.66 (-3.8%)** | 2 / 1,232 |
+| 48 | 52.86 | 21.43 (-59.5%) | 40.69 (-23.0%) | **48.90 (-7.5%)** | 10 / 5,664 |
+| 56 | 53.49 | 21.77 (-59.3%) | 41.18 (-23.0%) | **49.39 (-7.7%)** | 10 / 5,664 |
+| 64 | 53.02 | 22.11 (-58.3%) | 41.52 (-21.7%) | **49.73 (-6.2%)** | 10 / 5,664 |
+
+- With `decode_capacity_policy = "preempt"` the engine allocates KV blocks
+  as tokens are computed and preempts in vLLM V1 recompute mode (newest
+  running request frees its blocks, goes to the front of the queue, and
+  recomputes prompt plus generated tokens as chunked prefill). Mean |error|
+  at batch 40-64 is 6.3% (was 50.9% with no KV limit and 27.2% with whole
+  footprints reserved at admission). The 2.4x step time at 48-64 comes out
+  2.3-2.4x.
+- Batches 1-32 fit the cache and are bit-identical in all modes.
+- Prefill (1 output token) at 40-64: -2.1% to -3.0%; at 56-64 the prompts
+  already exceed the cache and are admitted in two waves.
+- The remaining -4% to -8% is the decode-step under-prediction already seen
+  at batch 28-32 (KV-read bandwidth, entry 16).
+- Caveats: one model, one GPU, one prompt length; the static batch sweep
+  only (no online serving run at KV exhaustion); preempted requests are
+  assumed to lose all prefix-cache hits on their own blocks (prefix caching
+  was off in these runs).
 
 ## Untested regimes
 

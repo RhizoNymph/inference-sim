@@ -26,6 +26,14 @@ each request to prefill and then to decode.
 - Two first-token conventions (`serving.traffic.disaggregated_first_token`):
   `decode_instance` (default, vLLM's proxy) and `prefill_instance`.
 
+- KV-exhaustion preemption (`decode_capacity_policy = "preempt"`, see
+  serving_iteration_engine.md): decode admission allocates blocks for the
+  prompt being pulled, decodes grow it, and a request preempted on its
+  decode worker recomputes prompt plus emitted tokens locally on that worker
+  (vLLM consumes the remote-prefill parameters on the first load), without
+  a second pull. Requests still pulling are never victims; prompt KV held on
+  a prefill worker for a pull is not running and never preempted.
+
 ## Non-scope
 
 - Independent prefill or decode batching and data-parallel replicas stay on

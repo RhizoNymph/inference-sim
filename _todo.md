@@ -67,10 +67,11 @@ constants an H100 run can fit.
         bound steps), not modeled.
       - [ ] pipeline microbatching inside one multi-request batch (0.85x
         measured vs 1.03x simulated).
-      - [ ] engine never preempts; vLLM preempts and recomputes under KV
-        exhaustion (2.4x step time measured at batch 48-64,
-        lab-runs/2026-10-01-qwen7b-decode-batch-sweep-tail). Do after the
-        engine-core disaggregation work lands.
+      - [x] [done 2026-10-01, ledger 19] engine never preempts; vLLM preempts
+        and recomputes under KV exhaustion (2.4x step time measured at batch
+        48-64). `decode_capacity_policy = "preempt"` adds paged allocation
+        with recompute preemption: decode step at batch 40-64 within 3.8-7.7%
+        (mean 6.3%, was 50.9% uncapped), batches <= 32 unchanged.
       - [ ] decode step error trends with total KV (-0.7% at batch 1 to -6.5%
         at batch 32; -0.9% to -4.4% over 4k-16k contexts): paged KV reads run
         at about half the weight-read bandwidth. Add a KV-read bandwidth
