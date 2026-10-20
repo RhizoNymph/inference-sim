@@ -9,6 +9,8 @@ mod collective_pricing;
 mod curve_tests;
 #[cfg(test)]
 mod efficiency_curve_tests;
+#[cfg(test)]
+mod kv_read_bandwidth_tests;
 mod network_cost;
 mod operations;
 mod placement;
@@ -466,7 +468,7 @@ impl Solver {
         if bottlenecks.is_empty() {
             bottlenecks.push("GPU compute".to_string());
         }
-        let approximations = Self::parallelism_approximations(
+        let mut approximations = Self::parallelism_approximations(
             cluster,
             model,
             request,
@@ -476,6 +478,9 @@ impl Solver {
             &priced_collectives,
             &calibration_fits,
         );
+        if let Some(approximation) = kv_read_bandwidth_approximation(request.phase, calibration) {
+            push_approximation(&mut approximations, approximation);
+        }
         let placement_evidence = Self::placement_evidence(
             cluster,
             model,
@@ -643,6 +648,10 @@ impl Solver {
         let decode_flops =
             peak_flops * calibration.compute_efficiency_at(Self::decode_tokens_per_pass(request));
         let hbm_bandwidth = Self::effective_hbm_bandwidth(cluster, placement, calibration);
+        let decode_bandwidth = DecodeBandwidth {
+            weight_read: hbm_bandwidth,
+            kv_read: Self::effective_kv_read_bandwidth(cluster, placement, calibration),
+        };
 
         match request.phase {
             InferencePhase::Prefill => {
@@ -678,7 +687,7 @@ impl Solver {
                     parameter_count,
                     shard_factor,
                     decode_flops,
-                    hbm_bandwidth,
+                    decode_bandwidth,
                     calibration,
                     calibration_profile,
                 );
@@ -717,7 +726,7 @@ impl Solver {
                     parameter_count,
                     shard_factor,
                     decode_flops,
-                    hbm_bandwidth,
+                    decode_bandwidth,
                     calibration,
                     calibration_profile,
                 );
@@ -735,7 +744,7 @@ impl Solver {
         parameter_count: f64,
         shard_factor: f64,
         peak_flops: f64,
-        hbm_bandwidth: f64,
+        bandwidth: DecodeBandwidth,
         calibration: SimulationCalibration,
         calibration_profile: Option<&CalibrationProfileMetadata>,
     ) -> (f64, Option<CalibrationFitApplication>) {
@@ -749,9 +758,9 @@ impl Solver {
                     / peak_flops;
         let parameter_bytes_per_rank = model.parameters.as_bytes() as f64 / shard_factor;
         let kv_read_latency_s =
-            Self::decode_kv_read_bytes(model, request) / attention_shard_factor / hbm_bandwidth;
+            Self::decode_kv_read_bytes(model, request) / attention_shard_factor / bandwidth.kv_read;
         let memory_latency_s =
-            parameter_bytes_per_rank * decode_tokens / hbm_bandwidth + kv_read_latency_s;
+            parameter_bytes_per_rank * decode_tokens / bandwidth.weight_read + kv_read_latency_s;
 
         let baseline = flop_latency_s.max(memory_latency_s) * calibration.decode_compute_scale;
         if let Some(evaluation) = Self::fitted_phase_latency(
@@ -898,19 +907,35 @@ impl Solver {
         peak_tflops.max(1.0) * 1e12
     }
 
+    // Achieved bandwidth of streaming weight reads.
     fn effective_hbm_bandwidth(
         cluster: &Cluster,
         placement: &RankPlacement,
         calibration: SimulationCalibration,
     ) -> f64 {
-        let hbm_bytes_per_sec = placement
+        Self::min_hbm_bytes_per_sec(cluster, placement) * calibration.decode_memory_bandwidth_scale
+    }
+
+    // Achieved bandwidth of KV-cache reads: `kv_read_bandwidth_scale` of
+    // peak when set, otherwise exactly the weight-read bandwidth.
+    fn effective_kv_read_bandwidth(
+        cluster: &Cluster,
+        placement: &RankPlacement,
+        calibration: SimulationCalibration,
+    ) -> f64 {
+        Self::min_hbm_bytes_per_sec(cluster, placement)
+            * calibration.effective_kv_read_bandwidth_scale()
+    }
+
+    // Peak HBM bandwidth of the slowest placed GPU.
+    fn min_hbm_bytes_per_sec(cluster: &Cluster, placement: &RankPlacement) -> f64 {
+        placement
             .rank_to_gpu
             .iter()
             .filter_map(|addr| cluster.gpu_profile(*addr))
             .map(|profile| profile.hbm_bandwidth.as_bytes_per_sec())
-            .fold(f64::INFINITY, f64::min);
-
-        hbm_bytes_per_sec.max(1.0) * calibration.decode_memory_bandwidth_scale
+            .fold(f64::INFINITY, f64::min)
+            .max(1.0)
     }
 
     #[cfg(test)]
@@ -1035,6 +1060,43 @@ fn min_bandwidth(current: Option<Bandwidth>, candidate: Bandwidth) -> Bandwidth 
         Some(current) if current.as_bytes_per_sec() <= candidate.as_bytes_per_sec() => current,
         _ => candidate,
     }
+}
+
+/// Achieved HBM bandwidths of the two decode memory terms, in bytes/s.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DecodeBandwidth {
+    weight_read: f64,
+    kv_read: f64,
+}
+
+/// Stable code for KV reads priced at a separately calibrated bandwidth.
+pub const KV_READ_BANDWIDTH_SCALE_UNIFORM: &str = "kv_read_bandwidth_scale_uniform";
+
+/// Records that KV-cache reads use one calibrated fraction of peak HBM
+/// bandwidth, for the phases whose roofline has a KV-read term (decode and
+/// end-to-end), only when `kv_read_bandwidth_scale` is set.
+fn kv_read_bandwidth_approximation(
+    phase: InferencePhase,
+    calibration: SimulationCalibration,
+) -> Option<SimulationApproximation> {
+    let kv_scale = calibration.kv_read_bandwidth_scale?;
+    if phase == InferencePhase::Prefill {
+        return None;
+    }
+    Some(SimulationApproximation::new(
+        phase_label(phase),
+        "memory",
+        "kv_cache_reads",
+        KV_READ_BANDWIDTH_SCALE_UNIFORM,
+        format!(
+            "KV-cache reads run at a calibrated {kv_scale:.3} of peak HBM bandwidth and weight reads at {:.3}; the KV fraction is one constant, not a function of KV block size, context length, batch, or attention kernel.",
+            calibration.decode_memory_bandwidth_scale
+        ),
+        Some(
+            "refit kv_read_bandwidth_scale (tools/lab/lab.py fit-kv-read) for a different GPU, attention backend, block size, or KV dtype"
+                .to_string(),
+        ),
+    ))
 }
 
 fn push_approximation(

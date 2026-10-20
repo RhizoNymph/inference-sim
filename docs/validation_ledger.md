@@ -35,6 +35,7 @@ them superseded.
 | 16 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 | recalibrated scalars / curve | 6.0% | 2.7% (batch 1-32) | 3.0% | validated to batch 32; KV exhaustion beyond |
 | 17 | 2026-10-01 | 1x RTX 3090 (node2), graphics clock locked at 1200 MHz | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, degraded GPU | recalibrated constants, peak scaled to the locked clock | 13.8% | 22.8% | 9.6% (offsetting errors) | **not accurate**: see entry |
 | 18 | 2026-10-01 | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst | curve + frontend profile (blind prediction) | see entry | see entry | see entry | validated below saturation; burst not accurate |
+| 20 | 2026-10-01 | 1x RTX 3090 24 GB (node1; transfer to node0 and PP=2) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-32 x 512 + 4k-16k contexts | curve + frontend profile + `kv_read_bandwidth_scale = 0.469` (dataset holdout) | unchanged | 1.3% / 1.6% held out (was 2.7% / 2.5%) | 2.1% / 1.1% held out (was 3.0% / 3.1%) | validated on node1; does not transfer to node0 |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
 
@@ -487,6 +488,87 @@ baseline's traffic (512 in / 128 out, 200 requests). Scripts:
 - Remaining low-load TTFT gap (~60 ms) is consistent with the proxy's two
   HTTP hops, which the simulator does not model
   (`disaggregated_proxy_hop_not_modeled`).
+
+## 20. RTX 3090, Qwen2.5-7B, separate KV-read bandwidth scale for decode
+
+- Data: the node1 decode batch sweep
+  ([`lab-runs/2026-10-01-qwen7b-decode-batch-sweep/`](../lab-runs/2026-10-01-qwen7b-decode-batch-sweep/),
+  `measured.jsonl`, batch 1-32 x 512; 40x512 and the `-tail` run excluded by
+  `--max-batch 32` because KV exhaustion makes vLLM preempt, entry 16) and the
+  node1 long-context run
+  ([`lab-runs/2026-09-30-qwen7b-static-longctx-node1/`](../lab-runs/2026-09-30-qwen7b-static-longctx-node1/),
+  4k-16k). Analysis: [`lab-runs/2026-10-01-kv-read-scale/`](../lab-runs/2026-10-01-kv-read-scale/)
+  (`report-kv-read-<tag>.md`, `kv-read-fit-<tag>.json`,
+  `calibration_profile-<tag>.toml`; `transfer.py`, `transfer.md`,
+  `transfer.json`; per-regime `validation-kv-*.json` in each measured run dir).
+- Simulator: `feat/kv-read-bandwidth-scale` (base 7ef3439). Change: optional
+  `[calibration] kv_read_bandwidth_scale`, the fraction of peak HBM bandwidth
+  KV-cache reads achieve, applied to the static decode KV-read term and to
+  the serving step cost's KV reads (decode contexts and prefill-chunk
+  re-reads); weight reads keep `decode_memory_bandwidth_scale`. Absent, every
+  result is unchanged (docs/features/compute_roofline.md).
+- Base calibration: the curve + frontend profile
+  (`lab-runs/2026-10-01-qwen7b-prefill-token-sweep/calibration_profile-curve.toml`,
+  `decode_memory_bandwidth_scale = 0.8383`). Fitted by `lab.py fit-kv-read`
+  (least squares on relative decode-step error; holdout = leave one dataset
+  out; every error re-simulated):
+
+| mode | fitted on | `kv_read_bandwidth_scale` | `decode_memory_bandwidth_scale` |
+|---|---|---:|---:|
+| **after** (weights kept) | batch sweep + long context | **0.4687** | 0.8383 |
+| after | batch sweep only (holds out long context) | 0.4285 | 0.8383 |
+| after | long context only (holds out batch sweep) | 0.5277 | 0.8383 |
+| joint | batch sweep + long context | 0.4715 | 0.8379 |
+| joint | batch sweep only / long context only | 0.4256 / 0.5014 | - |
+
+  Joint fitting moves the weight scale by 0.05%: the weight-read scale fitted
+  at 512-2048 prompts stays right, only KV reads were mispriced. Paged KV
+  reads achieve ~0.47 of peak, 56% of the weight-read fraction.
+
+| dataset | decode step before | fitted (all) | **held out** | trend before | trend fitted | trend held out | e2e before | e2e held out |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| batch sweep 1-32 x 512 | 2.7% | 1.1% | **1.3%** | -3.23 | -0.61 | -1.27 | 3.0% | 2.1% |
+| long context 4k-16k | 2.5% | 0.9% | **1.6%** | -2.26 | +0.35 | +0.91 | 3.1% | 1.1% |
+
+  (Mode after; trend = OLS slope of the signed decode-step error in points per
+  10k KV tokens per step.)
+
+  Decode step error by batch (before -> fitted -> held out): 1: -0.7 -> -0.5
+  -> -0.5%; 4: -0.2 -> +0.5 -> +0.3%; 8: -1.7 -> -0.3 -> -0.7%; 16: -4.2 ->
+  -1.7 -> -2.3%; 24: -2.5 -> +1.3 -> +0.3%; 28: -5.9 -> -1.7 -> -2.7%; 32:
+  -6.5 -> -1.7 -> -3.0%. By context: 1x4096 -0.9 -> +0.3 -> +0.6%; 1x8192
+  -1.2 -> +1.2 -> +1.7%; 1x16384 -2.8 -> +1.7 -> +2.6%; 2x8192 -3.1 -> +1.4
+  -> +2.3%; 4x4096 -4.4 -> +0.0 -> +1.0%.
+- Does the trend disappear? Mostly. Fitting on both node1 datasets cuts the
+  slope 5x on the batch sweep (-3.23 -> -0.61) and removes it on long context
+  (-2.26 -> +0.35); the worst shape goes from -6.5% to -1.7%. Held out, the
+  slope shrinks 2.5x on each but each dataset alone over- or under-fits the
+  other (0.43 vs 0.53), leaving a residual -1.3 / +0.9 points per 10k: one
+  constant KV fraction is a good but not exact model (batch-heavy vs
+  context-heavy KV reads differ by ~20% in achieved bandwidth).
+- Transfer (not fitted, `transfer.md`; same node0-fitted curve + frontend
+  profile with and without the node1 KV scale):
+
+| regime | decode step before -> kv | end-to-end before -> kv |
+|---|---|---|
+| 7B PP=1, 5 shapes (node0) | 0.5% -> **2.7%** | 0.9% -> 2.1% |
+| 7B PP=2 (node0 + node1) | 3.8% -> 2.8% | 1.3% -> 2.1% |
+| 14B PP=2 (model transfer) | 7.2% -> 6.2% | 5.1% -> 5.3% |
+| serving 1-10 req/s + inf (node0) | TPOT p50 6.5% -> 4.7% | E2EL p50 7.1% -> 3.8% |
+
+  Serving TPOT at 6 req/s -15.8% -> -7.7%, at 8 req/s -12.7% -> -10.5%;
+  TTFT p50 17.7% -> 15.5%; ITL p50 2.9% -> 3.7%.
+- Caveat: **node0's static decode shows no KV trend** (32x512 measured
+  20.77 ms on node0 vs 22.21 ms on node1; both run FLASH_ATTN with
+  `kv_cache_dtype=auto`), so the node1 scale over-predicts node0 static
+  decode by up to +5% at 32x512. Adding the node0 PP=1 run as a third
+  dataset (tag `after-with-node0`) fits 0.526, holds node0 out at 2.7% and
+  the batch sweep at 1.8%. The KV-read fraction therefore behaves like a
+  per-node (Docker on node0 vs native venv on node1, or board) constant, not
+  a per-GPU-model one; the reference 3090 example
+  (`examples/rtx3090_qwen7b_disaggregated_workload.toml`) carries it because
+  its decode worker is node1. Not resolved before H100s: fit it per node, or
+  measure a node0 decode batch sweep to tell node variance from environment.
 
 ## Untested regimes
 

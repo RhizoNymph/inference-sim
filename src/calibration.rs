@@ -14,7 +14,15 @@ pub struct SimulationCalibration {
     pub compute_efficiency_curve: Option<ComputeEfficiencyCurve>,
     pub prefill_compute_scale: f64,
     pub decode_compute_scale: f64,
+    /// Fraction of peak HBM bandwidth streaming weight reads achieve; also
+    /// the KV-read fraction unless `kv_read_bandwidth_scale` is set.
     pub decode_memory_bandwidth_scale: f64,
+    /// Optional fraction of peak HBM bandwidth that KV-cache reads achieve
+    /// (paged attention gathers scattered blocks and runs below streaming
+    /// weight reads). `None` prices KV reads at
+    /// `decode_memory_bandwidth_scale`; see
+    /// [`SimulationCalibration::effective_kv_read_bandwidth_scale`].
+    pub kv_read_bandwidth_scale: Option<f64>,
     pub collective_latency_scale: f64,
     pub collective_bandwidth_scale: f64,
     pub kv_transfer_scale: f64,
@@ -43,6 +51,7 @@ impl Default for SimulationCalibration {
             prefill_compute_scale: 1.0,
             decode_compute_scale: 1.0,
             decode_memory_bandwidth_scale: 1.0,
+            kv_read_bandwidth_scale: None,
             collective_latency_scale: 1.0,
             collective_bandwidth_scale: 1.0,
             kv_transfer_scale: 1.0,
@@ -69,6 +78,9 @@ impl SimulationCalibration {
             prefill_compute_scale: positive_or(self.prefill_compute_scale, 1.0),
             decode_compute_scale: positive_or(self.decode_compute_scale, 1.0),
             decode_memory_bandwidth_scale: positive_or(self.decode_memory_bandwidth_scale, 1.0),
+            kv_read_bandwidth_scale: self
+                .kv_read_bandwidth_scale
+                .filter(|scale| scale.is_finite() && *scale > 0.0),
             collective_latency_scale: positive_or(self.collective_latency_scale, 1.0),
             collective_bandwidth_scale: positive_or(self.collective_bandwidth_scale, 1.0),
             kv_transfer_scale: positive_or(self.kv_transfer_scale, 1.0),
@@ -112,6 +124,14 @@ impl SimulationCalibration {
             Some(curve) => curve.efficiency_at(tokens_per_pass),
             None => self.compute_efficiency,
         }
+    }
+
+    /// Fraction of peak HBM bandwidth KV-cache reads achieve: the separate
+    /// `kv_read_bandwidth_scale` when set, otherwise the weight-read
+    /// `decode_memory_bandwidth_scale`.
+    pub fn effective_kv_read_bandwidth_scale(&self) -> f64 {
+        self.kv_read_bandwidth_scale
+            .unwrap_or(self.decode_memory_bandwidth_scale)
     }
 
     /// Client-observed API-server latency for one request with
@@ -175,6 +195,36 @@ mod tests {
             calibration.sanitized().compute_efficiency_curve,
             Some(curve)
         );
+    }
+
+    #[test]
+    fn kv_read_scale_defaults_to_the_weight_read_scale() {
+        let calibration = SimulationCalibration {
+            decode_memory_bandwidth_scale: 0.8383,
+            ..SimulationCalibration::default()
+        };
+        assert_eq!(calibration.kv_read_bandwidth_scale, None);
+        assert_eq!(calibration.effective_kv_read_bandwidth_scale(), 0.8383);
+        let separate = SimulationCalibration {
+            kv_read_bandwidth_scale: Some(0.45),
+            ..calibration
+        };
+        assert_eq!(separate.effective_kv_read_bandwidth_scale(), 0.45);
+        assert_eq!(separate.sanitized().kv_read_bandwidth_scale, Some(0.45));
+    }
+
+    #[test]
+    fn sanitized_drops_an_invalid_kv_read_scale() {
+        for invalid in [0.0, -0.5, f64::NAN, f64::INFINITY] {
+            let calibration = SimulationCalibration {
+                decode_memory_bandwidth_scale: 0.8,
+                kv_read_bandwidth_scale: Some(invalid),
+                ..SimulationCalibration::default()
+            }
+            .sanitized();
+            assert_eq!(calibration.kv_read_bandwidth_scale, None, "{invalid}");
+            assert_eq!(calibration.effective_kv_read_bandwidth_scale(), 0.8);
+        }
     }
 
     #[test]

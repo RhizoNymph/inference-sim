@@ -35,13 +35,18 @@ changes.
   a batch-1 prefill token sweep, plus (optionally) the per-request frontend
   latency from isolated-request `vllm bench serve` runs, written into a copy
   of a base profile and verified by the simulator.
+- `fit-kv-read`: a separate `kv_read_bandwidth_scale` (after, or jointly
+  with, `decode_memory_bandwidth_scale`) from static decode runs that vary
+  total KV (decode batch sweep, long context), with leave-one-dataset-out
+  holdout, error-trend-versus-KV stats, and profile emission verified by the
+  simulator.
 - A vLLM KV-capacity estimate (`kv_estimate.py`) that mirrors vLLM's memory
   profiler, used when no measured capacity is available.
 
 ## Non-scope
 
 - Fitting anything beyond the two roofline scalars, the efficiency curve,
-  and the frontend latency (no `[[fits]]` linear models;
+  the frontend latency, and the KV-read bandwidth scale (no `[[fits]]` linear models;
   `tools/aisimulate_calibration` owns those), and no serving-metric fits.
   Serving is validated, never fitted.
 - Fixing simulator physics. The harness reports gaps (for example the serving
@@ -81,6 +86,16 @@ specs/*.toml ──parse_experiment──> Experiment (spec.py; resolves labs/*.
     │               → evaluate.verify_curve_profile (simulator echoes the curve)
     │               writes calibration_profile-<tag>.toml, efficiency-curve-<tag>.json,
     │                      report-calibration-<tag>.md
+    │
+    ├─ fit-kv-read ─> kv_read_eval.fit_kv_read_datasets (per --dataset NAME:SPEC:RUN_DIR[:MEASURED],
+    │                 shapes with batch > --max-batch excluded):
+    │                 3 sweeps per dataset (base, KV probe, weight probe) through the base
+    │                 profile + inline overrides → kv_read_fit.decode_terms
+    │                 → kv_read_fit.fit_kv_read (all datasets) + holdout_folds (one per dataset)
+    │                 → re-simulate before / fitted / held-out → linearity check
+    │               → kv_read_profile.render_kv_read_profile → simulator echo + drift check
+    │               writes calibration_profile-<tag>.toml, kv-read-fit-<tag>.json,
+    │                      report-kv-read-<tag>.md into --out-dir
     │
     └─ report ────> report.md = concatenated report-*.md fragments
 ```
@@ -271,6 +286,44 @@ capacity within 10% in all five (82,864 tokens at 2048 batched tokens, 24,896
 at 32,768); the previous estimate (utilization x HBM - weights) ignored the
 activation reserve and was 9% to 262% high.
 
+### KV-read bandwidth scale (`kv_read_fit.py`, `kv_read_eval.py`, `kv_read_profile.py`)
+
+A memory-bound static decode step is priced as `fixed + W / s_w + K / s_kv`
+(weight and KV read times at full peak bandwidth, over
+`decode_memory_bandwidth_scale` and `kv_read_bandwidth_scale`;
+docs/features/compute_roofline.md). For every measured shape the fitter runs
+the simulator three times through the base profile with an inline
+`[calibration]` override (`ProfileOverrideCalibration`, so the curve and
+frontend keys still apply): base `(s_w, s_kv = s_w)`, KV probe `(s_w,
+s_kv / 2)`, weight probe `(s_w / 2, s_kv)`. Halving a scale only makes the
+step more memory-bound, so the differences give `K`, `W` and `fixed` exactly
+(`decode_terms`; a shape with no KV term, e.g. an old binary, is a
+`FitError`).
+
+The fit minimizes the relative step error, which is linear in the inverse
+scales: mode `after` keeps the base `s_w` and solves one normal equation for
+`1 / s_kv`; mode `joint` solves the 2x2 system for `1 / s_w` and `1 / s_kv`
+(a near-singular system, i.e. no KV variation, is a `FitError`, as is a
+non-positive scale). Least squares, not the median ratio, because a slope
+against KV is being fitted. `holdout_folds` refits once per dataset with
+that dataset left out (at least two datasets). Every reported error comes
+from re-simulating: before (base profile), fitted (all datasets), held out
+(the fold without that dataset); the fitted re-simulation must match the
+linear decomposition within 0.1% (`MAX_LINEARITY_DRIFT_PCT`) or the run
+fails. The trend statistic is the OLS slope of the signed decode-step error
+against KV tokens per step (`batch x (prompt + (decode + 1) / 2)`), in
+points per 10k tokens.
+
+`render_kv_read_profile` inserts `kv_read_bandwidth_scale` after the base
+profile's `[calibration]` header (joint mode also rewrites its single
+`decode_memory_bandwidth_scale` line), keeps every other byte, and prepends
+the sources, mode, and per-dataset holdout errors as comments; it refuses a
+base that already sets the key. The command then loads the profile, requires
+the JSON calibration block to echo both scales, and requires every dataset's
+decode predictions through the profile to match the fitted override run
+within 0.01%. `--max-batch` (default 32) drops KV-exhaustion shapes: beyond
+it vLLM preempts (ledger entry 16), which no bandwidth explains.
+
 ### Profile emission (`profile.py`)
 
 Same schema as `examples/calibration_h100_vllm_llama31_70b.toml` and
@@ -289,16 +342,19 @@ profile to match the scalar run within 0.01%.
 
 | file | role | key exports |
 |---|---|---|
-| `tools/lab/lab.py` | uv script entry point; subcommands `run`, `sim`, `calibrate`, `validate`, `report`, `curves`, `fit-curve`; `--cluster` overrides the lab's simulator cluster | `main`, `build_parser` |
+| `tools/lab/lab.py` | uv script entry point; subcommands `run`, `sim`, `calibrate`, `validate`, `report`, `curves`, `fit-curve`, `fit-kv-read`; `--cluster` overrides the lab's simulator cluster | `main`, `build_parser` |
 | `tools/lab/labharness/efficiency_curve.py` | curve fit math | `CurveSample`, `curve_sample`, `fit_efficiency_curve`, `EfficiencyCurveFit`, `CurvePoint`, `SkippedSample`, `SkipReason`, `CURVE_BASE_EFFICIENCY`, `DEFAULT_MEMORY_BOUND_MARGIN` |
 | `tools/lab/labharness/curve_profile.py` | curve profile TOML | `render_curve_profile`, `CurveProfileInputs` |
 | `tools/lab/labharness/frontend.py` | frontend latency fit | `FrontendSample`, `FrontendFit`, `fit_frontend_latency`, `load_frontend_ttfts` |
+| `tools/lab/labharness/kv_read_fit.py` | KV-read scale fit math | `KvFitMode`, `ProbeScales`, `DecodeTerms`, `decode_terms`, `KvReadFit`, `fit_kv_read`, `holdout_folds`, `ErrorTrend`, `error_trend`, `mean_kv_context_tokens` |
+| `tools/lab/labharness/kv_read_eval.py` | KV-read fit orchestration and reports | `KvDataset`, `select_measurements`, `fit_kv_read_datasets`, `KvFitOutcome`, `DatasetResult`, `outcome_json`, `outcome_markdown`, `DEFAULT_MAX_BATCH`, `MAX_LINEARITY_DRIFT_PCT` |
+| `tools/lab/labharness/kv_read_profile.py` | KV-read profile TOML | `render_kv_read_profile`, `KvProfileInputs`, `HoldoutSummary` |
 | `tools/lab/labharness/kv_estimate.py` | vLLM KV-capacity estimate | `estimate_kv_tokens`, `KvCapacityInputs`, `VllmMemoryModel` |
 | `tools/lab/labharness/spec.py` | typed specs and parsing | `parse_experiment`, `parse_lab`, `Experiment`, `Lab`, `Node`, `DockerLaunch`, `VenvLaunch`, `StaticBatchWorkload`, `ServingWorkload`, `Shape`, `ReferenceBatch`, `SimAdmission`, `rate_label`, `rate_text` |
 | `tools/lab/labharness/commands.py` | pure plan generation | `build_plan`, `Plan`, `Step`, `Wait`, `Phase`, `bench_serve_args` |
 | `tools/lab/labharness/runner.py` | plan execution, manifest | `Runner`, `dry_run`, `Executor`, `ProbeStatus`, `parse_probe` |
 | `tools/lab/labharness/results.py` | measured-result parsers | `parse_static_lines`, `load_static`, `count_static_results`, `parse_bench_serve`, `load_bench_serve`, `parse_kv_cache_tokens`, `StaticMeasurement`, `ServeMeasurement`, `LatencyStats` |
-| `tools/lab/labharness/simulate.py` | workload rendering and simulator runs | `SimRunner`, `sweep_static`, `sweep_serving`, `littles_law_batch` (phase-pipeline reference batch), `static_workload_toml`, `serving_workload_toml`, `kv_budget`, `Calibration` variants |
+| `tools/lab/labharness/simulate.py` | workload rendering and simulator runs | `SimRunner`, `sweep_static`, `sweep_serving`, `littles_law_batch` (phase-pipeline reference batch), `static_workload_toml`, `serving_workload_toml`, `kv_budget`, `Calibration` variants (`DefaultCalibration`, `ScalarCalibration`, `ProfileCalibration`, `ProfileOverrideCalibration`) |
 | `tools/lab/labharness/fitting.py` | fit math and error metrics | `fit_scalars`, `leave_one_out_folds`, `match`, `shape_errors`, `summarize`, `pct_error` |
 | `tools/lab/labharness/evaluate.py` | orchestration of sims + fits | `calibrate_static`, `evaluate_static`, `evaluate_serving`, `verify_profile`, `fit_curve_static`, `verify_curve_profile` |
 | `tools/lab/labharness/profile.py` | profile TOML | `render_profile`, `Provenance` |
@@ -410,6 +466,20 @@ python3 tools/lab/lab.py fit-curve tools/lab/specs/rtx3090_qwen7b_prefill_token_
 python3 lab-runs/2026-10-01-structural-calibration/revalidate.py
 ```
 
+KV-read bandwidth scale (validation ledger entry 20):
+
+```sh
+R=lab-runs; S=tools/lab/specs
+for mode in after joint; do
+python3 tools/lab/lab.py fit-kv-read --mode $mode --tag $mode --out-dir $R/2026-10-01-kv-read-scale \
+    --base-profile $R/2026-10-01-qwen7b-prefill-token-sweep/calibration_profile-curve.toml \
+    --dataset batch-sweep:$S/rtx3090_qwen7b_decode_batch_sweep.toml:$R/2026-10-01-qwen7b-decode-batch-sweep:measured.jsonl \
+    --dataset long-context:$S/rtx3090_qwen7b_static_longctx_node1.toml:$R/2026-09-30-qwen7b-static-longctx-node1
+done
+# tag after-with-node0 adds --dataset pp1-node0:$S/rtx3090_qwen7b_static_pp1.toml:$R/2026-09-28-static-batch:real_pp1.jsonl
+python3 $R/2026-10-01-kv-read-scale/transfer.py
+```
+
 ```sh
 R=lab-runs/2026-09-28-static-batch; S=tools/lab/specs
 python3 tools/lab/lab.py calibrate $S/rtx3090_qwen7b_static_pp1.toml --run-dir $R --measured real_pp1.jsonl --tag pp1
@@ -441,6 +511,10 @@ python3 tools/lab/lab.py report --run-dir $R2
   the curve + frontend profile (was 33-39%, `docs/validation_ledger.md`
   entry 15); the rest is in-load interference (arrivals waiting on in-flight
   steps) the engine does not capture.
+- The KV-read scale (0.469) was fitted on node1 decode runs and does not
+  transfer to node0: node0's static decode steps show no KV trend and go
+  from 0.5% to 2.7% error with it (ledger entry 20). Treat it as a
+  per-node constant until the node difference is explained.
 - The efficiency curve was fitted on node0; node1 runs large prefills ~3%
   slower, so node1 prefills are 3-6% under-predicted with it.
 - Simulated Poisson arrivals use the simulator's RNG, not vLLM's, so arrival

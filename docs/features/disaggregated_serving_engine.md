@@ -291,7 +291,10 @@ limits use the `_per_gpu`/`_per_node` and `max_decode_batch_tokens` knobs.
 Not yet measured. `examples/rtx3090_qwen7b_disaggregated_workload.toml`
 is the reference case for the planned lab run (node0 prefill, node1 decode,
 NixlConnector over UCX TCP on the 10GbE bond). Predictions from the
-recalibrated 3090 constants and the measured network, 200 requests:
+recalibrated 3090 constants and the measured network, 200 requests (made
+before the example gained `kv_read_bandwidth_scale`, which slows each decode
+step by roughly 0.1-0.4 ms at these contexts and batches; see validation
+ledger entry 20):
 
 | rate (req/s) | TTFT p50 ms | TTFT p99 ms | TPOT p50 ms | ITL p50 ms | ITL p99 ms | out tok/s | KV pull p50 ms |
 |---|---|---|---|---|---|---|---|
