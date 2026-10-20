@@ -75,8 +75,10 @@ decode batches (measured negligible on the 3090: decode steps are
 memory-bound, see validation ledger entry 16), a separate effective bandwidth
 for paged KV reads,
 paged-attention block effects, speculative decoding, prefix-cache-aware
-decode reads, backend microbatch scheduling inside one pipelined batch,
-and any backend-specific behavior. Fitted
+decode reads, backend microbatch scheduling inside one pipelined batch
+(opt-in via `calibration.pipeline_microbatching`, see
+docs/features/pipeline_parallel_overlap.md), and any other backend-specific
+behavior. Fitted
 calibration models override these baselines when a profile matches.
 
 ## Data/control flow
@@ -174,7 +176,8 @@ calibration models override these baselines when a profile matches.
   roofline.
 - `src/solver/calibration_fits.rs` — fitted-model override path.
 - `src/solver/operations.rs` — per-layer operation trace built from the
-  scalar phase latency: `build_operation_trace`, `layer_stage`,
+  scalar phase latency: `build_operation_trace` (one pass of
+  `TraceBuilder::push_pass`), `layer_stage`,
   `PipelineStagePlan` (per-stage ranks and compute resources), and
   `push_pipeline_boundary_operation` (per-crossing stage sends).
 - `src/serving/memory.rs` — serving memory components; `kv_cache_gb`
@@ -200,8 +203,11 @@ calibration models override these baselines when a profile matches.
 - Attention terms use the mean decode context so total decode work stays
   closed-form; they never depend on scheduler state.
 - Expert ranks must never shard attention FLOPs or KV reads.
-- Pipeline ranks must never shorten one batch's latency; they divide weight
-  and KV memory per GPU (`kv_cache_bytes`, serving `kv_cache_gb`) only.
+- Pipeline ranks must never shorten one forward pass's latency; they divide
+  weight and KV memory per GPU (`kv_cache_bytes`, serving `kv_cache_gb`)
+  only. A multi-request batch can still finish sooner than on one stage when
+  `calibration.pipeline_microbatching = "vllm_batch_queue"` splits it into
+  overlapping microbatches (docs/features/pipeline_parallel_overlap.md).
 - Calibration fits are whole-model per-batch latencies, so they apply
   unchanged at any pipeline degree.
 - Collective latency is paid once per activation crossing (prompt, then each

@@ -62,7 +62,8 @@ Overview:
         - src/solver/placement.rs (rank placement and evidence)
         - src/solver/network_cost.rs (collective/transfer cost, fit lookup)
         - src/solver/collective_pricing.rs (measured-curve pricing and evidence)
-        - src/solver/operations.rs (operation trace construction)
+        - src/solver/operations.rs (operation trace construction, TraceBuilder passes)
+        - src/solver/microbatch.rs (vLLM batch-queue microbatch split and overlapped trace)
         - src/solver/calibration_fits.rs (fit feature dictionary and evaluation)
         - src/solver/step_cost.rs (per-engine-step roofline for the serving engine)
     scheduler:
@@ -109,7 +110,8 @@ Overview:
     calibration:
       role: >
         SimulationCalibration scalar knobs (compute efficiency, phase scales,
-        collective scales, scheduler overhead, serving memory fractions) with
+        collective scales, scheduler overhead, serving memory fractions) and
+        backend-behavior switches (pipeline_microbatching) with
         sanitizing defaults, consumed by solver and serving.
       key_files:
         - src/calibration.rs
@@ -155,7 +157,11 @@ Overview:
     from the model, request, and ParallelismConfig, fit_matches filters the
     profile's fits by model kind, phase, and target, and evaluate_fit computes
     intercept + sum(coefficient * feature) plus range/applicability/uncertainty
-    evidence. Collective and transfer costs are priced through
+    evidence. When calibration.pipeline_microbatching = "vllm_batch_queue" and
+    no fit applied, a multi-request prefill/end-to-end batch on two or more
+    pipeline stages is split 1 + (B - 1) (solver::microbatch) and the
+    microbatch prompt passes are laid into one trace so the scheduler
+    overlaps them across stages. Collective and transfer costs are priced through
     directed topology_graph routes; a collective whose op, node placement,
     and rank count match one of the cluster's measured collective curves is
     priced from that curve instead (solver::collective_pricing), and every
@@ -247,6 +253,22 @@ Features Index:
       - src/workload.rs::ModelSpec::parameter_count_mismatch
     depends_on: [types, workload]
     doc: docs/features/compute_roofline.md
+  pipeline_parallel_overlap:
+    description: >
+      Opt-in model of vLLM V1's pipeline-parallel batch queue for static
+      batches (`calibration.pipeline_microbatching = "vllm_batch_queue"`):
+      a batch of B >= 2 on two or more stages runs as microbatches of 1 and
+      B - 1 whose prompt passes overlap across stages (the second waiting on
+      the first's stage send), followed by the whole-batch decode;
+      single requests, PP=1, decode-only and fitted phases are unchanged.
+    entry_points:
+      - src/solver/microbatch.rs::MicrobatchPlan::for_static_batch
+      - src/solver/microbatch.rs::Solver::build_microbatched_trace
+      - src/solver/operations.rs::TraceBuilder::push_pass
+      - src/calibration.rs::PipelineMicrobatching
+      - lab-runs/2026-10-01-pipeline-overlap-sim/revalidate.py
+    depends_on: [compute_roofline]
+    doc: docs/features/pipeline_parallel_overlap.md
   serving_iteration_engine:
     description: >
       Deterministic discrete-event serving loop modeled on vLLM V1 for

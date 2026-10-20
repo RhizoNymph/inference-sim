@@ -2609,6 +2609,9 @@ fn apply_scenario_calibration(
     if let Some(value) = override_config.allow_compute_comm_overlap {
         calibration.allow_compute_comm_overlap = value;
     }
+    if let Some(value) = override_config.pipeline_microbatching {
+        calibration.pipeline_microbatching = value;
+    }
     *calibration = calibration.sanitized();
 }
 

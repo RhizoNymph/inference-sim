@@ -1920,6 +1920,9 @@ pub(super) fn calibration_with_defaults(
         frontend_latency_per_prompt_token_us: section
             .frontend_latency_per_prompt_token_us
             .unwrap_or(defaults.frontend_latency_per_prompt_token_us),
+        pipeline_microbatching: section
+            .pipeline_microbatching
+            .unwrap_or(defaults.pipeline_microbatching),
     }
     .sanitized())
 }

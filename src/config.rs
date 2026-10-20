@@ -202,6 +202,7 @@ pub struct RunScenarioCalibrationConfig {
     pub allow_compute_comm_overlap: Option<bool>,
     pub frontend_latency_us: Option<f64>,
     pub frontend_latency_per_prompt_token_us: Option<f64>,
+    pub pipeline_microbatching: Option<crate::calibration::PipelineMicrobatching>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1290,5 +1291,7 @@ fn normalize(value: &str) -> String {
 
 #[cfg(test)]
 mod calibration_curve_tests;
+#[cfg(test)]
+mod pipeline_microbatching_tests;
 #[cfg(test)]
 mod tests;

@@ -1,0 +1,794 @@
+{
+  "7B PP=2": {
+    "before": {
+      "summary": {
+        "prefill_mean_abs_pct": 10.355012111493181,
+        "decode_step_mean_abs_pct": 3.7928877833379047,
+        "end_to_end_mean_abs_pct": 1.2707935554221046,
+        "end_to_end_max_abs_pct": 2.734391664757488,
+        "count": 5
+      },
+      "rows": [
+        {
+          "shape": "1x512",
+          "measured": {
+            "prefill_ms": 131.196,
+            "decode_ms_per_step": 19.4041,
+            "end_to_end_ms": 2603.105
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 122.6001,
+            "decode_ms": 2499.4385,
+            "decode_ms_per_step": 19.52686,
+            "end_to_end_ms": 2622.0386,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -6.551926888014879,
+            "decode_step": 0.6326662680181057,
+            "end_to_end": 0.7273476867049075
+          }
+        },
+        {
+          "shape": "1x2048",
+          "measured": {
+            "prefill_ms": 453.363,
+            "decode_ms_per_step": 19.5439,
+            "end_to_end_ms": 2932.331
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 432.6192,
+            "decode_ms": 2513.8069,
+            "decode_ms_per_step": 19.63912,
+            "end_to_end_ms": 2946.4261,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -4.575542115258631,
+            "decode_step": 0.48719305480226666,
+            "end_to_end": 0.4806790229343141
+          }
+        },
+        {
+          "shape": "8x512",
+          "measured": {
+            "prefill_ms": 664.652,
+            "decode_ms_per_step": 22.3877,
+            "end_to_end_ms": 3470.085
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 823.7782,
+            "decode_ms": 2551.4211,
+            "decode_ms_per_step": 19.93298,
+            "end_to_end_ms": 3375.1993,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 23.94127889482014,
+            "decode_step": -10.964604133910584,
+            "end_to_end": -2.734391664757488
+          }
+        },
+        {
+          "shape": "8x2048",
+          "measured": {
+            "prefill_ms": 2893.722,
+            "decode_ms_per_step": 21.3735,
+            "end_to_end_ms": 5985.687
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 3360.6128,
+            "decode_ms": 2666.3685,
+            "decode_ms_per_step": 20.831,
+            "end_to_end_ms": 6026.9813,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 16.134610235537483,
+            "decode_step": -2.5381713921444766,
+            "end_to_end": 0.6898835338366337
+          }
+        },
+        {
+          "shape": "32x512",
+          "measured": {
+            "prefill_ms": 3313.881,
+            "decode_ms_per_step": 22.2933,
+            "end_to_end_ms": 5922.615
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 32,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 3294.9355,
+            "decode_ms": 2729.6472,
+            "decode_ms_per_step": 21.32537,
+            "end_to_end_ms": 6024.5826,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -0.5717024238347709,
+            "decode_step": -4.341804067814093,
+            "end_to_end": 1.72166586887718
+          }
+        }
+      ]
+    },
+    "after": {
+      "summary": {
+        "prefill_mean_abs_pct": 8.276491942216465,
+        "decode_step_mean_abs_pct": 3.7928877833379047,
+        "end_to_end_mean_abs_pct": 1.6877246518572266,
+        "end_to_end_max_abs_pct": 3.701269421354231,
+        "count": 5
+      },
+      "rows": [
+        {
+          "shape": "1x512",
+          "measured": {
+            "prefill_ms": 131.196,
+            "decode_ms_per_step": 19.4041,
+            "end_to_end_ms": 2603.105
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 122.6001,
+            "decode_ms": 2499.4385,
+            "decode_ms_per_step": 19.52686,
+            "end_to_end_ms": 2622.0386,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -6.551926888014879,
+            "decode_step": 0.6326662680181057,
+            "end_to_end": 0.7273476867049075
+          }
+        },
+        {
+          "shape": "1x2048",
+          "measured": {
+            "prefill_ms": 453.363,
+            "decode_ms_per_step": 19.5439,
+            "end_to_end_ms": 2932.331
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 432.6192,
+            "decode_ms": 2513.8069,
+            "decode_ms_per_step": 19.63912,
+            "end_to_end_ms": 2946.4261,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -4.575542115258631,
+            "decode_step": 0.48719305480226666,
+            "end_to_end": 0.4806790229343141
+          }
+        },
+        {
+          "shape": "8x512",
+          "measured": {
+            "prefill_ms": 664.652,
+            "decode_ms_per_step": 22.3877,
+            "end_to_end_ms": 3470.085
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 790.2267,
+            "decode_ms": 2551.4211,
+            "decode_ms_per_step": 19.93298,
+            "end_to_end_ms": 3341.6478,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 18.893301757912408,
+            "decode_step": -10.964604133910584,
+            "end_to_end": -3.701269421354231
+          }
+        },
+        {
+          "shape": "8x2048",
+          "measured": {
+            "prefill_ms": 2893.722,
+            "decode_ms_per_step": 21.3735,
+            "end_to_end_ms": 5985.687
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 3173.1487,
+            "decode_ms": 2666.3685,
+            "decode_ms_per_step": 20.831,
+            "end_to_end_ms": 5839.5172,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 9.656307585870373,
+            "decode_step": -2.5381713921444766,
+            "end_to_end": -2.441988680664396
+          }
+        },
+        {
+          "shape": "32x512",
+          "measured": {
+            "prefill_ms": 3313.881,
+            "decode_ms_per_step": 22.2933,
+            "end_to_end_ms": 5922.615
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 32,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 3257.3667,
+            "decode_ms": 2729.6472,
+            "decode_ms_per_step": 21.32537,
+            "end_to_end_ms": 5987.0139,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -1.7053813640260373,
+            "decode_step": -4.341804067814093,
+            "end_to_end": 1.0873384476282857
+          }
+        }
+      ]
+    }
+  },
+  "14B PP=2": {
+    "before": {
+      "summary": {
+        "prefill_mean_abs_pct": 8.68170010218806,
+        "decode_step_mean_abs_pct": 7.167176182747416,
+        "end_to_end_mean_abs_pct": 5.116428313364699,
+        "end_to_end_max_abs_pct": 8.795606708567211,
+        "count": 5
+      },
+      "rows": [
+        {
+          "shape": "1x512",
+          "measured": {
+            "prefill_ms": 238.956,
+            "decode_ms_per_step": 34.9726,
+            "end_to_end_ms": 4675.037
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 238.4585,
+            "decode_ms": 4847.7764,
+            "decode_ms_per_step": 37.87325,
+            "end_to_end_ms": 5086.2349,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -0.20821490148813235,
+            "decode_step": 8.294073655161478,
+            "end_to_end": 8.795606708567211
+          }
+        },
+        {
+          "shape": "1x2048",
+          "measured": {
+            "prefill_ms": 913.405,
+            "decode_ms_per_step": 35.3426,
+            "end_to_end_ms": 5432.937
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 843.4287,
+            "decode_ms": 4897.0396,
+            "decode_ms_per_step": 38.25812,
+            "end_to_end_ms": 5740.4683,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -7.66103656099977,
+            "decode_step": 8.249313151833775,
+            "end_to_end": 5.660498051054153
+          }
+        },
+        {
+          "shape": "8x512",
+          "measured": {
+            "prefill_ms": 1362.192,
+            "decode_ms_per_step": 43.1145,
+            "end_to_end_ms": 6804.733
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 1596.8216,
+            "decode_ms": 4997.537,
+            "decode_ms_per_step": 39.04326,
+            "end_to_end_ms": 6594.3586,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 17.22441520725419,
+            "decode_step": -9.442860816111741,
+            "end_to_end": -3.0915893393613034
+          }
+        },
+        {
+          "shape": "8x2048",
+          "measured": {
+            "prefill_ms": 5545.304,
+            "decode_ms_per_step": 43.4917,
+            "end_to_end_ms": 11366.545
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 6547.9515,
+            "decode_ms": 5391.6424,
+            "decode_ms_per_step": 42.12221,
+            "end_to_end_ms": 11939.5939,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 18.08101966997661,
+            "decode_step": -3.1488624912914456,
+            "end_to_end": 5.041539861057169
+          }
+        },
+        {
+          "shape": "32x512",
+          "measured": {
+            "prefill_ms": 6372.21,
+            "decode_ms_per_step": 46.1469,
+            "end_to_end_ms": 12265.197
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 32,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 6387.1091,
+            "decode_ms": 5511.0019,
+            "decode_ms_per_step": 43.0547,
+            "end_to_end_ms": 11898.111,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 0.23381417122159795,
+            "decode_step": -6.70077079933864,
+            "end_to_end": -2.9929076067836533
+          }
+        }
+      ]
+    },
+    "after": {
+      "summary": {
+        "prefill_mean_abs_pct": 6.497673001264795,
+        "decode_step_mean_abs_pct": 7.167176182747416,
+        "end_to_end_mean_abs_pct": 4.776393920882459,
+        "end_to_end_max_abs_pct": 8.795606708567211,
+        "count": 5
+      },
+      "rows": [
+        {
+          "shape": "1x512",
+          "measured": {
+            "prefill_ms": 238.956,
+            "decode_ms_per_step": 34.9726,
+            "end_to_end_ms": 4675.037
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 238.4585,
+            "decode_ms": 4847.7764,
+            "decode_ms_per_step": 37.87325,
+            "end_to_end_ms": 5086.2349,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -0.20821490148813235,
+            "decode_step": 8.294073655161478,
+            "end_to_end": 8.795606708567211
+          }
+        },
+        {
+          "shape": "1x2048",
+          "measured": {
+            "prefill_ms": 913.405,
+            "decode_ms_per_step": 35.3426,
+            "end_to_end_ms": 5432.937
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 843.4287,
+            "decode_ms": 4897.0396,
+            "decode_ms_per_step": 38.25812,
+            "end_to_end_ms": 5740.4683,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -7.66103656099977,
+            "decode_step": 8.249313151833775,
+            "end_to_end": 5.660498051054153
+          }
+        },
+        {
+          "shape": "8x512",
+          "measured": {
+            "prefill_ms": 1362.192,
+            "decode_ms_per_step": 43.1145,
+            "end_to_end_ms": 6804.733
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 1530.2575,
+            "decode_ms": 4997.537,
+            "decode_ms_per_step": 39.04326,
+            "end_to_end_ms": 6527.7945,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 12.337869331195595,
+            "decode_step": -9.442860816111741,
+            "end_to_end": -4.069792848595235
+          }
+        },
+        {
+          "shape": "8x2048",
+          "measured": {
+            "prefill_ms": 5545.304,
+            "decode_ms_per_step": 43.4917,
+            "end_to_end_ms": 11366.545
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 6174.446,
+            "decode_ms": 5391.6424,
+            "decode_ms_per_step": 42.12221,
+            "end_to_end_ms": 11566.0884,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 11.345491608755802,
+            "decode_step": -3.1488624912914456,
+            "end_to_end": 1.7555324859049142
+          }
+        },
+        {
+          "shape": "32x512",
+          "measured": {
+            "prefill_ms": 6372.21,
+            "decode_ms_per_step": 46.1469,
+            "end_to_end_ms": 12265.197
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 32,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 6312.5819,
+            "decode_ms": 5511.0019,
+            "decode_ms_per_step": 43.0547,
+            "end_to_end_ms": 11823.5837,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -0.9357526038846764,
+            "decode_step": -6.70077079933864,
+            "end_to_end": -3.6005395102907816
+          }
+        }
+      ]
+    }
+  },
+  "7B PP=1 (unchanged check)": {
+    "before": {
+      "summary": {
+        "prefill_mean_abs_pct": 0.7629201014709575,
+        "decode_step_mean_abs_pct": 0.5477289096248511,
+        "end_to_end_mean_abs_pct": 0.8938547897737259,
+        "end_to_end_max_abs_pct": 1.6392161882846563,
+        "count": 5
+      },
+      "rows": [
+        {
+          "shape": "1x512",
+          "measured": {
+            "prefill_ms": 114.678,
+            "decode_ms_per_step": 19.264,
+            "end_to_end_ms": 2562.248
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 114.408,
+            "decode_ms": 2489.8407,
+            "decode_ms_per_step": 19.45188,
+            "end_to_end_ms": 2604.2488,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -0.23540958161112346,
+            "decode_step": 0.9752950370509872,
+            "end_to_end": 1.6392161882846563
+          }
+        },
+        {
+          "shape": "1x2048",
+          "measured": {
+            "prefill_ms": 399.359,
+            "decode_ms_per_step": 19.3437,
+            "end_to_end_ms": 2858.3
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 400.0281,
+            "decode_ms": 2504.2092,
+            "decode_ms_per_step": 19.56413,
+            "end_to_end_ms": 2904.2373,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 0.16754098442755508,
+            "decode_step": 1.1395656273101864,
+            "end_to_end": 1.6071532729244626
+          }
+        },
+        {
+          "shape": "8x512",
+          "measured": {
+            "prefill_ms": 780.591,
+            "decode_ms_per_step": 19.7468,
+            "end_to_end_ms": 3288.843
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 758.6551,
+            "decode_ms": 2527.5906,
+            "decode_ms_per_step": 19.7468,
+            "end_to_end_ms": 3286.2457,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -2.8101662714533022,
+            "decode_step": 8.110491313129107e-06,
+            "end_to_end": -0.07897303094127694
+          }
+        },
+        {
+          "shape": "8x2048",
+          "measured": {
+            "prefill_ms": 3095.53,
+            "decode_ms_per_step": 20.762,
+            "end_to_end_ms": 5721.033
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 3100.2977,
+            "decode_ms": 2642.538,
+            "decode_ms_per_step": 20.64483,
+            "end_to_end_ms": 5742.8357,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 0.1540184071871274,
+            "decode_step": -0.564356908053177,
+            "end_to_end": 0.3810972249242315
+          }
+        },
+        {
+          "shape": "32x512",
+          "measured": {
+            "prefill_ms": 3021.102,
+            "decode_ms_per_step": 20.7703,
+            "end_to_end_ms": 5648.55
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 32,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 3034.6204,
+            "decode_ms": 2657.0187,
+            "decode_ms_per_step": 20.75796,
+            "end_to_end_ms": 5691.6391,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 0.4474652626756793,
+            "decode_step": -0.059418865218591826,
+            "end_to_end": 0.762834231794002
+          }
+        }
+      ]
+    },
+    "after": {
+      "summary": {
+        "prefill_mean_abs_pct": 0.7629201014709575,
+        "decode_step_mean_abs_pct": 0.5477289096248511,
+        "end_to_end_mean_abs_pct": 0.8938547897737259,
+        "end_to_end_max_abs_pct": 1.6392161882846563,
+        "count": 5
+      },
+      "rows": [
+        {
+          "shape": "1x512",
+          "measured": {
+            "prefill_ms": 114.678,
+            "decode_ms_per_step": 19.264,
+            "end_to_end_ms": 2562.248
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 114.408,
+            "decode_ms": 2489.8407,
+            "decode_ms_per_step": 19.45188,
+            "end_to_end_ms": 2604.2488,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -0.23540958161112346,
+            "decode_step": 0.9752950370509872,
+            "end_to_end": 1.6392161882846563
+          }
+        },
+        {
+          "shape": "1x2048",
+          "measured": {
+            "prefill_ms": 399.359,
+            "decode_ms_per_step": 19.3437,
+            "end_to_end_ms": 2858.3
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 1,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 400.0281,
+            "decode_ms": 2504.2092,
+            "decode_ms_per_step": 19.56413,
+            "end_to_end_ms": 2904.2373,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 0.16754098442755508,
+            "decode_step": 1.1395656273101864,
+            "end_to_end": 1.6071532729244626
+          }
+        },
+        {
+          "shape": "8x512",
+          "measured": {
+            "prefill_ms": 780.591,
+            "decode_ms_per_step": 19.7468,
+            "end_to_end_ms": 3288.843
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 758.6551,
+            "decode_ms": 2527.5906,
+            "decode_ms_per_step": 19.7468,
+            "end_to_end_ms": 3286.2457,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": -2.8101662714533022,
+            "decode_step": 8.110491313129107e-06,
+            "end_to_end": -0.07897303094127694
+          }
+        },
+        {
+          "shape": "8x2048",
+          "measured": {
+            "prefill_ms": 3095.53,
+            "decode_ms_per_step": 20.762,
+            "end_to_end_ms": 5721.033
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 8,
+            "prompt": 2048,
+            "decode": 128,
+            "prefill_ms": 3100.2977,
+            "decode_ms": 2642.538,
+            "decode_ms_per_step": 20.64483,
+            "end_to_end_ms": 5742.8357,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 0.1540184071871274,
+            "decode_step": -0.564356908053177,
+            "end_to_end": 0.3810972249242315
+          }
+        },
+        {
+          "shape": "32x512",
+          "measured": {
+            "prefill_ms": 3021.102,
+            "decode_ms_per_step": 20.7703,
+            "end_to_end_ms": 5648.55
+          },
+          "simulated": {
+            "record": "lab.sim_static.v1",
+            "batch": 32,
+            "prompt": 512,
+            "decode": 128,
+            "prefill_ms": 3034.6204,
+            "decode_ms": 2657.0187,
+            "decode_ms_per_step": 20.75796,
+            "end_to_end_ms": 5691.6391,
+            "feasible": true
+          },
+          "error_pct": {
+            "prefill": 0.4474652626756793,
+            "decode_step": -0.059418865218591826,
+            "end_to_end": 0.762834231794002
+          }
+        }
+      ]
+    }
+  }
+}

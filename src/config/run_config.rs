@@ -1442,5 +1442,6 @@ pub(super) fn calibration_overrides_from_section(
         allow_compute_comm_overlap: section.allow_compute_comm_overlap,
         frontend_latency_us: section.frontend_latency_us,
         frontend_latency_per_prompt_token_us: section.frontend_latency_per_prompt_token_us,
+        pipeline_microbatching: section.pipeline_microbatching,
     })
 }

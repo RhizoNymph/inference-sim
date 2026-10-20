@@ -62,7 +62,10 @@ at a time and prices each step from what that step actually carries.
   lab-runs/2026-10-01-qwen7b-decode-batch-sweep-tail); the engine never
   preempts.
 - Pipeline micro-batching. A step runs its stages back to back
-  (`iteration_engine_pipeline_stages_serialized`), like the static solver.
+  (`iteration_engine_pipeline_stages_serialized`); consecutive steps do not
+  overlap across stages the way vLLM's batch queue lets them (the static
+  solver models that only for one static batch, opt-in, see
+  docs/features/pipeline_parallel_overlap.md).
 - Calibration-profile phase fits (fitted prefill/decode latency models) do
   not price individual steps; the profile's roofline scalars do. Serving
   metric fits still apply to the reported metrics afterwards.

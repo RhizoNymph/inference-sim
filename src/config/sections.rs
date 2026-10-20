@@ -1083,6 +1083,7 @@ pub(super) struct CalibrationSection {
     pub(super) allow_compute_comm_overlap: Option<bool>,
     pub(super) frontend_latency_us: Option<f64>,
     pub(super) frontend_latency_per_prompt_token_us: Option<f64>,
+    pub(super) pipeline_microbatching: Option<crate::calibration::PipelineMicrobatching>,
 }
 
 #[derive(Deserialize)]
