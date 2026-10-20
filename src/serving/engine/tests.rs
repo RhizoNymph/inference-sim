@@ -4,6 +4,8 @@ use crate::solver::{StepLatency, StepWork};
 
 mod disaggregated;
 mod disaggregated_serving;
+mod fair_share;
+mod fair_share_serving;
 mod frontend;
 mod serving;
 

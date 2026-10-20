@@ -46,6 +46,11 @@ phase = "end_to_end"
 [calibration]
 compute_efficiency = 0.8494
 decode_memory_bandwidth_scale = 0.8383
+# Measured NIXL pulls fair-share the link and the toy proxy adds ~44 ms per
+# request (validation ledger 21); left at the FIFO / no-proxy defaults here so
+# the ledger 18 blind prediction stays reproducible:
+# kv_link_sharing = "fair_share"
+# disaggregation_proxy_latency_us = 44000
 
 [search]
 tensor_ranks = [1]

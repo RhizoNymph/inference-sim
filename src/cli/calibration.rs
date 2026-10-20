@@ -133,6 +133,16 @@ pub(super) fn write_calibration<W: Write>(
         "{indent}  \"frontend_latency_per_prompt_token_us\": {},",
         json_f64(calibration.frontend_latency_per_prompt_token_us)
     )?;
+    writeln!(
+        writer,
+        "{indent}  \"disaggregation_proxy_latency_us\": {},",
+        json_f64(calibration.disaggregation_proxy_latency_us)
+    )?;
+    writeln!(
+        writer,
+        "{indent}  \"kv_link_sharing\": \"{}\",",
+        calibration.kv_link_sharing.as_str()
+    )?;
     write_compute_efficiency_curve(
         writer,
         calibration.compute_efficiency_curve.as_ref(),

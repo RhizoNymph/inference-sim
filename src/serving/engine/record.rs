@@ -325,7 +325,9 @@ fn record_request(
             state.kv_start_s = start_s;
             state.kv_finish_s = finish_s;
             state.kv_worker_queue_s = finite_or_zero(admitted_s - handoff.decode_queued_s);
-            state.kv_resource_queue_s = finite_or_zero(start_s - admitted_s);
+            // FIFO: waiting for the link; fair share: time lost to sharing it.
+            let contention_s = window.map_or(0.0, |window| window.contention_s);
+            state.kv_resource_queue_s = finite_or_zero(start_s - admitted_s) + contention_s;
             state.kv_transfer_bytes = transfer.planned.plan.bytes();
             state.kv_transfer_bottlenecks = transfer.planned.bottlenecks.clone();
             state.kv_transfer_paths = transfer.planned.paths.clone();

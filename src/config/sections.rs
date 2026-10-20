@@ -1083,6 +1083,9 @@ pub(super) struct CalibrationSection {
     pub(super) allow_compute_comm_overlap: Option<bool>,
     pub(super) frontend_latency_us: Option<f64>,
     pub(super) frontend_latency_per_prompt_token_us: Option<f64>,
+    pub(super) disaggregation_proxy_latency_us: Option<f64>,
+    /// `fifo` or `fair_share`.
+    pub(super) kv_link_sharing: Option<String>,
 }
 
 #[derive(Deserialize)]

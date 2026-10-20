@@ -404,6 +404,10 @@ pub(super) fn parse_run_scenario_calibration(
         &format!("{prefix}.frontend_latency_per_prompt_token_us"),
         section.frontend_latency_per_prompt_token_us,
     )?;
+    validate_nonnegative_optional_f64(
+        &format!("{prefix}.disaggregation_proxy_latency_us"),
+        section.disaggregation_proxy_latency_us,
+    )?;
     parse_compute_efficiency_curve(
         &format!("{prefix}.compute_efficiency_curve"),
         section.compute_efficiency_curve.as_deref(),
@@ -1442,5 +1446,10 @@ pub(super) fn calibration_overrides_from_section(
         allow_compute_comm_overlap: section.allow_compute_comm_overlap,
         frontend_latency_us: section.frontend_latency_us,
         frontend_latency_per_prompt_token_us: section.frontend_latency_per_prompt_token_us,
+        disaggregation_proxy_latency_us: section.disaggregation_proxy_latency_us,
+        kv_link_sharing: parse_kv_link_sharing(
+            "calibration.kv_link_sharing",
+            section.kv_link_sharing.as_deref(),
+        )?,
     })
 }

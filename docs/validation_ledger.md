@@ -35,6 +35,7 @@ them superseded.
 | 16 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 | recalibrated scalars / curve | 6.0% | 2.7% (batch 1-32) | 3.0% | validated to batch 32; KV exhaustion beyond |
 | 17 | 2026-10-01 | 1x RTX 3090 (node2), graphics clock locked at 1200 MHz | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, degraded GPU | recalibrated constants, peak scaled to the locked clock | 13.8% | 22.8% | 9.6% (offsetting errors) | **not accurate**: see entry |
 | 18 | 2026-10-01 | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst | curve + frontend profile (blind prediction) | see entry | see entry | see entry | validated below saturation; burst not accurate |
+| 21 | 2026-10-01 (re-prediction 2026-10-20, no new measurement) | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst (ledger 18 data) | curve + frontend + fair-share KV links + proxy constant 44 ms (fitted on rates 1-4) | see entry | see entry | see entry | TTFT p50 within 6-9% at rates 1-4, p90 within 2-14% at rates 1-8; rate 8 p50 +23%; burst still not accurate |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
 
@@ -486,7 +487,77 @@ baseline's traffic (512 in / 128 out, 200 requests). Scripts:
   is the fix.
 - Remaining low-load TTFT gap (~60 ms) is consistent with the proxy's two
   HTTP hops, which the simulator does not model
-  (`disaggregated_proxy_hop_not_modeled`).
+  (`disaggregated_proxy_hop_not_modeled`). Both are addressed in entry 21.
+
+## 21. Fair-share KV links and the disaggregation proxy constant (re-prediction of 18)
+
+Data: ledger 18's measurement (`lab-runs/2026-10-01-disagg-1p1d/`), nothing
+re-measured. Predictions: `lab-runs/2026-10-01-fair-share-sim/predict.py`
+(`predictions.json`), the same workload and curve + frontend calibration as
+18, with three variants: `fifo` (ledger 18's prediction),
+`kv_link_sharing = "fair_share"`, and fair share plus
+`disaggregation_proxy_latency_us = 44000`.
+
+Fair share: concurrent KV flows progress at max-min fair rates over the
+directed route resources they cross, rates recomputed whenever a transfer
+starts or finishes; a lone flow takes exactly its curve price, so runs with
+no overlapping pulls are bit-identical to FIFO (tests pin this).
+
+Proxy constant: estimated, not blind. At rates 1-4 the residual
+`measured TTFT p50 - simulated (fair share, no proxy)` is 62 / 74 / 63 ms.
+vLLM's NIXL metrics (decode_server.log, transfer-weighted per benchmark) give
+a mean pull of 103 / 113 / 129 ms against a simulated mean pull of
+83 / 85 / 111 ms, i.e. 20 / 28 / 18 ms of the residual is the known KV-pull
+underpricing (node0->node1 curve below 64 MiB is derived, sender-timed). The
+rest, 41 / 46 / 45 ms, is consistent across load and is taken as the proxy
+hop: 44 ms (the prefill response returning to the proxy, the proxy's second
+HTTP request, and the decode API server's request handling, including
+re-tokenizing the prompt). The colocated frontend latency (5081 us +
+14.44 us/token = 12.5 ms) is applied once to every request's arrival and is
+not part of the 44 ms.
+
+| rate | measured TTFT p50 / p90 ms | FIFO (18) | fair share | fair share + proxy | TPOT p50 real / sim | out tok/s real / sim |
+|---|---|---|---|---|---|---|
+| 1 | 317 / 357 | 256 (-19%) / 263 (-26%) | 256 (-19%) / 263 (-26%) | 300 (-6%) / 307 (-14%) | 19.65 / 19.56 | 126 / 136 (+8%) |
+| 2 | 331 / 406 | 258 (-22%) / 329 (-19%) | 258 (-22%) / 329 (-19%) | 302 (-9%) / 373 (-8%) | 21.23 / 19.66 | 249 / 268 (+8%) |
+| 4 | 337 / 568 | 274 (-19%) / 453 (-20%) | 274 (-19%) / 514 (-9%) | 318 (-6%) / 558 (-2%) | 21.68 / 19.91 | 480 / 520 (+8%) |
+| 6 | 423 / 842 | 391 (-7%) / 699 (-17%) | 417 (-1%) / 819 (-3%) | 461 (+9%) / 863 (+3%) | 20.95 / 20.14 | 692 / 753 (+9%) |
+| 8 | 647 / 1,227 | 639 (-1%) / 968 (-21%) | 753 (+16%) / 1,140 (-7%) | 797 (+23%) / 1,184 (-4%) | 21.01 / 20.35 | 890 / 969 (+9%) |
+| burst | 19,777 / 27,441 | 10,309 (-48%) / 18,134 (-34%) | 10,558 (-47%) / 18,383 (-33%) | 10,602 (-46%) / 18,427 (-33%) | 21.75 / 20.54 | 795 / 1,136 (+43%) |
+
+Mean |error| over rates 1-8: TTFT p50 13.8% (FIFO) -> 15.6% (fair share) ->
+10.5% (fair share + proxy); TTFT p90 20.7% -> 12.9% -> 5.9%. TPOT and
+throughput are unchanged by either (the decode worker is not link-bound below
+saturation).
+
+Mean KV pull, NIXL vs simulated (FIFO / fair share), ms: rate 1 103 / 82 / 83,
+2 113 / 83 / 85, 4 129 / 96 / 110, 6 173 / 122 / 162, 8 263 / 162 / 242,
+burst 2,283 / 202 / 323.
+
+- Fair sharing is the right contention model: pull time under load now tracks
+  NIXL's (rate 8: 242 vs 263 ms, FIFO 162 ms), and the TTFT tail improves at
+  every rate. The remaining per-pull gap is the ~20 ms standalone underpricing.
+- Rate 6-8 p50 now overshoots (+9%, +23% with the proxy). FIFO's near-exact
+  rate-8 p50 was offsetting errors (pulls too fast, no proxy hop). Under fair
+  share every concurrent pull is slowed, so the median request waits longer;
+  the real system's p50 is lower while its p90 is higher than both, i.e. its
+  pull-time distribution is wider than the even split max-min gives (NIXL
+  probably drains some transfers ahead of others). Not modeled.
+- Burst does not close (-46% TTFT p50, +43% throughput). It is not a
+  link-sharing problem: the simulated burst pull averages 323 ms against
+  NIXL's 2.3 s, and the measured run delivers ~6.2 req/s (32 s for 200)
+  where the link alone at the measured standalone 100 ms/pull would allow
+  ~10 req/s and the simulator's 81 ms curve ~12 req/s. Under a 200-request
+  burst vLLM keeps far more pulls in flight than the simulator's decode
+  admission allows (the simulator admits a pull only when a decode sequence
+  slot and the full decode KV fit), and aggregate NIXL throughput degrades
+  with that many concurrent transfers (per-window aggregate 96-300 MB/s in
+  the burst). Both need a burst-specific measurement (decode-side scheduler
+  logs of WAITING_FOR_REMOTE_KVS counts) before modeling.
+- The proxy constant is fitted on rates 1-4 of this run; it is not validated
+  on held-out data. Status: TTFT validated below saturation (p50 within 6-9%
+  at rates 1-4, p90 within 2-14% at rates 1-8); rate-8 p50 and the burst are
+  not accurate.
 
 ## Untested regimes
 

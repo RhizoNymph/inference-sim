@@ -27,6 +27,7 @@ mod tests;
 mod transfer;
 mod types;
 
+use crate::calibration::KvLinkSharing;
 use crate::solver::IterationCostModel;
 pub(super) use core::EngineError;
 use core::run_engine;
@@ -131,6 +132,7 @@ pub(super) enum IterationEngineError {
     Engine(EngineError),
     KvPlan(KvPlanError),
     WorkerLayout(WorkerLayoutError),
+    HandoffDelay(InvalidHandoffDelay),
 }
 
 impl IterationEngineError {
@@ -144,6 +146,7 @@ impl IterationEngineError {
             }
             Self::StepCost(_)
             | Self::Engine(_)
+            | Self::HandoffDelay(_)
             | Self::WorkerLayout(WorkerLayoutError::SharedWorkerWithSplitParallelism) => {
                 PhasePipelineReason::SplitPrefillDecodeParallelism
             }
@@ -160,6 +163,7 @@ impl std::fmt::Display for IterationEngineError {
             Self::WorkerLayout(layout) => {
                 write!(formatter, "iteration engine worker layout: {layout:?}")
             }
+            Self::HandoffDelay(error) => write!(formatter, "iteration engine: {error}"),
         }
     }
 }
@@ -292,16 +296,10 @@ fn frontend_latency_approximation(calibration: SimulationCalibration) -> Simulat
 pub(super) fn disaggregated_engine_approximations(
     traffic: &ServingTraffic,
     prefill_score: &ScoredParallelismConfig,
+    calibration: SimulationCalibration,
 ) -> Vec<SimulationApproximation> {
     let mut approximations = vec![
-        SimulationApproximation::new(
-            "serving",
-            "network",
-            "kv_transfer",
-            "kv_transfer_fifo_link_queues",
-            "KV pulls hold every directed route resource they cross for their uncontended duration, first come first served; concurrent transfers on a link serialize at full bandwidth instead of sharing it, so aggregate link throughput is right but individual transfer latency is FIFO rather than fair-share. Transfers to different destinations through one NIC contend only where their routes share a resource.",
-            Some("compare against measured concurrent-transfer latency before relying on per-request KV transfer tails".to_string()),
-        ),
+        kv_link_sharing_approximation(calibration.kv_link_sharing),
         SimulationApproximation::new(
             "serving",
             "runtime",
@@ -310,17 +308,7 @@ pub(super) fn disaggregated_engine_approximations(
             "KV transfer follows vLLM's NixlConnector: the decode worker admits the request (reserving its KV blocks and a sequence slot) before pulling the prompt KV, the transfer starts at that admission, the request computes only after the pull completes, and the prefill worker frees the prompt KV when the pull ends. There is no layer-wise overlap of transfer with prefill.",
             None,
         ),
-        SimulationApproximation::new(
-            "serving",
-            "runtime",
-            "disaggregated_proxy",
-            "disaggregated_proxy_hop_not_modeled",
-            format!(
-                "Disaggregated TTFT uses the {} first-token convention but no proxy or HTTP latency: the prefill response's return to the proxy and the decode request's dispatch are instantaneous.",
-                traffic.disaggregated_first_token.as_str()
-            ),
-            Some("add a measured proxy-hop latency to TTFT when comparing against client-side benchmarks".to_string()),
-        ),
+        proxy_hop_approximation(traffic, calibration),
     ];
     if prefill_score.config.pipeline_ranks > 1 {
         approximations.push(SimulationApproximation::new(
@@ -333,6 +321,59 @@ pub(super) fn disaggregated_engine_approximations(
         ));
     }
     approximations
+}
+
+fn kv_link_sharing_approximation(sharing: KvLinkSharing) -> SimulationApproximation {
+    match sharing {
+        KvLinkSharing::Fifo => SimulationApproximation::new(
+            "serving",
+            "network",
+            "kv_transfer",
+            "kv_transfer_fifo_link_queues",
+            "KV pulls hold every directed route resource they cross for their uncontended duration, first come first served; concurrent transfers on a link serialize at full bandwidth instead of sharing it, so aggregate link throughput is right but individual transfer latency is FIFO rather than fair-share. Transfers to different destinations through one NIC contend only where their routes share a resource.",
+            Some("set calibration.kv_link_sharing = \"fair_share\" (measured for NIXL over UCX TCP, validation ledger 21) before relying on per-request KV transfer tails".to_string()),
+        ),
+        KvLinkSharing::FairShare => SimulationApproximation::new(
+            "serving",
+            "network",
+            "kv_transfer",
+            "kv_transfer_fair_share_links",
+            "Concurrent KV flows progress at max-min fair rates over the directed route resources they cross, recomputed when a transfer starts or finishes. Each resource's capacity is one standalone flow: a flow alone takes its uncontended curve or alpha-beta price and a saturated resource moves work at the standalone aggregate rate, so a curve measured for one stream is assumed to be the link's capacity for any number of streams (no extra parallel-stream throughput, no per-stream overhead).",
+            Some("compare against measured concurrent-transfer throughput when many parallel streams could exceed one stream's rate".to_string()),
+        ),
+    }
+}
+
+fn proxy_hop_approximation(
+    traffic: &ServingTraffic,
+    calibration: SimulationCalibration,
+) -> SimulationApproximation {
+    if calibration.disaggregation_proxy_latency_us > 0.0 {
+        SimulationApproximation::new(
+            "serving",
+            "runtime",
+            "disaggregated_proxy",
+            "disaggregated_constant_proxy_latency",
+            format!(
+                "Disaggregated TTFT uses the {} first-token convention and a calibrated constant {:.1} us between the prefill instance finishing a prompt and the request joining the decode queue (the proxy's second HTTP hop and the decode API server); it does not vary with load or prompt length and does not contend with anything.",
+                traffic.disaggregated_first_token.as_str(),
+                calibration.disaggregation_proxy_latency_us
+            ),
+            None,
+        )
+    } else {
+        SimulationApproximation::new(
+            "serving",
+            "runtime",
+            "disaggregated_proxy",
+            "disaggregated_proxy_hop_not_modeled",
+            format!(
+                "Disaggregated TTFT uses the {} first-token convention but no proxy or HTTP latency: the prefill response's return to the proxy and the decode request's dispatch are instantaneous.",
+                traffic.disaggregated_first_token.as_str()
+            ),
+            Some("set calibration.disaggregation_proxy_latency_us from a low-load client benchmark when comparing against client-side TTFT".to_string()),
+        )
+    }
 }
 
 /// Approximation record for a candidate that kept the phase pipeline.
