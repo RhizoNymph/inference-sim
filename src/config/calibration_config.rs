@@ -1859,6 +1859,10 @@ pub(super) fn calibration_with_defaults(
         &format!("{name}.frontend_latency_us"),
         section.frontend_latency_us,
     )?;
+    validate_positive_optional_f64(
+        &format!("{name}.kv_read_bandwidth_scale"),
+        section.kv_read_bandwidth_scale,
+    )?;
     validate_nonnegative_optional_f64(
         &format!("{name}.frontend_latency_per_prompt_token_us"),
         section.frontend_latency_per_prompt_token_us,
@@ -1878,6 +1882,9 @@ pub(super) fn calibration_with_defaults(
         decode_memory_bandwidth_scale: section
             .decode_memory_bandwidth_scale
             .unwrap_or(defaults.decode_memory_bandwidth_scale),
+        kv_read_bandwidth_scale: section
+            .kv_read_bandwidth_scale
+            .or(defaults.kv_read_bandwidth_scale),
         collective_latency_scale: section
             .collective_latency_scale
             .unwrap_or(defaults.collective_latency_scale),

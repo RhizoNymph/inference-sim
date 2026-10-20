@@ -353,6 +353,10 @@ pub(super) fn parse_run_scenario_calibration(
         section.decode_memory_bandwidth_scale,
     )?;
     validate_positive_optional_f64(
+        &format!("{prefix}.kv_read_bandwidth_scale"),
+        section.kv_read_bandwidth_scale,
+    )?;
+    validate_positive_optional_f64(
         &format!("{prefix}.collective_latency_scale"),
         section.collective_latency_scale,
     )?;
@@ -1426,6 +1430,7 @@ pub(super) fn calibration_overrides_from_section(
         prefill_compute_scale: section.prefill_compute_scale,
         decode_compute_scale: section.decode_compute_scale,
         decode_memory_bandwidth_scale: section.decode_memory_bandwidth_scale,
+        kv_read_bandwidth_scale: section.kv_read_bandwidth_scale,
         collective_latency_scale: section.collective_latency_scale,
         collective_bandwidth_scale: section.collective_bandwidth_scale,
         kv_transfer_scale: section.kv_transfer_scale,

@@ -2573,6 +2573,9 @@ fn apply_scenario_calibration(
     if let Some(value) = override_config.decode_memory_bandwidth_scale {
         calibration.decode_memory_bandwidth_scale = value;
     }
+    if let Some(value) = override_config.kv_read_bandwidth_scale {
+        calibration.kv_read_bandwidth_scale = Some(value);
+    }
     if let Some(value) = override_config.collective_latency_scale {
         calibration.collective_latency_scale = value;
     }

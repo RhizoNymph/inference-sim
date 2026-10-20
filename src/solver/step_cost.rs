@@ -10,7 +10,9 @@
 //!   attention FLOPs for each prefill chunk over its context, and decode
 //!   attention FLOPs over each decoding sequence's context;
 //! - memory = the weights read once for the step plus the KV cache read for
-//!   every active sequence's current context;
+//!   every active sequence's current context (decode contexts and the earlier
+//!   chunks a prefill chunk attends to), the KV term at the KV-read bandwidth
+//!   when `kv_read_bandwidth_scale` is calibrated;
 //! - communication = two tensor-parallel all-reduces per layer, the expert
 //!   all-to-all per layer, and one pipeline send/recv per stage boundary, each
 //!   carrying the step's token count of activations.
@@ -169,6 +171,17 @@ impl StepCollectiveSize {
     }
 }
 
+/// Bandwidth the step's KV-cache reads stream at.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum KvReadBandwidth {
+    /// No separate KV-read scale: KV and weight bytes share `hbm_bandwidth`
+    /// (and one division, so results match the shared-bandwidth formula
+    /// bit for bit).
+    SharedWithWeights,
+    /// `kv_read_bandwidth_scale` of peak, in bytes/s.
+    Separate(f64),
+}
+
 /// Prices engine steps for one placed parallelism configuration.
 pub struct IterationCostModel<'a> {
     cluster: &'a Cluster,
@@ -179,6 +192,7 @@ pub struct IterationCostModel<'a> {
     /// token count (`SimulationCalibration::compute_efficiency_at`).
     peak_flops: f64,
     hbm_bandwidth: f64,
+    kv_read_bandwidth: KvReadBandwidth,
     dense_flops_per_token: f64,
     attention_flops_per_pair: f64,
     decode_attention_flops_per_context_token: f64,
@@ -204,6 +218,14 @@ impl<'a> IterationCostModel<'a> {
         let attention_shard_factor = Solver::attention_shard_factor(config);
         let peak_flops = Solver::peak_flops(cluster, model, &score.placement);
         let hbm_bandwidth = Solver::effective_hbm_bandwidth(cluster, &score.placement, calibration);
+        let kv_read_bandwidth = match calibration.kv_read_bandwidth_scale {
+            Some(_) => KvReadBandwidth::Separate(Solver::effective_kv_read_bandwidth(
+                cluster,
+                &score.placement,
+                calibration,
+            )),
+            None => KvReadBandwidth::SharedWithWeights,
+        };
         let layers = f64::from(model.layers);
         let hidden = f64::from(model.hidden_size);
         let head_dim = f64::from(model.hidden_size / model.attention_heads.max(1));
@@ -220,6 +242,7 @@ impl<'a> IterationCostModel<'a> {
             dtype: model.dtype,
             peak_flops,
             hbm_bandwidth,
+            kv_read_bandwidth,
             dense_flops_per_token: 2.0 * model.parameter_count() / shard_factor,
             // Solver::prefill_attention_flops: 2 * layers * hidden * prompt^2.
             attention_flops_per_pair: 2.0 * layers * hidden / attention_shard_factor,
@@ -249,9 +272,15 @@ impl<'a> IterationCostModel<'a> {
         let compute_s = prefill_flops / effective_flops * self.calibration.prefill_compute_scale
             + decode_flops / effective_flops * self.calibration.decode_compute_scale;
         let kv_read_tokens = (work.decode_context_tokens + work.prefill_context_tokens) as f64;
-        let memory_s = (self.weight_bytes + kv_read_tokens * self.kv_bytes_per_context_token)
-            / self.hbm_bandwidth
-            * self.calibration.decode_compute_scale;
+        let kv_bytes = kv_read_tokens * self.kv_bytes_per_context_token;
+        let memory_s = match self.kv_read_bandwidth {
+            KvReadBandwidth::SharedWithWeights => {
+                (self.weight_bytes + kv_bytes) / self.hbm_bandwidth
+            }
+            KvReadBandwidth::Separate(kv_bandwidth) => {
+                self.weight_bytes / self.hbm_bandwidth + kv_bytes / kv_bandwidth
+            }
+        } * self.calibration.decode_compute_scale;
         let forward_s = compute_s.max(memory_s);
         let communication_s = self.communication_s(work.total_tokens(), work.sampling_sequences());
         let overhead_s = self.calibration.scheduler_overhead_us / 1e6;
