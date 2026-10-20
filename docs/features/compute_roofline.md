@@ -28,7 +28,9 @@ and decode operations before scheduling. It covers:
   a 3090) are weight-read bound, exactly like the serving step cost.
 - Effective peaks: minimum per-placement GPU peak TFLOPs (dtype-selected)
   times the compute efficiency for the pass; minimum HBM bandwidth times
-  `calibration.decode_memory_bandwidth_scale`.
+  `calibration.decode_memory_bandwidth_scale`. A GPU with a locked SM clock
+  further scales its own pipeline stage's compute and bandwidth terms
+  (docs/features/degraded_gpu_model.md).
 - Token-dependent compute efficiency: `SimulationCalibration::
   compute_efficiency_at(tokens_per_pass)` returns the optional
   `calibration.compute_efficiency_curve` interpolated at the pass's token
