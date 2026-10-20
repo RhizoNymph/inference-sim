@@ -9,7 +9,7 @@
 
 use std::collections::BTreeSet;
 
-use super::core::run_engine_jobs;
+use super::core::run_engine_jobs_with;
 use super::limits::{EngineWorker, engine_limits, engine_request};
 use super::transfer::{
     KvPlanContext, KvPlanError, KvTransferPlanner, PlacedKvLayout, PlannedTransfer,
@@ -256,10 +256,23 @@ pub(in crate::serving) fn run_disaggregated_engine(
             .map_err(IterationEngineError::StepCost)?,
         prefill_only: layout.prefill_only.clone(),
     };
-    let outcome =
-        run_engine_jobs(&jobs, &limits, &mut costs).map_err(IterationEngineError::Engine)?;
+    let handoff = handoff_model(run.calibration)?;
+    let outcome = run_engine_jobs_with(&jobs, &limits, &mut costs, handoff)
+        .map_err(IterationEngineError::Engine)?;
     let recorded = record_disaggregated_outcome(states, &jobs, &layout, &transfers, &outcome);
     Ok(recorded)
+}
+
+/// Link sharing and the proxy hop, from the calibration. The proxy hop
+/// applies to moved requests only; the client-facing frontend latency is
+/// already in every request's arrival (`add_frontend_latency`).
+fn handoff_model(calibration: SimulationCalibration) -> Result<HandoffModel, IterationEngineError> {
+    let delay = HandoffDelay::new(calibration.disaggregation_proxy_latency_s())
+        .map_err(IterationEngineError::HandoffDelay)?;
+    Ok(HandoffModel {
+        link_sharing: calibration.kv_link_sharing,
+        delay,
+    })
 }
 
 fn record_disaggregated_outcome(

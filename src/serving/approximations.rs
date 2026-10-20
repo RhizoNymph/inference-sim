@@ -61,7 +61,11 @@ pub(super) fn serving_approximations(
         Some(SchedulerModel::DisaggregatedEngine) => {
             for approximation in iteration_engine_approximations(traffic, decode_score, calibration)
                 .into_iter()
-                .chain(disaggregated_engine_approximations(traffic, prefill_score))
+                .chain(disaggregated_engine_approximations(
+                    traffic,
+                    prefill_score,
+                    calibration,
+                ))
             {
                 push_serving_approximation(&mut approximations, approximation);
             }

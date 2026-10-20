@@ -33,6 +33,42 @@ pub struct SimulationCalibration {
     pub frontend_latency_us: f64,
     /// Additional per-request API-server latency per prompt token.
     pub frontend_latency_per_prompt_token_us: f64,
+    /// Disaggregated serving only: per-request latency between the prefill
+    /// instance finishing a prompt and the decode instance seeing the request
+    /// (the prefill response's trip back to the proxy, the proxy's second
+    /// HTTP request, and the decode API server's request handling). Zero
+    /// means not modeled. It is on top of `frontend_latency_us`, which covers
+    /// the client-facing API-server path once.
+    pub disaggregation_proxy_latency_us: f64,
+    /// How concurrent disaggregated KV transfers share directed links.
+    pub kv_link_sharing: KvLinkSharing,
+}
+
+/// How concurrent KV transfers share the directed route resources (links,
+/// NIC and fabric hops) they cross.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum KvLinkSharing {
+    /// Every resource is a first-come-first-served queue: a transfer holds
+    /// every resource on its route for its uncontended duration, so
+    /// concurrent transfers serialize. The default only because it is the
+    /// historical behavior; measured NIXL/UCX TCP pulls fair-share
+    /// (validation ledger entries 18 and 21).
+    #[default]
+    Fifo,
+    /// Processor sharing: active flows progress at max-min fair rates across
+    /// the resources on their routes, recomputed whenever a transfer starts
+    /// or finishes. A flow running alone takes exactly its uncontended
+    /// (curve or alpha-beta) price.
+    FairShare,
+}
+
+impl KvLinkSharing {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fifo => "fifo",
+            Self::FairShare => "fair_share",
+        }
+    }
 }
 
 impl Default for SimulationCalibration {
@@ -57,6 +93,8 @@ impl Default for SimulationCalibration {
             allow_compute_comm_overlap: false,
             frontend_latency_us: 0.0,
             frontend_latency_per_prompt_token_us: 0.0,
+            disaggregation_proxy_latency_us: 0.0,
+            kv_link_sharing: KvLinkSharing::Fifo,
         }
     }
 }
@@ -101,6 +139,11 @@ impl SimulationCalibration {
                 self.frontend_latency_per_prompt_token_us,
                 0.0,
             ),
+            disaggregation_proxy_latency_us: nonnegative_or(
+                self.disaggregation_proxy_latency_us,
+                0.0,
+            ),
+            kv_link_sharing: self.kv_link_sharing,
         }
     }
 
@@ -120,6 +163,11 @@ impl SimulationCalibration {
         (self.frontend_latency_us
             + self.frontend_latency_per_prompt_token_us * f64::from(prompt_tokens))
             / 1e6
+    }
+
+    /// Disaggregated proxy/handoff latency per moved request, in seconds.
+    pub fn disaggregation_proxy_latency_s(&self) -> f64 {
+        self.disaggregation_proxy_latency_us / 1e6
     }
 
     /// Whether any frontend latency is configured.
@@ -206,5 +254,32 @@ mod tests {
         .sanitized();
         assert_eq!(calibration.frontend_latency_us, 0.0);
         assert_eq!(calibration.frontend_latency_per_prompt_token_us, 0.0);
+    }
+
+    #[test]
+    fn proxy_latency_and_link_sharing_default_to_unmodeled_fifo() {
+        let calibration = SimulationCalibration::default();
+        assert_eq!(calibration.disaggregation_proxy_latency_us, 0.0);
+        assert_eq!(calibration.disaggregation_proxy_latency_s(), 0.0);
+        assert_eq!(calibration.kv_link_sharing, KvLinkSharing::Fifo);
+        assert_eq!(KvLinkSharing::FairShare.as_str(), "fair_share");
+    }
+
+    #[test]
+    fn sanitized_clamps_invalid_proxy_latency_and_keeps_link_sharing() {
+        let calibration = SimulationCalibration {
+            disaggregation_proxy_latency_us: f64::NAN,
+            kv_link_sharing: KvLinkSharing::FairShare,
+            ..SimulationCalibration::default()
+        }
+        .sanitized();
+        assert_eq!(calibration.disaggregation_proxy_latency_us, 0.0);
+        assert_eq!(calibration.kv_link_sharing, KvLinkSharing::FairShare);
+        let valid = SimulationCalibration {
+            disaggregation_proxy_latency_us: 40_000.0,
+            ..SimulationCalibration::default()
+        }
+        .sanitized();
+        assert!((valid.disaggregation_proxy_latency_s() - 0.04).abs() < 1e-15);
     }
 }

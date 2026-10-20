@@ -2564,6 +2564,12 @@ fn apply_scenario_calibration(
     if let Some(value) = override_config.frontend_latency_per_prompt_token_us {
         calibration.frontend_latency_per_prompt_token_us = value;
     }
+    if let Some(value) = override_config.disaggregation_proxy_latency_us {
+        calibration.disaggregation_proxy_latency_us = value;
+    }
+    if let Some(value) = override_config.kv_link_sharing {
+        calibration.kv_link_sharing = value;
+    }
     if let Some(value) = override_config.prefill_compute_scale {
         calibration.prefill_compute_scale = value;
     }

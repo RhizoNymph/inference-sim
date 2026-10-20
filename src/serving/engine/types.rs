@@ -1,6 +1,7 @@
 //! Value types of the iteration-level serving engine: what a request asks of
 //! the engine, the limits it runs under, and what the loop records.
 
+use crate::calibration::KvLinkSharing;
 use crate::solver::{StepLatency, StepWork};
 
 use super::transfer::{KvTransferPlan, TransferWindow};
@@ -89,6 +90,54 @@ pub(in crate::serving) struct Handoff {
     pub(in crate::serving) first_token: FirstTokenSource,
 }
 
+/// Latency from a prefill worker finishing a disaggregated prompt to the
+/// request joining its decode worker's queue: vLLM's proxy receiving the
+/// prefill response and sending the decode request, and the decode API
+/// server handling it. Finite and non-negative by construction.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub(in crate::serving) struct HandoffDelay(f64);
+
+impl HandoffDelay {
+    pub(in crate::serving) fn new(seconds: f64) -> Result<Self, InvalidHandoffDelay> {
+        if seconds.is_finite() && seconds >= 0.0 {
+            Ok(Self(seconds))
+        } else {
+            Err(InvalidHandoffDelay { seconds })
+        }
+    }
+
+    pub(in crate::serving) fn seconds(self) -> f64 {
+        self.0
+    }
+}
+
+/// A handoff delay that is negative, NaN, or infinite.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(in crate::serving) struct InvalidHandoffDelay {
+    pub(in crate::serving) seconds: f64,
+}
+
+impl std::fmt::Display for InvalidHandoffDelay {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "handoff delay {} s is not finite and non-negative",
+            self.seconds
+        )
+    }
+}
+
+impl std::error::Error for InvalidHandoffDelay {}
+
+/// How disaggregated requests move between workers in one engine run.
+/// The default (FIFO links, no handoff delay) is the engine's historical
+/// behavior.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub(in crate::serving) struct HandoffModel {
+    pub(in crate::serving) link_sharing: KvLinkSharing,
+    pub(in crate::serving) delay: HandoffDelay,
+}
+
 /// Whether a request runs on one worker or moves between two.
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::serving) enum JobRoute {
@@ -125,10 +174,13 @@ pub(in crate::serving) struct HandoffRecord {
     /// End of the prefill worker's step that computed the last prompt token
     /// (and sampled the prefill instance's token).
     pub(in crate::serving) prefill_finish_s: f64,
-    /// When the request joined the decode worker's waiting queue.
+    /// When the request joined the decode worker's waiting queue
+    /// (`prefill_finish_s` plus the handoff delay).
     pub(in crate::serving) decode_queued_s: f64,
     /// When the decode worker reserved its KV and started the pull.
     pub(in crate::serving) decode_admitted_s: Option<f64>,
+    /// The pull's window, recorded when it completes (every started pull
+    /// completes, cancelled requests' pulls included).
     pub(in crate::serving) transfer: Option<TransferWindow>,
     /// Decode step that recomputed the last prompt token (`DecodeInstance`).
     pub(in crate::serving) recompute_step: Option<usize>,

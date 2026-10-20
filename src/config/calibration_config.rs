@@ -1863,6 +1863,15 @@ pub(super) fn calibration_with_defaults(
         &format!("{name}.frontend_latency_per_prompt_token_us"),
         section.frontend_latency_per_prompt_token_us,
     )?;
+    validate_nonnegative_optional_f64(
+        &format!("{name}.disaggregation_proxy_latency_us"),
+        section.disaggregation_proxy_latency_us,
+    )?;
+    let kv_link_sharing = parse_kv_link_sharing(
+        &format!("{name}.kv_link_sharing"),
+        section.kv_link_sharing.as_deref(),
+    )?
+    .unwrap_or(defaults.kv_link_sharing);
 
     Ok(SimulationCalibration {
         compute_efficiency: section
@@ -1920,6 +1929,25 @@ pub(super) fn calibration_with_defaults(
         frontend_latency_per_prompt_token_us: section
             .frontend_latency_per_prompt_token_us
             .unwrap_or(defaults.frontend_latency_per_prompt_token_us),
+        disaggregation_proxy_latency_us: section
+            .disaggregation_proxy_latency_us
+            .unwrap_or(defaults.disaggregation_proxy_latency_us),
+        kv_link_sharing,
     }
     .sanitized())
+}
+
+/// Parses `calibration.kv_link_sharing` (`fifo` or `fair_share`).
+pub(super) fn parse_kv_link_sharing(
+    name: &str,
+    value: Option<&str>,
+) -> Result<Option<KvLinkSharing>, ConfigError> {
+    match value.map(str::trim) {
+        None => Ok(None),
+        Some("fifo") => Ok(Some(KvLinkSharing::Fifo)),
+        Some("fair_share") => Ok(Some(KvLinkSharing::FairShare)),
+        Some(other) => Err(ConfigError::new(format!(
+            "unsupported {name} '{other}'; use fifo or fair_share"
+        ))),
+    }
 }

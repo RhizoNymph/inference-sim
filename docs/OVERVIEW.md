@@ -82,14 +82,16 @@ Overview:
         iteration-level engine (vLLM V1-style steps priced from their
         composition): colocated pools on one worker per GPU set,
         disaggregated and partially disaggregated pools as prefill and
-        decode workers joined by decode-initiated KV pulls over FIFO
-        directed link queues. Independent batching and data-parallel
+        decode workers joined by decode-initiated KV pulls over directed
+        link resources, FIFO or max-min fair-shared
+        (calibration.kv_link_sharing), with an optional calibrated proxy
+        hop between prefill and decode. Independent batching and data-parallel
         replicas stay on the phase-pipeline scheduler.
       key_files:
         - src/serving.rs (module root, ServingSolver)
         - src/serving/scheduling.rs (request states, scheduler dispatch)
         - src/serving/engine/ (iteration-level serving engine)
-        - src/serving/engine/disaggregated.rs, engine/transfer/ (disaggregated workers, KV transfer plans and link queues)
+        - src/serving/engine/disaggregated.rs, engine/transfer/ (disaggregated workers, KV transfer plans, FIFO and fair-share transfer network)
         - src/serving/scheduling/pipeline.rs (phase-pipeline scheduler)
         - src/serving/scheduling/summary.rs (shared metric summary)
         - src/serving/scheduling/ (prefill/decode batching for the pipeline)
@@ -170,7 +172,9 @@ Overview:
     disaggregated pools it also builds per-request KV transfer plans from
     the topology graph and measured send_recv curves
     (src/serving/engine/transfer/) and moves each request from its prefill
-    worker to its decode worker through FIFO link queues. The engine writes
+    worker to its decode worker through the KV transfer network (FIFO link
+    queues or max-min fair-shared links, advanced event by event with the
+    loop), after an optional calibrated proxy hop. The engine writes
     request lifecycles back into the same request states the phase-pipeline
     scheduler fills; both feed one shared metric summary. cli then ranks, gates (calibration and
     approximation policies), and renders text/JSON/CSV, carrying every fit
@@ -270,14 +274,18 @@ Features Index:
       chunked-prefill steps, finished prompts queue on their decode worker,
       decode admission reserves KV and starts a pull of the request's
       TP/PP-sharded prompt KV priced from directed send_recv curves or routed
-      alpha-beta, FIFO per directed link, and the decode worker recomputes
-      the last prompt token to emit the client's first token (vLLM proxy
-      TTFT convention, configurable).
+      alpha-beta, FIFO or max-min fair-shared per directed link
+      (calibration.kv_link_sharing), an optional calibrated proxy hop
+      (calibration.disaggregation_proxy_latency_us), and the decode worker
+      recomputes the last prompt token to emit the client's first token
+      (vLLM proxy TTFT convention, configurable).
     entry_points:
       - src/serving/engine.rs::select_scheduler_model
       - src/serving/engine/disaggregated.rs::run_disaggregated_engine
       - src/serving/engine/core.rs::run_engine_jobs
       - src/serving/engine/transfer/plan.rs::KvTransferPlanner
+      - src/serving/engine/transfer/network.rs::KvNetwork
+      - src/serving/engine/transfer/fair_share.rs::FairShareLinks
       - examples/rtx3090_qwen7b_disaggregated_workload.toml
     depends_on: [serving_iteration_engine, collective_curves]
     doc: docs/features/disaggregated_serving_engine.md
