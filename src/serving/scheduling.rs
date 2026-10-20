@@ -265,6 +265,7 @@ pub(super) fn schedule_serving_simulation(
                 operations: engine.operations,
                 decode_iterations: engine.decode_iterations,
                 kv_bottlenecks: engine.kv_bottlenecks,
+                preemption: engine.preemption,
             })
         }
         // A placed config always prices; keep a result rather than dropping

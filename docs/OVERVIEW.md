@@ -256,10 +256,15 @@ Features Index:
       the step's actual composition (with TP all-reduces and PP stages,
       compute efficiency at the step's token count), plus a calibrated
       per-request frontend (API-server) latency added to TTFT and E2EL.
+      KV is reserved at admission by default; decode_capacity_policy =
+      "preempt" switches to vLLM V1 paged allocation with recompute
+      preemption (including disaggregated decode workers, which recompute
+      locally), reported as preemption counts and recomputed tokens.
     entry_points:
       - src/serving/engine.rs::select_scheduler_model
       - src/serving/engine.rs::run_iteration_engine
-      - src/serving/engine/core.rs::run_engine
+      - src/serving/engine/core.rs::run_engine_jobs_with
+      - src/serving/engine/core/paged.rs::Engine::grant_kv
       - src/solver/step_cost.rs::IterationCostModel
     depends_on: [compute_roofline]
     doc: docs/features/serving_iteration_engine.md

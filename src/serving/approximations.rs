@@ -68,6 +68,19 @@ pub(super) fn serving_approximations(
         }
         Some(SchedulerModel::PhasePipeline(reason)) => {
             push_serving_approximation(&mut approximations, phase_pipeline_approximation(reason));
+            if traffic.decode_capacity_policy == ServingDecodeCapacityPolicy::Preempt {
+                push_serving_approximation(
+                    &mut approximations,
+                    SimulationApproximation::new(
+                        "serving",
+                        "capacity",
+                        "phase_pipeline",
+                        "phase_pipeline_preemption_not_modeled",
+                        "decode_capacity_policy = \"preempt\" is modeled only on the iteration engine; the phase-pipeline scheduler treats it like candidate_reject (capacity overruns reject the candidate).",
+                        Some("use a candidate the iteration engine can run to model KV-exhaustion preemption".to_string()),
+                    ),
+                );
+            }
         }
         None => {}
     }

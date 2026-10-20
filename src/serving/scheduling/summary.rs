@@ -38,6 +38,7 @@ pub(in crate::serving) fn summarize_serving_simulation(
         operations,
         decode_iterations,
         kv_bottlenecks,
+        preemption,
     } = timeline;
     let mut calibration_fits = decode_states
         .iter()
@@ -318,6 +319,9 @@ pub(in crate::serving) fn summarize_serving_simulation(
         resident_token_per_gpu_utilization: capacity.resident_token_per_gpu_utilization,
         kv_block_per_gpu_utilization: capacity.kv_block_per_gpu_utilization,
         scheduled_makespan_s: makespan_s,
+        preemptions: preemption.preemptions,
+        preempted_requests: preemption.preempted_requests,
+        preemption_recompute_tokens: preemption.recompute_tokens,
         scheduled_requests,
         admitted_requests,
         completed_requests,

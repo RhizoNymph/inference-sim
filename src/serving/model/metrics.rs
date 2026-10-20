@@ -146,6 +146,15 @@ pub struct ServingMetrics {
     pub resident_token_per_gpu_utilization: f64,
     pub kv_block_per_gpu_utilization: f64,
     pub scheduled_makespan_s: f64,
+    /// KV-exhaustion preemptions on the iteration engine (a request
+    /// preempted twice counts twice); zero unless
+    /// `decode_capacity_policy = "preempt"`.
+    pub preemptions: u64,
+    /// Requests preempted at least once.
+    pub preempted_requests: u64,
+    /// Computed KV tokens preemptions discarded, each recomputed as prefill
+    /// when its request was readmitted.
+    pub preemption_recompute_tokens: u64,
     pub scheduled_requests: u32,
     pub admitted_requests: u32,
     pub completed_requests: u32,
@@ -431,6 +440,9 @@ impl ServingMetrics {
             resident_token_per_gpu_utilization: 0.0,
             kv_block_per_gpu_utilization: 0.0,
             scheduled_makespan_s: f64::INFINITY,
+            preemptions: 0,
+            preempted_requests: 0,
+            preemption_recompute_tokens: 0,
             scheduled_requests: 0,
             admitted_requests: 0,
             completed_requests: 0,

@@ -9,8 +9,8 @@
 
 use std::collections::BTreeSet;
 
-use super::core::run_engine_jobs;
-use super::limits::{EngineWorker, engine_limits, engine_request};
+use super::core::run_engine_jobs_with;
+use super::limits::{EngineWorker, engine_kv_allocation, engine_limits, engine_request};
 use super::transfer::{
     KvPlanContext, KvPlanError, KvTransferPlanner, PlacedKvLayout, PlannedTransfer,
 };
@@ -256,8 +256,13 @@ pub(in crate::serving) fn run_disaggregated_engine(
             .map_err(IterationEngineError::StepCost)?,
         prefill_only: layout.prefill_only.clone(),
     };
-    let outcome =
-        run_engine_jobs(&jobs, &limits, &mut costs).map_err(IterationEngineError::Engine)?;
+    let outcome = run_engine_jobs_with(
+        &jobs,
+        &limits,
+        engine_kv_allocation(run.traffic),
+        &mut costs,
+    )
+    .map_err(IterationEngineError::Engine)?;
     let recorded = record_disaggregated_outcome(states, &jobs, &layout, &transfers, &outcome);
     Ok(recorded)
 }
@@ -274,5 +279,6 @@ fn record_disaggregated_outcome(
         operations: recorded.operations,
         decode_iterations: recorded.decode_iterations,
         kv_bottlenecks: recorded.kv_bottlenecks,
+        preemption: outcome.preemption_stats(),
     }
 }

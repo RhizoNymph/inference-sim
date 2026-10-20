@@ -890,8 +890,11 @@ pub(in crate::config) fn parse_decode_capacity_policy(
         | Some("admission")
         | Some("admission_reject")
         | Some("reject_request") => Ok(ServingDecodeCapacityPolicy::RequestReject),
+        Some("preempt") | Some("preempt_recompute") | Some("recompute") => {
+            Ok(ServingDecodeCapacityPolicy::Preempt)
+        }
         Some(value) => Err(ConfigError::new(format!(
-            "unsupported serving.traffic.decode_capacity_policy '{value}'; use candidate_reject or request_reject"
+            "unsupported serving.traffic.decode_capacity_policy '{value}'; use candidate_reject, request_reject, or preempt"
         ))),
     }
 }
@@ -1085,4 +1088,30 @@ pub(in crate::config) fn positive_values(
     }
 
     Ok(values)
+}
+
+#[cfg(test)]
+mod decode_capacity_policy_tests {
+    use super::*;
+
+    #[test]
+    fn preempt_aliases_parse_to_recompute_preemption() {
+        for alias in ["preempt", "preempt_recompute", "recompute", "Preempt"] {
+            assert_eq!(
+                parse_decode_capacity_policy(Some(alias)).ok(),
+                Some(ServingDecodeCapacityPolicy::Preempt),
+                "{alias}"
+            );
+        }
+        assert_eq!(ServingDecodeCapacityPolicy::Preempt.as_str(), "preempt");
+    }
+
+    #[test]
+    fn unknown_policy_lists_preempt_among_the_choices() {
+        let error = parse_decode_capacity_policy(Some("swap"))
+            .err()
+            .map(|error| error.to_string())
+            .unwrap_or_default();
+        assert!(error.contains("preempt"), "{error}");
+    }
 }

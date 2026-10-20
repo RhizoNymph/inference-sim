@@ -13,7 +13,8 @@
 //! | `max_queue_delay` (and class/trace overrides) | waiting longer rejects the request |
 //!
 //! A request whose own footprint exceeds a limit is rejected on arrival;
-//! otherwise exceeding a limit means waiting, never rejection.
+//! otherwise exceeding a limit means waiting (or, under
+//! `decode_capacity_policy = "preempt"`, preemption), never rejection.
 
 use super::*;
 
@@ -202,6 +203,20 @@ pub(in crate::serving) fn engine_request(
             .and_then(|name| limits.classes.iter().position(|class| class.name == name)),
         cancellation_s: state.cancellation_s,
         max_queue_delay_s: state.max_queue_delay_s.or(traffic.max_queue_delay_s),
+    }
+}
+
+/// The engine's KV allocation for `traffic`: vLLM V1 paged allocation with
+/// recompute preemption under `decode_capacity_policy = "preempt"`, whole
+/// footprints reserved at admission otherwise.
+pub(in crate::serving) fn engine_kv_allocation(traffic: &ServingTraffic) -> KvAllocationMode {
+    match traffic.decode_capacity_policy {
+        ServingDecodeCapacityPolicy::Preempt => KvAllocationMode::PagedRecompute {
+            block_tokens: std::num::NonZeroU32::new(kv_block_tokens(traffic))
+                .unwrap_or(std::num::NonZeroU32::MIN),
+        },
+        ServingDecodeCapacityPolicy::CandidateReject
+        | ServingDecodeCapacityPolicy::RequestReject => KvAllocationMode::ReservedAtAdmission,
     }
 }
 

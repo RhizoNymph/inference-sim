@@ -574,7 +574,20 @@ impl ServingSolver {
                 bottlenecks.push(rejection.resource.clone());
             }
         }
-        let capacity_rejections = capacity_rejections(&metrics, context.traffic);
+        // Under recompute preemption the engine enforces every KV and
+        // sequence limit online; the post-hoc profile counts whole
+        // footprints over each residency window and would overstate it.
+        let engine_preempts = context.traffic.decode_capacity_policy
+            == ServingDecodeCapacityPolicy::Preempt
+            && matches!(
+                simulation.scheduler_model,
+                Some(SchedulerModel::IterationEngine | SchedulerModel::DisaggregatedEngine)
+            );
+        let capacity_rejections = if engine_preempts {
+            Vec::new()
+        } else {
+            capacity_rejections(&metrics, context.traffic)
+        };
         if !capacity_rejections.is_empty() {
             feasible = false;
             for rejection in capacity_rejections {
