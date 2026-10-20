@@ -9,6 +9,9 @@ mod collective_pricing;
 mod curve_tests;
 #[cfg(test)]
 mod efficiency_curve_tests;
+mod microbatch;
+#[cfg(test)]
+mod microbatch_tests;
 mod network_cost;
 mod operations;
 mod placement;
@@ -17,6 +20,7 @@ use calibration_fits::{calibration_feature_values, evaluate_fit, evaluate_value_
 use collective_pricing::{
     CurvePricing, PricedCollective, all_traffic_priced_by_curves, collective_pricing_approximations,
 };
+use microbatch::microbatch_overlap_approximation;
 pub use operations::schedule_operations;
 pub use step_cost::{IterationCostModel, StepCostError, StepLatency, StepWork};
 
@@ -436,16 +440,36 @@ impl Solver {
             calibration,
             options.calibration_profile,
         );
-        let (operations, priced_collectives) = Self::build_operation_trace(
+        let microbatches = Self::microbatch_compute(
             cluster,
             model,
             request,
             config,
             &placement,
-            &groups,
-            compute_latency_s,
             calibration,
+            &calibration_fits,
         );
+        let (operations, priced_collectives) = match &microbatches {
+            Some(compute) => Self::build_microbatched_trace(
+                cluster,
+                model,
+                config,
+                &placement,
+                &groups,
+                calibration,
+                compute,
+            ),
+            None => Self::build_operation_trace(
+                cluster,
+                model,
+                request,
+                config,
+                &placement,
+                &groups,
+                compute_latency_s,
+                calibration,
+            ),
+        };
         let scheduled_operations = schedule_operations(&operations);
         let estimated_latency_s = scheduled_operations
             .iter()
@@ -466,7 +490,7 @@ impl Solver {
         if bottlenecks.is_empty() {
             bottlenecks.push("GPU compute".to_string());
         }
-        let approximations = Self::parallelism_approximations(
+        let mut approximations = Self::parallelism_approximations(
             cluster,
             model,
             request,
@@ -476,6 +500,12 @@ impl Solver {
             &priced_collectives,
             &calibration_fits,
         );
+        if let Some(compute) = &microbatches {
+            push_approximation(
+                &mut approximations,
+                microbatch_overlap_approximation(request, compute),
+            );
+        }
         let placement_evidence = Self::placement_evidence(
             cluster,
             model,

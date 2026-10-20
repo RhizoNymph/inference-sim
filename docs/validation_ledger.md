@@ -35,6 +35,7 @@ them superseded.
 | 16 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 | recalibrated scalars / curve | 6.0% | 2.7% (batch 1-32) | 3.0% | validated to batch 32; KV exhaustion beyond |
 | 17 | 2026-10-01 | 1x RTX 3090 (node2), graphics clock locked at 1200 MHz | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, degraded GPU | recalibrated constants, peak scaled to the locked clock | 13.8% | 22.8% | 9.6% (offsetting errors) | **not accurate**: see entry |
 | 18 | 2026-10-01 | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst | curve + frontend profile (blind prediction) | see entry | see entry | see entry | validated below saturation; burst not accurate |
+| 23 | 2026-10-01 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B / 14B bf16 | vLLM 0.29.0, Ray | TP1 PP2 | static batch | curve profile + `pipeline_microbatching = "vllm_batch_queue"` (no refit) | 8.3% / 6.5% | 3.8% / 7.2% | 1.7% / 4.8% | validated, with caveats; prefill overlap partly captured |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
 
@@ -488,6 +489,64 @@ baseline's traffic (512 in / 128 out, 200 requests). Scripts:
   HTTP hops, which the simulator does not model
   (`disaggregated_proxy_hop_not_modeled`).
 
+## 23. RTX 3090 x2, Qwen2.5-7B and 14B, PP=2: pipeline overlap inside one static batch
+
+- Data: the committed PP=2 runs (`lab-runs/2026-09-28-static-batch/real_pp2.jsonl`,
+  `lab-runs/2026-09-30-qwen14b-static-pp2/measured.jsonl`) and the 7B PP=1
+  run as an unchanged check; no new measurement. Analysis:
+  [`lab-runs/2026-10-01-pipeline-overlap-sim/`](../lab-runs/2026-10-01-pipeline-overlap-sim/)
+  (`revalidate.py`, `summary.md`, `revalidation.json`, per-variant
+  `validation-po-*.json`).
+- Simulator: `feat/pipeline-batch-overlap`. Cause, read from the vLLM
+  v0.29.0 source: with PP>1 and the Ray executor (no async scheduling) the V1
+  engine core keeps `max_concurrent_batches = pipeline_parallel_size` steps
+  in flight; offline requests reach the engine core one at a time and it
+  steps on the first arrival, so the first step carries about one request
+  and the next step the rest, which overlaps across stages; in-flight
+  prompts are never rescheduled, and a stage waits for its previous send
+  before the next forward. Details in
+  docs/features/pipeline_parallel_overlap.md.
+- Model: `[calibration] pipeline_microbatching = "vllm_batch_queue"` splits a
+  batch of B >= 2 on >= 2 stages into 1 + (B - 1) prompt passes in one trace
+  (decode stays whole-batch). Variants: **before** = ledger 14's curve
+  profile (`profile-curve-net.toml`, default `whole_batch`, reproduces
+  entry 14 exactly); **after** = the same profile plus the policy. Same
+  cluster (node0 NIC 3.61 Gb/s), `collective_latency_scale = 1.824`; no
+  constant refitted.
+
+| regime | variant | prefill | decode step | end-to-end |
+|---|---|---:|---:|---:|
+| 7B PP=2 | before | 10.4% | 3.8% | 1.3% |
+| | after | **8.3%** | 3.8% | 1.7% |
+| 14B PP=2 | before | 8.7% | 7.2% | 5.1% |
+| | after | **6.5%** | 7.2% | **4.8%** |
+| 7B PP=1 | before = after | 0.8% | 0.5% | 0.9% |
+
+| shape | 7B prefill | 7B e2e | 14B prefill | 14B e2e |
+|---|---|---|---|---|
+| 8x512 | +23.9% -> +18.9% | -2.7% -> -3.7% | +17.2% -> +12.3% | -3.1% -> -4.1% |
+| 8x2048 | +16.1% -> +9.7% | +0.7% -> -2.4% | +18.1% -> +11.3% | +5.0% -> +1.8% |
+| 32x512 | -0.6% -> -1.7% | +1.7% -> +1.1% | +0.2% -> -0.9% | -3.0% -> -3.6% |
+
+Batch-1 shapes are unchanged. PP=2 / PP=1 prefill ratio for 7B 8x512:
+measured 0.85, simulated 1.09 before and 1.04 after (8x2048: 0.93 vs 1.08 ->
+1.02).
+
+- Caveats: the real overlap is deeper than 1 + (B - 1). Fitting the size j
+  of the second step in a 1 + j + rest split to each shape gives j of about
+  3 (7B 8x512), 1.5 (8x2048), 0-1 (32x512) and 2 / 1.3 / 0 for 14B: more
+  requests reach the engine before the second schedule when prompts are
+  short, as an arrival race predicts, and PP=2 prefill spreads are 10-25x
+  the PP=1 spreads. Pricing that needs the offline request-ingest and
+  schedule-and-submit times, which are unmeasured. 7B end-to-end gets
+  slightly worse (1.3% -> 1.7%) because prefill over-prediction no longer
+  cancels the batch-8 decode under-prediction (-11.0% at 8x512), which this
+  change does not touch. The same first-request step exists at PP=1 and
+  explains node1's per-sequence 2x512/3x512 prefills (235.5 ms = 2 x
+  117.6 ms; entry 14 caveat), but the PP=1 model is unchanged. The policy is
+  opt-in because a whole-batch pass is the right model for backends without
+  a batch queue; the serving iteration engine does not overlap steps.
+
 ## Untested regimes
 
 Nothing below has been measured; treat simulator output there as
@@ -495,7 +554,8 @@ unvalidated.
 
 - Tensor parallelism (TP >= 2), within a node (no NVLink/PCIe P2P lab yet) or
   across nodes.
-- Pipeline parallelism beyond 2 stages, and PP=2 with a PP=2-fitted profile.
+- Pipeline parallelism beyond 2 stages (the batch-queue overlap of entry 23
+  is unmeasured there), and PP=2 with a PP=2-fitted profile.
 - Expert parallelism / MoE models; data parallelism / multiple replicas.
 - Models other than Qwen2.5-7B (larger dense models, GQA ratios, FFN sizes;
   the fit leaves `ffn_hidden_size` at the simulator default).

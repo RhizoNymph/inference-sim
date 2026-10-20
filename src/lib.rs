@@ -8,7 +8,7 @@ pub mod topology_graph;
 pub mod types;
 pub mod workload;
 
-pub use calibration::SimulationCalibration;
+pub use calibration::{PipelineMicrobatching, SimulationCalibration};
 pub use config::{
     ApproximationMetricGate, ApproximationPolicy, ApproximationPolicyPreset,
     ApproximationPolicyViolation, CalibrationApplicabilityWarning, CalibrationCoverageReport,

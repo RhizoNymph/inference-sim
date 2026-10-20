@@ -65,8 +65,13 @@ constants an H100 run can fit.
       - [x] [done 2026-10-01, ledger 16] decode batch non-linearity around
         CUDA-graph capture sizes: measured negligible on the 3090 (memory-
         bound steps), not modeled.
-      - [ ] pipeline microbatching inside one multi-request batch (0.85x
-        measured vs 1.03x simulated).
+      - [x] [done 2026-10-01, ledger 23] pipeline microbatching inside one
+        multi-request batch (0.85x measured vs 1.03x simulated): vLLM's PP
+        batch queue runs the first-arriving request as its own step and
+        overlaps the rest; modeled opt-in as a 1 + (B - 1) split
+        (`pipeline_microbatching = "vllm_batch_queue"`). 7B PP=2 prefill
+        10.4% -> 8.3%, 14B 8.7% -> 6.5%, no refit; residual overlap
+        depends on request arrival timing (unmeasured).
       - [ ] engine never preempts; vLLM preempts and recomputes under KV
         exhaustion (2.4x step time measured at batch 48-64,
         lab-runs/2026-10-01-qwen7b-decode-batch-sweep-tail). Do after the
@@ -180,8 +185,14 @@ constants an H100 run can fit.
   includes the embedding all-reduce and the logits all-gather (sized by
   sampling sequences, i.e. decodes plus prompt-completing chunks), so an
   engine decode step again equals the static one-token decode under TP.
-- Open: vLLM overlaps pipeline stages across requests inside one batch
-  (7B and 14B PP=2 prefill faster than serial); not modeled.
+- [resolved 2026-10-01, ledger 23] vLLM overlaps pipeline stages across
+  requests inside one batch (7B and 14B PP=2 prefill faster than serial).
+  Cause (vLLM 0.29 source): `max_concurrent_batches = PP` batch queue plus
+  offline requests reaching the engine core one at a time, so the first step
+  carries one request and the next step the rest. Modeled by
+  `[calibration] pipeline_microbatching = "vllm_batch_queue"`. The same
+  first-request step at PP=1 explains node1's per-sequence 2x512/3x512
+  prefills (item 6, last sub-item); the PP=1 model is unchanged.
 
 ## After H100s (ordered by information per H100-hour)
 

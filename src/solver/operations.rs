@@ -84,14 +84,98 @@ impl Solver {
         compute_latency_s: f64,
         calibration: SimulationCalibration,
     ) -> (Vec<SimOperation>, Vec<PricedCollective>) {
-        let mut operations = Vec::new();
-        let mut priced = Vec::new();
+        let mut trace = TraceBuilder::new(cluster, model, config, placement, groups, calibration);
+        trace.push_pass(request, compute_latency_s, &PassLinks::default());
+        trace.finish()
+    }
+}
+
+/// Extra dependencies that tie one forward pass to earlier passes in the
+/// same trace.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct PassLinks {
+    /// Prefix for every operation name of the pass (empty for a lone pass).
+    pub(super) name_prefix: String,
+    /// Operations the pass's first layer waits for.
+    pub(super) entry: Vec<usize>,
+    /// Per pipeline stage: operations the stage's first layer waits for.
+    pub(super) stage_entry: Vec<Vec<usize>>,
+}
+
+/// Where a pushed pass ended, for linking later passes to it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct PassTrace {
+    /// Operations nothing else in the pass depends on (the last layer's
+    /// barrier and any LM-head all-gathers).
+    pub(super) tails: Vec<usize>,
+    /// Per pipeline stage: the send/recv carrying this pass's activations out
+    /// of the stage (`None` for the last stage).
+    pub(super) stage_sends: Vec<Option<usize>>,
+}
+
+/// Accumulates the operations of one or more forward passes over the same
+/// placed configuration.
+pub(super) struct TraceBuilder<'a> {
+    cluster: &'a Cluster,
+    model: &'a ModelSpec,
+    config: ParallelismConfig,
+    placement: &'a RankPlacement,
+    groups: &'a ParallelGroups,
+    calibration: SimulationCalibration,
+    operations: Vec<SimOperation>,
+    priced: Vec<PricedCollective>,
+}
+
+impl<'a> TraceBuilder<'a> {
+    pub(super) fn new(
+        cluster: &'a Cluster,
+        model: &'a ModelSpec,
+        config: ParallelismConfig,
+        placement: &'a RankPlacement,
+        groups: &'a ParallelGroups,
+        calibration: SimulationCalibration,
+    ) -> Self {
+        Self {
+            cluster,
+            model,
+            config,
+            placement,
+            groups,
+            calibration,
+            operations: Vec::new(),
+            priced: Vec::new(),
+        }
+    }
+
+    pub(super) fn finish(self) -> (Vec<SimOperation>, Vec<PricedCollective>) {
+        (self.operations, self.priced)
+    }
+
+    /// Pushes one forward pass of `request` (its batch, phase, and crossings)
+    /// whose compute totals `compute_latency_s`, split evenly across layers.
+    pub(super) fn push_pass(
+        &mut self,
+        request: &InferenceRequest,
+        compute_latency_s: f64,
+        links: &PassLinks,
+    ) -> PassTrace {
+        let cluster = self.cluster;
+        let model = self.model;
+        let config = self.config;
+        let placement = self.placement;
+        let groups = self.groups;
+        let calibration = self.calibration;
+        let prefix = links.name_prefix.as_str();
+        let operations = &mut self.operations;
+        let priced = &mut self.priced;
+
         let layers = model.layers.max(1);
         let stages = config.pipeline_ranks.max(1);
         let compute_per_layer_s = compute_latency_s / f64::from(layers);
         let stage_plans: Vec<_> = (0..stages)
             .map(|stage| PipelineStagePlan::new(placement, groups, stage, request.phase))
             .collect();
+        let mut stage_sends = vec![None; stages as usize];
         let mut previous_compute = None;
         let mut previous_layer_barrier = None;
         let mut current_stage = 0;
@@ -100,17 +184,17 @@ impl Solver {
         // looked-up activations are all-reduced before the first layer.
         let mut embedding_reductions = Vec::new();
         if config.tensor_ranks > 1 {
-            let activation_token_bytes = Self::activation_token_bytes(model, request);
+            let activation_token_bytes = Solver::activation_token_bytes(model, request);
             for (group_idx, group) in groups.tensor_groups.iter().enumerate() {
                 if !stage_plans[0].contains_group(group) {
                     continue;
                 }
-                embedding_reductions.push(Self::push_repeated_collective_operation(
+                embedding_reductions.push(Solver::push_repeated_collective_operation(
                     cluster,
                     placement,
-                    &mut operations,
-                    &mut priced,
-                    format!("embedding tp all-reduce group {group_idx}"),
+                    operations,
+                    priced,
+                    format!("{prefix}embedding tp all-reduce group {group_idx}"),
                     RepeatedCollective {
                         kind: CollectiveKind::AllReduce,
                         participants: group.clone(),
@@ -121,7 +205,7 @@ impl Solver {
                     },
                     model,
                     request,
-                    Vec::new(),
+                    links.entry.clone(),
                     calibration,
                 ));
             }
@@ -131,11 +215,17 @@ impl Solver {
             let mut compute_dependencies = Vec::new();
             if layer_idx == 0 {
                 compute_dependencies.extend(embedding_reductions.iter().copied());
+                for dependency in &links.entry {
+                    if !compute_dependencies.contains(dependency) {
+                        compute_dependencies.push(*dependency);
+                    }
+                }
             }
             let layer_stage = layer_stage(layer_idx, layers, stages);
+            let first_layer_of_stage = layer_idx == 0 || current_stage < layer_stage;
             while current_stage < layer_stage {
                 let boundary_dependency = previous_layer_barrier.or(previous_compute).unwrap_or(0);
-                let boundary_idx = Self::push_pipeline_boundary_operation(
+                let boundary_idx = Solver::push_pipeline_boundary_operation(
                     cluster,
                     model,
                     request,
@@ -143,14 +233,30 @@ impl Solver {
                     groups,
                     current_stage,
                     boundary_dependency,
-                    &mut operations,
-                    &mut priced,
+                    operations,
+                    priced,
                     calibration,
+                    prefix,
                 );
+                if let Some(slot) = stage_sends.get_mut(current_stage as usize) {
+                    *slot = boundary_idx;
+                }
                 current_stage += 1;
                 if let Some(boundary_idx) = boundary_idx {
                     previous_layer_barrier = Some(boundary_idx);
                     compute_dependencies.push(boundary_idx);
+                }
+            }
+            if first_layer_of_stage {
+                for dependency in links
+                    .stage_entry
+                    .get(layer_stage as usize)
+                    .into_iter()
+                    .flatten()
+                {
+                    if !compute_dependencies.contains(dependency) {
+                        compute_dependencies.push(*dependency);
+                    }
                 }
             }
             if let Some(previous_compute) = previous_compute {
@@ -166,7 +272,7 @@ impl Solver {
             let stage_plan = &stage_plans[layer_stage as usize];
             let compute_idx = operations.len();
             operations.push(SimOperation {
-                name: format!("layer {layer_idx} compute"),
+                name: format!("{prefix}layer {layer_idx} compute"),
                 kind: SimOperationKind::Compute,
                 duration_s: compute_per_layer_s,
                 resources: stage_plan.compute_resources.clone(),
@@ -176,19 +282,21 @@ impl Solver {
 
             let mut layer_tail = compute_idx;
             if config.tensor_ranks > 1 {
-                let activation_token_bytes = Self::activation_token_bytes(model, request);
+                let activation_token_bytes = Solver::activation_token_bytes(model, request);
                 for (group_idx, group) in groups.tensor_groups.iter().enumerate() {
                     if !stage_plan.contains_group(group) {
                         continue;
                     }
                     let mut dependency = compute_idx;
                     for block in ["attn", "mlp"] {
-                        dependency = Self::push_repeated_collective_operation(
+                        dependency = Solver::push_repeated_collective_operation(
                             cluster,
                             placement,
-                            &mut operations,
-                            &mut priced,
-                            format!("layer {layer_idx} tp all-reduce {block} group {group_idx}"),
+                            operations,
+                            priced,
+                            format!(
+                                "{prefix}layer {layer_idx} tp all-reduce {block} group {group_idx}"
+                            ),
                             RepeatedCollective {
                                 kind: CollectiveKind::AllReduce,
                                 participants: group.clone(),
@@ -210,19 +318,19 @@ impl Solver {
             if let Some(experts) = model.experts
                 && config.expert_ranks > 1
             {
-                let expert_token_bytes = Self::activation_token_bytes(model, request)
+                let expert_token_bytes = Solver::activation_token_bytes(model, request)
                     * u64::from(experts.top_k)
                     / u64::from(config.expert_ranks.max(1));
                 for (group_idx, group) in groups.expert_groups.iter().enumerate() {
                     if !stage_plan.contains_group(group) {
                         continue;
                     }
-                    layer_tail = Self::push_repeated_collective_operation(
+                    layer_tail = Solver::push_repeated_collective_operation(
                         cluster,
                         placement,
-                        &mut operations,
-                        &mut priced,
-                        format!("layer {layer_idx} ep all-to-all group {group_idx}"),
+                        operations,
+                        priced,
+                        format!("{prefix}layer {layer_idx} ep all-to-all group {group_idx}"),
                         RepeatedCollective {
                             kind: CollectiveKind::AllToAll,
                             participants: group.clone(),
@@ -242,22 +350,27 @@ impl Solver {
             previous_layer_barrier = Some(layer_tail);
         }
 
+        let mut tails: Vec<usize> = previous_layer_barrier
+            .or(previous_compute)
+            .into_iter()
+            .collect();
+
         // The LM head is vocab-parallel too: every tensor rank contributes
         // its logits shard for each sampled position.
         if config.tensor_ranks > 1 {
             let last_stage = &stage_plans[stage_plans.len() - 1];
-            let shard_bytes = Self::logits_shard_bytes(model, request, config.tensor_ranks);
+            let shard_bytes = Solver::logits_shard_bytes(model, request, config.tensor_ranks);
             let dependency = previous_layer_barrier.or(previous_compute).unwrap_or(0);
             for (group_idx, group) in groups.tensor_groups.iter().enumerate() {
                 if !last_stage.contains_group(group) {
                     continue;
                 }
-                Self::push_repeated_collective_operation(
+                tails.push(Solver::push_repeated_collective_operation(
                     cluster,
                     placement,
-                    &mut operations,
-                    &mut priced,
-                    format!("lm_head logits all-gather group {group_idx}"),
+                    operations,
+                    priced,
+                    format!("{prefix}lm_head logits all-gather group {group_idx}"),
                     RepeatedCollective {
                         kind: CollectiveKind::AllGather,
                         participants: group.clone(),
@@ -270,13 +383,15 @@ impl Solver {
                     request,
                     vec![dependency],
                     calibration,
-                );
+                ));
             }
         }
 
-        (operations, priced)
+        PassTrace { tails, stage_sends }
     }
+}
 
+impl Solver {
     // Activations cross a collective or stage boundary once for the prompt
     // and once per generated token, so a collective's latency term repeats per
     // crossing instead of being paid once for the combined volume.
@@ -396,6 +511,7 @@ impl Solver {
         operations: &mut Vec<SimOperation>,
         priced: &mut Vec<PricedCollective>,
         calibration: SimulationCalibration,
+        name_prefix: &str,
     ) -> Option<usize> {
         let left_rank = *groups.pipeline_stages.get(edge_idx as usize)?.first()?;
         let right_rank = *groups.pipeline_stages.get(edge_idx as usize + 1)?.first()?;
@@ -404,7 +520,7 @@ impl Solver {
             placement,
             operations,
             priced,
-            format!("pipeline sendrecv edge {edge_idx}"),
+            format!("{name_prefix}pipeline sendrecv edge {edge_idx}"),
             RepeatedCollective {
                 kind: CollectiveKind::SendRecv,
                 participants: vec![left_rank, right_rank],
