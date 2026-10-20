@@ -1,0 +1,457 @@
+{
+  "fitted_on_1200mhz_data": {
+    "sustained_sm_clock_mhz": 1833.8264529822034,
+    "bandwidth_knee_sm_clock_mhz": 1563.7790498933573
+  },
+  "measured_slowdown": {
+    "1x512": {
+      "prefill": 1.5496869495456844,
+      "decode_step": 1.2615085132890367
+    },
+    "1x2048": {
+      "prefill": 1.536236819503254,
+      "decode_step": 1.2581770809100639
+    },
+    "8x512": {
+      "prefill": 1.5236352968455953,
+      "decode_step": 1.3404349059088054
+    },
+    "8x2048": {
+      "prefill": 1.5281887108185028,
+      "decode_step": 1.3391821597148637
+    },
+    "32x512": {
+      "prefill": 1.5235847713847464,
+      "decode_step": 1.3031492082444645
+    }
+  },
+  "variants": {
+    "full-clock baseline vs full-clock measured": {
+      "per_shape_pct": {
+        "1x512": {
+          "prefill_ms": -14.914960149287563,
+          "decode_ms_per_step": 0.9752950370509872,
+          "end_to_end_ms": 0.9822065623624293
+        },
+        "1x2048": {
+          "prefill_ms": -0.15441720356871297,
+          "decode_ms_per_step": 1.1395656273101864,
+          "end_to_end_ms": 1.5621695763215842
+        },
+        "8x512": {
+          "prefill_ms": -5.470214235864839e-05,
+          "decode_ms_per_step": 8.110491313129107e-06,
+          "end_to_end_ms": 0.5879933763940787
+        },
+        "8x2048": {
+          "prefill_ms": 3.049835343220703,
+          "decode_ms_per_step": -0.564356908053177,
+          "end_to_end_ms": 1.9479625445264726
+        },
+        "32x512": {
+          "prefill_ms": 3.3517668056225896,
+          "decode_ms_per_step": -0.059418865218591826,
+          "end_to_end_ms": 2.3161870745589503
+        }
+      },
+      "mean_abs_pct": {
+        "prefill_ms": 4.2942068407683855,
+        "decode_ms_per_step": 0.5477289096248511,
+        "end_to_end_ms": 1.479303826832703
+      }
+    },
+    "naive": {
+      "per_shape_pct": {
+        "1x512": {
+          "prefill_ms": -3.925028275609832,
+          "decode_ms_per_step": -19.9567074075579,
+          "end_to_end_ms": -18.488069593552527
+        },
+        "1x2048": {
+          "prefill_ms": 13.72913155449789,
+          "decode_ms_per_step": -19.614204421722597,
+          "end_to_end_ms": -13.57053944507187
+        },
+        "8x512": {
+          "prefill_ms": 14.847031452844266,
+          "decode_ms_per_step": -25.39734106469571,
+          "end_to_end_ms": -14.462974305549913
+        },
+        "8x2048": {
+          "prefill_ms": 17.997104821126655,
+          "decode_ms_per_step": -25.748978680302542,
+          "end_to_end_ms": -0.44684145607812
+        },
+        "32x512": {
+          "prefill_ms": 18.70043724560903,
+          "decode_ms_per_step": -23.308412803000348,
+          "end_to_end_ms": 1.002515048350246
+        }
+      },
+      "mean_abs_pct": {
+        "prefill_ms": 13.839746669937535,
+        "decode_ms_per_step": 22.805128875455818,
+        "end_to_end_ms": 9.594187969720535
+      },
+      "simulated": {
+        "1x512": {
+          "prefill_ms": 170.739636,
+          "decode_ms_per_step": 19.4518808359375,
+          "end_to_end_ms": 2660.580383,
+          "clock_evidence": []
+        },
+        "1x2048": {
+          "prefill_ms": 697.739595,
+          "decode_ms_per_step": 19.56413415625,
+          "end_to_end_ms": 3201.948768,
+          "clock_evidence": []
+        },
+        "8x512": {
+          "prefill_ms": 1365.91709,
+          "decode_ms_per_step": 19.7468016015625,
+          "end_to_end_ms": 3893.507695,
+          "clock_evidence": []
+        },
+        "8x2048": {
+          "prefill_ms": 5581.916762,
+          "decode_ms_per_step": 20.64482821875,
+          "end_to_end_ms": 8224.454774,
+          "clock_evidence": []
+        },
+        "32x512": {
+          "prefill_ms": 5463.668361,
+          "decode_ms_per_step": 20.7579585234375,
+          "end_to_end_ms": 8120.687052,
+          "clock_evidence": []
+        }
+      }
+    },
+    "compute-only": {
+      "per_shape_pct": {
+        "1x512": {
+          "prefill_ms": -16.096524210111703,
+          "decode_ms_per_step": -19.9567074075579,
+          "end_to_end_ms": -19.150763318319214
+        },
+        "1x2048": {
+          "prefill_ms": -0.6789256898827968,
+          "decode_ms_per_step": -19.614204421722597,
+          "end_to_end_ms": -15.956561725982375
+        },
+        "8x512": {
+          "prefill_ms": 0.29735037029065453,
+          "decode_ms_per_step": -25.39734106469571,
+          "end_to_end_ms": -18.264615686099617
+        },
+        "8x2048": {
+          "prefill_ms": 3.048348840326097,
+          "decode_ms_per_step": -25.748978680302542,
+          "end_to_end_ms": -9.00666838550992
+        },
+        "32x512": {
+          "prefill_ms": 3.6625778502923745,
+          "decode_ms_per_step": -23.308412803000348,
+          "end_to_end_ms": -7.60657886161388
+        }
+      },
+      "mean_abs_pct": {
+        "prefill_ms": 4.756745392180725,
+        "decode_ms_per_step": 22.805128875455818,
+        "end_to_end_ms": 13.997037595505
+      },
+      "simulated": {
+        "1x512": {
+          "prefill_ms": 149.109062,
+          "decode_ms_per_step": 19.4518808359375,
+          "end_to_end_ms": 2638.949808,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee none); compute x0.6544, HBM bandwidth x1.0000, stage compute latency x1.0199. A GPU without bandwidth_knee_sm_clock_mhz keeps full HBM bandwidth when locked; on the RTX 3090 that missed a 1.26-1.34x decode slowdown (validation ledger 17)."
+          ]
+        },
+        "1x2048": {
+          "prefill_ms": 609.344723,
+          "decode_ms_per_step": 19.56413415625,
+          "end_to_end_ms": 3113.553896,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee none); compute x0.6544, HBM bandwidth x1.0000, stage compute latency x1.0725. A GPU without bandwidth_knee_sm_clock_mhz keeps full HBM bandwidth when locked; on the RTX 3090 that missed a 1.26-1.34x decode slowdown (validation ledger 17)."
+          ]
+        },
+        "8x512": {
+          "prefill_ms": 1192.872495,
+          "decode_ms_per_step": 19.7468016015625,
+          "end_to_end_ms": 3720.4631,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee none); compute x0.6544, HBM bandwidth x1.0000, stage compute latency x1.1246. A GPU without bandwidth_knee_sm_clock_mhz keeps full HBM bandwidth when locked; on the RTX 3090 that missed a 1.26-1.34x decode slowdown (validation ledger 17)."
+          ]
+        },
+        "8x2048": {
+          "prefill_ms": 4874.757788,
+          "decode_ms_per_step": 20.64482821875,
+          "end_to_end_ms": 7517.2958,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee none); compute x0.6544, HBM bandwidth x1.0000, stage compute latency x1.2889. A GPU without bandwidth_knee_sm_clock_mhz keeps full HBM bandwidth when locked; on the RTX 3090 that missed a 1.26-1.34x decode slowdown (validation ledger 17)."
+          ]
+        },
+        "32x512": {
+          "prefill_ms": 4771.489979,
+          "decode_ms_per_step": 20.7579585234375,
+          "end_to_end_ms": 7428.50867,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee none); compute x0.6544, HBM bandwidth x1.0000, stage compute latency x1.2853. A GPU without bandwidth_knee_sm_clock_mhz keeps full HBM bandwidth when locked; on the RTX 3090 that missed a 1.26-1.34x decode slowdown (validation ledger 17)."
+          ]
+        }
+      }
+    },
+    "clock-fit": {
+      "per_shape_pct": {
+        "1x512": {
+          "prefill_ms": -16.096524210111703,
+          "decode_ms_per_step": 4.309750771036596,
+          "end_to_end_ms": 3.9750924468403883
+        },
+        "1x2048": {
+          "prefill_ms": -0.6789256898827968,
+          "decode_ms_per_step": 4.756089293198222,
+          "end_to_end_ms": 4.5361520351467455
+        },
+        "8x512": {
+          "prefill_ms": 0.29735037029065453,
+          "decode_ms_per_step": -2.780301613567423,
+          "end_to_end_ms": -1.4300743501692377
+        },
+        "8x2048": {
+          "prefill_ms": 3.048348840326097,
+          "decode_ms_per_step": -3.238544040042649,
+          "end_to_end_ms": 0.6906268572887994
+        },
+        "32x512": {
+          "prefill_ms": 3.6625778502923745,
+          "decode_ms_per_step": -0.05807994595777808,
+          "end_to_end_ms": 2.4122157181442354
+        }
+      },
+      "mean_abs_pct": {
+        "prefill_ms": 4.756745392180725,
+        "decode_ms_per_step": 3.0285531327605333,
+        "end_to_end_ms": 2.6088322815178815
+      },
+      "simulated": {
+        "1x512": {
+          "prefill_ms": 149.109062,
+          "decode_ms_per_step": 25.349042703125,
+          "end_to_end_ms": 3393.786528,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee 1564); compute x0.6544, HBM bandwidth x0.7674, stage compute latency x1.3117."
+          ]
+        },
+        "1x2048": {
+          "prefill_ms": 609.344723,
+          "decode_ms_per_step": 25.4953275,
+          "end_to_end_ms": 3872.746643,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee 1564); compute x0.6544, HBM bandwidth x0.7674, stage compute latency x1.3341."
+          ]
+        },
+        "8x512": {
+          "prefill_ms": 1192.872495,
+          "decode_ms_per_step": 25.733373625,
+          "end_to_end_ms": 4486.744318,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee 1564); compute x0.6544, HBM bandwidth x0.7674, stage compute latency x1.3563."
+          ]
+        },
+        "8x2048": {
+          "prefill_ms": 4874.757788,
+          "decode_ms_per_step": 26.9036519765625,
+          "end_to_end_ms": 8318.42524,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee 1564); compute x0.6544, HBM bandwidth x0.7674, stage compute latency x1.4262."
+          ]
+        },
+        "32x512": {
+          "prefill_ms": 4771.489979,
+          "decode_ms_per_step": 27.0510796171875,
+          "end_to_end_ms": 8234.02817,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee 1564); compute x0.6544, HBM bandwidth x0.7674, stage compute latency x1.4247."
+          ]
+        }
+      }
+    },
+    "clock-loo": {
+      "per_shape_pct": {
+        "1x512": {
+          "prefill_ms": -16.220059646062516,
+          "decode_ms_per_step": 5.750530055510519,
+          "end_to_end_ms": 5.341424333907882
+        },
+        "1x2048": {
+          "prefill_ms": -0.8251612850646314,
+          "decode_ms_per_step": 6.2030336105255905,
+          "end_to_end_ms": 5.728654604858264
+        },
+        "8x512": {
+          "prefill_ms": 0.5653495732072301,
+          "decode_ms_per_step": -4.334523686402738,
+          "end_to_end_ms": -2.5169037832840835
+        },
+        "8x2048": {
+          "prefill_ms": 3.1663559912855885,
+          "decode_ms_per_step": -4.785440338610132,
+          "end_to_end_ms": 0.09180992983002886
+        },
+        "32x512": {
+          "prefill_ms": 3.9395691416616336,
+          "decode_ms_per_step": -0.2753727871876285,
+          "end_to_end_ms": 2.4771581490939627
+        }
+      },
+      "mean_abs_pct": {
+        "prefill_ms": 4.94329912745632,
+        "decode_ms_per_step": 4.269780095647322,
+        "end_to_end_ms": 3.2311901601948443
+      },
+      "simulated": {
+        "1x512": {
+          "prefill_ms": 148.889521,
+          "decode_ms_per_step": 25.6991765625,
+          "end_to_end_ms": 3438.38412,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1831, bandwidth knee 1585); compute x0.6553, HBM bandwidth x0.7569, stage compute latency x1.3289."
+          ]
+        },
+        "1x2048": {
+          "prefill_ms": 608.447553,
+          "decode_ms_per_step": 25.8474819140625,
+          "end_to_end_ms": 3916.925238,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1831, bandwidth knee 1585); compute x0.6553, HBM bandwidth x0.7569, stage compute latency x1.3493."
+          ]
+        },
+        "8x512": {
+          "prefill_ms": 1196.059906,
+          "decode_ms_per_step": 25.321981921875,
+          "end_to_end_ms": 4437.273592,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1839, bandwidth knee 1539); compute x0.6526, HBM bandwidth x0.7798, stage compute latency x1.3413."
+          ]
+        },
+        "8x2048": {
+          "prefill_ms": 4880.34018,
+          "decode_ms_per_step": 26.4735513828125,
+          "end_to_end_ms": 8268.954758,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1836, bandwidth knee 1539); compute x0.6536, HBM bandwidth x0.7798, stage compute latency x1.4177."
+          ]
+        },
+        "32x512": {
+          "prefill_ms": 4784.239625,
+          "decode_ms_per_step": 26.9922653984375,
+          "end_to_end_ms": 8239.249596,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1839, bandwidth knee 1560); compute x0.6526, HBM bandwidth x0.7690, stage compute latency x1.4256."
+          ]
+        }
+      }
+    },
+    "clock-fit-curve": {
+      "per_shape_pct": {
+        "1x512": {
+          "prefill_ms": -1.6208260416959703,
+          "decode_ms_per_step": 4.309750771036596,
+          "end_to_end_ms": 4.76324157378069
+        },
+        "1x2048": {
+          "prefill_ms": -0.358658864566191,
+          "decode_ms_per_step": 4.756089293198222,
+          "end_to_end_ms": 4.589189288405849
+        },
+        "8x512": {
+          "prefill_ms": -2.5211186746218117,
+          "decode_ms_per_step": -2.780301613567423,
+          "end_to_end_ms": -2.1665034286142406
+        },
+        "8x2048": {
+          "prefill_ms": 0.15257367318921936,
+          "decode_ms_per_step": -3.238544040042649,
+          "end_to_end_ms": -0.9675267782462369
+        },
+        "32x512": {
+          "prefill_ms": 0.7495421478392529,
+          "decode_ms_per_step": -0.05807994595777808,
+          "end_to_end_ms": 0.7445183906038783
+        }
+      },
+      "mean_abs_pct": {
+        "prefill_ms": 1.080543880382489,
+        "decode_ms_per_step": 3.0285531327605333,
+        "end_to_end_ms": 2.646195891930179
+      },
+      "simulated": {
+        "1x512": {
+          "prefill_ms": 174.834549,
+          "decode_ms_per_step": 25.349042703125,
+          "end_to_end_ms": 3419.512015,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee 1564); compute x0.6544, HBM bandwidth x0.7674, stage compute latency x1.3131."
+          ]
+        },
+        "1x2048": {
+          "prefill_ms": 611.309592,
+          "decode_ms_per_step": 25.4953275,
+          "end_to_end_ms": 3874.711512,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee 1564); compute x0.6544, HBM bandwidth x0.7674, stage compute latency x1.3342."
+          ]
+        },
+        "8x512": {
+          "prefill_ms": 1159.351428,
+          "decode_ms_per_step": 25.733373625,
+          "end_to_end_ms": 4453.223252,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee 1564); compute x0.6544, HBM bandwidth x0.7674, stage compute latency x1.3551."
+          ]
+        },
+        "8x2048": {
+          "prefill_ms": 4737.77158,
+          "decode_ms_per_step": 26.9036519765625,
+          "end_to_end_ms": 8181.439033,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee 1564); compute x0.6544, HBM bandwidth x0.7674, stage compute latency x1.4246."
+          ]
+        },
+        "32x512": {
+          "prefill_ms": 4637.405713,
+          "decode_ms_per_step": 27.0510796171875,
+          "end_to_end_ms": 8099.943904,
+          "clock_evidence": [
+            "Locked GPU clocks slow only their own pipeline stages (slowest GPU per stage): stage 0: node 2 gpu 0 locked 1200 MHz (sustained 1834, bandwidth knee 1564); compute x0.6544, HBM bandwidth x0.7674, stage compute latency x1.4231."
+          ]
+        }
+      }
+    }
+  },
+  "unlocked_matches_no_clock": true,
+  "loo_clocks": {
+    "1x512": {
+      "sustained_sm_clock_mhz": 1831.0944045984588,
+      "bandwidth_knee_sm_clock_mhz": 1585.398820775597
+    },
+    "1x2048": {
+      "sustained_sm_clock_mhz": 1831.0944045984588,
+      "bandwidth_knee_sm_clock_mhz": 1585.398820775597
+    },
+    "8x512": {
+      "sustained_sm_clock_mhz": 1838.6553181930542,
+      "bandwidth_knee_sm_clock_mhz": 1538.7946329201006
+    },
+    "8x2048": {
+      "sustained_sm_clock_mhz": 1835.9232698093094,
+      "bandwidth_knee_sm_clock_mhz": 1538.7946329201006
+    },
+    "32x512": {
+      "sustained_sm_clock_mhz": 1838.6553181930542,
+      "bandwidth_knee_sm_clock_mhz": 1560.4144038023403
+    }
+  }
+}

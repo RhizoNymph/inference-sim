@@ -86,6 +86,14 @@ constants an H100 run can fit.
         1.26x slower with memory clocks untouched. Peak-only scaling: prefill
         13.8%, decode 22.8% error. Needs a degraded-GPU compute factor
         relative to the sustained clock plus a bandwidth factor.
+      - [x] [done 2026-10-01, ledger 22] degraded-GPU clock model: per-GPU
+        `sustained_sm_clock_mhz` / `bandwidth_knee_sm_clock_mhz` /
+        `locked_sm_clock_mhz`, compute factor locked/sustained, bandwidth
+        factor min(1, locked/knee), applied per pipeline stage and serving
+        worker. Clock 1200 re-predicted: prefill 13.8% -> 4.8% (curve 1.1%),
+        decode 22.8% -> 3.0%, e2e 9.6% -> 2.6% (LOO 4.9 / 4.3 / 3.2%). Both
+        clocks fitted on the one locked run: measure a second lock clock
+        (900/1500 MHz) to test the knee before trusting other clocks.
       - [ ] throttled NIC (`tc` on bond0).
       - [ ] node removed mid-run: not modeled (the simulator has no failure
         or re-routing events); out of scope before H100s.

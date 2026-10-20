@@ -566,13 +566,22 @@ impl Solver {
         let right_profile = cluster.gpu_profile(*right);
         match (left_profile, right_profile) {
             (Some(left_profile), Some(right_profile)) => {
-                Self::gpu_peak_tflops(&right_profile, model)
-                    .total_cmp(&Self::gpu_peak_tflops(&left_profile, model))
+                // Clock-locked GPUs rank by their degraded peak and bandwidth,
+                // so healthy GPUs of the same type are placed first.
+                let (left_clock, right_clock) = (
+                    left_profile.clock_degradation(),
+                    right_profile.clock_degradation(),
+                );
+                (Self::gpu_peak_tflops(&right_profile, model) * right_clock.compute())
+                    .total_cmp(
+                        &(Self::gpu_peak_tflops(&left_profile, model) * left_clock.compute()),
+                    )
                     .then_with(|| {
-                        right_profile
-                            .hbm_bandwidth
-                            .as_bytes_per_sec()
-                            .total_cmp(&left_profile.hbm_bandwidth.as_bytes_per_sec())
+                        (right_profile.hbm_bandwidth.as_bytes_per_sec() * right_clock.bandwidth())
+                            .total_cmp(
+                                &(left_profile.hbm_bandwidth.as_bytes_per_sec()
+                                    * left_clock.bandwidth()),
+                            )
                     })
                     .then_with(|| {
                         right_profile

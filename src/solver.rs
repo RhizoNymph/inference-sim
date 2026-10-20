@@ -4,6 +4,9 @@ use std::{
 };
 
 mod calibration_fits;
+mod clock_degradation;
+#[cfg(test)]
+mod clock_degradation_tests;
 mod collective_pricing;
 #[cfg(test)]
 mod curve_tests;
@@ -14,6 +17,8 @@ mod operations;
 mod placement;
 mod step_cost;
 use calibration_fits::{calibration_feature_values, evaluate_fit, evaluate_value_fit, fit_matches};
+pub use clock_degradation::GPU_CLOCK_DEGRADATION;
+use clock_degradation::StageClockDegradation;
 use collective_pricing::{
     CurvePricing, PricedCollective, all_traffic_priced_by_curves, collective_pricing_approximations,
 };
@@ -436,6 +441,21 @@ impl Solver {
             calibration,
             options.calibration_profile,
         );
+        let stage_clocks = StageClockDegradation::from_placement(
+            cluster,
+            &placement,
+            &groups,
+            config.pipeline_ranks,
+        );
+        let stage_latency_scales = Self::stage_latency_scales(
+            cluster,
+            model,
+            request,
+            config,
+            &placement,
+            calibration,
+            &stage_clocks,
+        );
         let (operations, priced_collectives) = Self::build_operation_trace(
             cluster,
             model,
@@ -444,6 +464,7 @@ impl Solver {
             &placement,
             &groups,
             compute_latency_s,
+            &stage_latency_scales,
             calibration,
         );
         let scheduled_operations = schedule_operations(&operations);
@@ -466,7 +487,7 @@ impl Solver {
         if bottlenecks.is_empty() {
             bottlenecks.push("GPU compute".to_string());
         }
-        let approximations = Self::parallelism_approximations(
+        let mut approximations = Self::parallelism_approximations(
             cluster,
             model,
             request,
@@ -476,6 +497,8 @@ impl Solver {
             &priced_collectives,
             &calibration_fits,
         );
+        approximations
+            .extend(stage_clocks.approximation(phase_label(request.phase), &stage_latency_scales));
         let placement_evidence = Self::placement_evidence(
             cluster,
             model,

@@ -36,6 +36,7 @@ Overview:
       key_files:
         - src/types/common.rs
         - src/types/gpu.rs
+        - src/types/gpu_clock.rs (SM-clock model, lock state, ClockDegradation)
         - src/types/topology.rs
         - src/types/configs.rs
         - src/types/collective.rs
@@ -65,6 +66,7 @@ Overview:
         - src/solver/operations.rs (operation trace construction)
         - src/solver/calibration_fits.rs (fit feature dictionary and evaluation)
         - src/solver/step_cost.rs (per-engine-step roofline for the serving engine)
+        - src/solver/clock_degradation.rs (per-stage slowdown from locked GPU clocks)
     scheduler:
       role: >
         Resource-constrained scheduling of simulated operations. Turns an
@@ -247,6 +249,24 @@ Features Index:
       - src/workload.rs::ModelSpec::parameter_count_mismatch
     depends_on: [types, workload]
     doc: docs/features/compute_roofline.md
+  degraded_gpu_model:
+    description: >
+      Per-GPU locked SM clock state: optional sustained_sm_clock_mhz,
+      bandwidth_knee_sm_clock_mhz and locked_sm_clock_mhz profile keys derive
+      a compute factor min(1, locked/sustained) and a bandwidth factor
+      min(1, locked/knee) (memory-system roofline in SM clock); applied per
+      pipeline stage (slowest GPU per stage) in the static solver and the
+      serving step cost, preferred against in placement, and reported as the
+      gpu_clock_degradation approximation. Absent keys or no lock leave
+      results bit-identical.
+    entry_points:
+      - src/config/gpu_clock_config.rs::merge_gpu_clock
+      - src/types/gpu_clock.rs::GpuClock
+      - src/solver/clock_degradation.rs::StageClockDegradation
+      - src/solver/clock_degradation.rs::Solver::stage_latency_scales
+      - lab-runs/2026-10-01-degraded-gpu-sim/predict.py
+    depends_on: [compute_roofline, serving_iteration_engine]
+    doc: docs/features/degraded_gpu_model.md
   serving_iteration_engine:
     description: >
       Deterministic discrete-event serving loop modeled on vLLM V1 for
