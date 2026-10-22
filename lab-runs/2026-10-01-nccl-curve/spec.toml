@@ -1,0 +1,25 @@
+# NCCL collective + point-to-point latency curves between node0 and node1
+# (one RTX 3090 each, 2x10GbE LACP bond). Supersedes the hand-run
+# lab-runs/2026-09-30-nccl-curve/collective_bench.py, whose send_0to1 rows
+# were timed on the sender. Turn the results into simulator curves with
+#   lab.py curves <run>/collective_curve.jsonl --base-cluster <cluster.toml> --out <out.toml>
+
+[experiment]
+name = "nccl-curve"
+description = "bf16 NCCL all_reduce/all_gather/reduce_scatter/all_to_all and directed send/recv, 1 KiB..256 MiB, across node0+node1."
+mode = "collective-bench"
+lab = "../labs/rtx3090.toml"
+nodes = ["node0", "node1"]
+launch = "venv"            # torch.distributed from the native venvs
+
+[collective_bench]
+ops = ["all_reduce", "all_gather", "reduce_scatter", "all_to_all", "send_recv"]
+min_bytes = 1024
+max_bytes = 268435456      # 256 MiB per rank
+iters = 30                 # messages above 16 MiB use max(8, iters / 3)
+warmup = 5
+master_port = 29500        # torch.distributed rendezvous on the head node
+
+[runner]
+poll_interval_s = 15
+run_timeout_s = 3600

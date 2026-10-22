@@ -35,6 +35,7 @@ them superseded.
 | 16 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 | recalibrated scalars / curve | 6.0% | 2.7% (batch 1-32) | 3.0% | validated to batch 32; KV exhaustion beyond |
 | 17 | 2026-10-01 | 1x RTX 3090 (node2), graphics clock locked at 1200 MHz | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, degraded GPU | recalibrated constants, peak scaled to the locked clock | 13.8% | 22.8% | 9.6% (offsetting errors) | **not accurate**: see entry |
 | 18 | 2026-10-01 | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst | curve + frontend profile (blind prediction) | see entry | see entry | see entry | validated below saturation; burst not accurate |
+| 24 | 2026-10-01 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 (Ray / NixlConnector) | TP2, PP2, 1P1D | static batch + disaggregated serving | entries 12/13/18 setups with receiver-timed NCCL curves | TP2 5.0% (was 12.5%) | TP2 14.7% (was 7.2%) | TP2 6.3% (was 4.0%), PP2 1.7% (was 2.4%) | curves recorded, **not adopted**: see entry |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
 
@@ -487,6 +488,55 @@ baseline's traffic (512 in / 128 out, 200 requests). Scripts:
 - Remaining low-load TTFT gap (~60 ms) is consistent with the proxy's two
   HTTP hops, which the simulator does not model
   (`disaggregated_proxy_hop_not_modeled`).
+
+## 24. Receiver-timed collective curves (re-measure of entries 12-13)
+
+Data: [`lab-runs/2026-10-01-nccl-curve/`](../lab-runs/2026-10-01-nccl-curve/)
+(`tools/lab/specs/rtx3090_nccl_curve.toml`: torch.distributed bf16 over bond0,
+node0+node1, 1 KiB-256 MiB, every send timed on the receiver, plus
+all_gather/reduce_scatter/all_to_all). Re-predictions:
+`lab-runs/2026-10-01-nccl-curve/repredict/` (`repredict.py`,
+`predictions.json`, and `rtx3090_lab_cluster_receiver_timed_curves.toml`
+from `lab.py curves` on the entry-12 asymmetric base). Same compute
+constants, traces and calibrations as entries 12, 13 and 18; only the curves
+change.
+
+| run | old curves (09-30 sweep, 0->1 derived below 64 MiB) | receiver-timed curves (10-01 sweep) |
+|---|---|---|
+| TP=2 mean abs err prefill / decode step / e2e | 12.5% / 7.2% / 4.0% | 5.0% / 14.7% / 6.3% |
+| PP=2 mean abs err prefill / decode step / e2e | 15.3% / 3.5% / 2.4% | 15.2% / 3.8% / 1.7% |
+| 1P1D TTFT p50 rate 1 / 4 / 8 (real 317 / 337 / 647 ms) | -19% / -19% / -1% | -26% / -25% / -4% |
+| 1P1D KV pull, 28 MiB node0->node1 (vLLM logs ~95-115 ms) | 80.8 ms | 77.4 ms |
+
+- The node1->node0 send curve reproduces the 09-30 sweep within 2% at every
+  size, so the benchmark itself is stable. Everything that crosses node0's
+  slow egress is not: all_reduce medians move 1.0-1.7x between the two sweeps
+  in the 256 KiB-32 MiB band, and the receiver-timed node0->node1 sends have
+  p90/p10 up to 3x at 1-8 MiB within one sweep. node0 also hosts the user's
+  container stack and embedding server, so its egress is shared; a single
+  sweep is one sample of a noisy link.
+- TP=2 prefill improves (the slower all_reduce at 3.7 MB is closer to the
+  ~1.4x in-situ cost noted in entry 12). TP=2 decode worsens because the
+  LM-head logits all_gather is now curve-priced (entry 12 priced it by
+  alpha-beta): the isolated 1-5 MiB all_gather runs at ~0.36 GB/s, the slow
+  direction's rate, and costs +3 ms per step at batch 8 and +11 ms at batch
+  32, more than vLLM pays in situ (real batch-32 step 51.3 ms, sim 60.0 ms).
+- NCCL point-to-point is not a proxy for NIXL over UCX TCP: the measured
+  curve prices the 28 MiB pull at 77 ms, below the old derived 81 ms and
+  further from the 95-115 ms vLLM logs. A KV-transfer fit from vLLM's
+  per-transfer metrics (calibration-profile `kv_transfer`) is the better
+  source for disaggregated runs.
+- Not adopted: `examples/rtx3090_lab_cluster_measured_curves.toml` keeps the
+  09-30 curves, since neither sweep dominates and the switch would make two
+  of three workloads worse. To adopt measured curves on this lab, take
+  several sweeps at different times (or with node0 idle) and use the
+  per-size median; benchmark the decode-size all_gather with CUDA graphs.
+- Side effect seen while testing the switch: `kv_flows_over_the_slow_direction_cost_more`
+  depends on step-boundary phase. Completed pulls are promoted at the decode
+  worker's next step start (19.5 ms steps), so the decode queue is
+  `19.5 - (pull mod 19.5) + 19.5` ms for isolated requests: 36 ms at an
+  80.8 ms pull, 20 ms at 77.4 ms. A 3 ms pull change moves TTFT by 21 ms.
+  Real vLLM has the same quantization but with jittered phase.
 
 ## Untested regimes
 

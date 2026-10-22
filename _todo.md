@@ -172,8 +172,13 @@ constants an H100 run can fit.
   bandwidth, and vLLM's vocab-parallel embedding all-reduce + logits
   all-gather in the TP trace. TP=2 4.0% e2e with no fitted network scalar
   (batch-8 decode fixed); PP=2 2.4% (was 1.6%; within run spread).
-- Open from collectives: re-run collective-bench with receiver-timed
-  node0->node1 sends and all_gather/reduce_scatter/all_to_all curves; TP
+- [done 2026-10-01, ledger 24] Receiver-timed collective re-measure: the
+  derived 0->1 region is gone, but node0's egress is too noisy for one sweep
+  (all_reduce 1.0-1.7x between sweeps); curves recorded, not adopted. Open:
+  median of several sweeps, decode-size all_gather with CUDA graphs, and a
+  NIXL KV-transfer fit for disaggregation (NCCL p2p prices 77 ms vs vLLM's
+  95-115 ms).
+- Open from collectives: TP
   prefill all-reduce runs ~1.4x the isolated benchmark in situ; batch-1
   decode all-reduce carries eager overhead CUDA graphs avoid.
 - [resolved 2026-09-30] The serving engine's per-step TP pricing now
