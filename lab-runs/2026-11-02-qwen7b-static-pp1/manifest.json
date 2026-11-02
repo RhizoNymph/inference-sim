@@ -1,0 +1,54 @@
+{
+  "record": "lab.manifest.v1",
+  "run_id": "2026-11-02-qwen7b-static-pp1",
+  "experiment": "qwen7b-static-pp1",
+  "mode": "static-batch",
+  "vllm_version_pin": "0.29.0",
+  "nodes": [
+    "node0"
+  ],
+  "launch": "docker",
+  "remote_run_dir": "$HOME/inference-sim-lab/runs/2026-11-02-qwen7b-static-pp1",
+  "status": "complete",
+  "error": null,
+  "started_at": "2026-11-02T23:29:31+00:00",
+  "finished_at": "2026-11-02T23:34:59+00:00",
+  "simulator_git_sha": null,
+  "simulator_git_dirty": null,
+  "probes": {
+    "node0": {
+      "record": "lab.probe.v1",
+      "hostname": "03a73efdbe47",
+      "python": "3.12.3",
+      "vllm_version": "0.29.0",
+      "torch_version": "2.13.0+cu130",
+      "ray_version": null,
+      "transformers_version": "5.16.1",
+      "cuda_version": "13.0",
+      "nccl_version": "2.29.7",
+      "kernel": "6.17.0-35-generic",
+      "gpus": [
+        {
+          "name": "NVIDIA GeForce RTX 3090",
+          "memory_mib": 24576,
+          "pcie_gen_max": "4"
+        }
+      ],
+      "driver_version": "590.48.01"
+    }
+  },
+  "spec_file": "spec.toml",
+  "lab_file": "lab.toml",
+  "commands": [
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\nmkdir -p \"$HOME/inference-sim-lab/bench\" \"$HOME/inference-sim-lab/runs/2026-11-02-qwen7b-static-pp1\"\nLAB_EOF",
+    "scp -q /home/nymph/inference-sim-lab/controller/tools/lab/remote/bench_latency.py /home/nymph/inference-sim-lab/controller/tools/lab/remote/probe_env.py 10.1.1.69:inference-sim-lab/bench/",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\npkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; pkill -f '[V]LLM::' || true; docker rm -f lab-2026-11-02-qwen7b-static-pp1 >/dev/null 2>&1 || true; \"$HOME/inference-sim-lab/.venv/bin/ray\" stop --force >/dev/null 2>&1 || true\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\ndocker run --rm --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --ipc=host --user \"$(id -u):$(id -g)\" -e HF_HOME=\"/hf\" -e HOME=\"/tmp\" -e VLLM_CACHE_ROOT=\"/tmp/vllm-cache\" -e PYTHONUNBUFFERED=\"1\" -e CUDA_HOME=\"/usr/local/cuda\" -v \"$HOME/.cache/huggingface:/hf\" -v \"$HOME/inference-sim-lab:/lab\" --entrypoint python3 vllm/vllm-openai:v0.29.0 /lab/bench/probe_env.py\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\ndocker run -d --name lab-2026-11-02-qwen7b-static-pp1 --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all --ipc=host --user \"$(id -u):$(id -g)\" -e HF_HOME=\"/hf\" -e HOME=\"/tmp\" -e VLLM_CACHE_ROOT=\"/tmp/vllm-cache\" -e PYTHONUNBUFFERED=\"1\" -e CUDA_HOME=\"/usr/local/cuda\" -v \"$HOME/.cache/huggingface:/hf\" -v \"$HOME/inference-sim-lab:/lab\" --entrypoint python3 vllm/vllm-openai:v0.29.0 /lab/bench/bench_latency.py --model Qwen/Qwen2.5-7B-Instruct --shapes 1x512,1x2048,8x512,8x2048,32x512 --decode 128 --warmup 2 --iters 5 --tp 1 --pp 1 --dtype bfloat16 --gpu-memory-utilization 0.85 --max-model-len 4096 --max-num-batched-tokens 16384 --max-num-seqs 64 --seed 0 --output /lab/runs/2026-11-02-qwen7b-static-pp1/results.jsonl\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\nn=$(grep -c '^{.*\"record\": \"lab.static_batch.v1\"' \"$HOME/inference-sim-lab/runs/2026-11-02-qwen7b-static-pp1/results.jsonl\" 2>/dev/null); d=$(grep -c '^{.*\"record\": \"lab.done.v1\"' \"$HOME/inference-sim-lab/runs/2026-11-02-qwen7b-static-pp1/results.jsonl\" 2>/dev/null); if [ -n \"$(docker ps -q --filter name=^lab-2026-11-02-qwen7b-static-pp1$)\" ]; then a=1; else a=0; fi; if [ \"${d:-0}\" -ge 1 ] && [ \"${n:-0}\" -ge 5 ]; then c=1; else c=0; fi; echo \"complete=$c progress=${n:-0} alive=$a\"\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\ndocker logs lab-2026-11-02-qwen7b-static-pp1 > \"$HOME/inference-sim-lab/runs/2026-11-02-qwen7b-static-pp1/bench.log\" 2>&1\nLAB_EOF",
+    "scp -q 10.1.1.69:inference-sim-lab/runs/2026-11-02-qwen7b-static-pp1/results.jsonl /home/nymph/inference-sim-lab/controller/lab-runs/2026-11-02-qwen7b-static-pp1/measured.jsonl",
+    "scp -q 10.1.1.69:inference-sim-lab/runs/2026-11-02-qwen7b-static-pp1/bench.log /home/nymph/inference-sim-lab/controller/lab-runs/2026-11-02-qwen7b-static-pp1/bench.log",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\npkill -f '[b]ench_latency.py' || true; pkill -f '[v]llm bench serve' || true; pkill -f '[v]llm serve' || true; pkill -f '[V]LLM::' || true; docker rm -f lab-2026-11-02-qwen7b-static-pp1 >/dev/null 2>&1 || true; \"$HOME/inference-sim-lab/.venv/bin/ray\" stop --force >/dev/null 2>&1 || true\nLAB_EOF"
+  ]
+}

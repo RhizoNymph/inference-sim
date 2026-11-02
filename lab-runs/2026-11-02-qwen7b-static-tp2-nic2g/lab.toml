@@ -1,0 +1,69 @@
+# The 3-node RTX 3090 lab: node0/node1/node2, 1x RTX 3090 24 GB each, on a
+# 2x10GbE LACP bond (bond0, 10.1.1.x). Everything site-specific lives here so
+# experiment specs stay portable (an H100 lab is just another file like this).
+
+[lab]
+name = "rtx3090-lab"
+hardware = "rtx3090 (1 GPU per node, 3 nodes, 2x10GbE LACP)"
+# Remote paths must start with $HOME/ (expanded on the node; scp resolves the
+# rest relative to the home directory).
+remote_root = "$HOME/inference-sim-lab"
+# The nodes' default HF_HOME values are wrong (node0 points at an unmounted
+# NAS path, node1 at ~/Models); always export this one.
+hf_home = "$HOME/.cache/huggingface"
+# NCCL_SOCKET_IFNAME / GLOO_SOCKET_IFNAME for multi-node runs.
+socket_ifname = "bond0"
+ray_port = 6379
+# Simulator cluster describing the same hardware (relative to this file).
+cluster_toml = "rtx3090_cluster.toml"
+
+# Extra environment for every vLLM process. CUDA_HOME: node2 also has
+# Ubuntu's CUDA 12.0 nvcc in /usr/bin, which FlashInfer's JIT would otherwise
+# pick up and fail with ("Unknown option '--compress-mode=size'").
+[lab.env]
+CUDA_HOME = "/usr/local/cuda"
+
+[[nodes]]
+name = "node0"
+ssh_host = "10.1.1.69"
+address = "10.1.1.69"
+sim_node_id = 0
+gpu_count = 1
+default_launch = "docker"
+notes = "Snap docker: --gpus fails, use --runtime=nvidia. Shares the GPU with the tei-nomic container (~560 MB); leave it running."
+
+[nodes.docker]
+image = "vllm/vllm-openai:v0.29.0"
+runtime_args = ["--runtime=nvidia", "-e", "NVIDIA_VISIBLE_DEVICES=all"]
+container_hf_home = "/hf"
+# Run as the ssh user so nothing root-owned lands in the HF cache.
+container_user = "user"
+
+[nodes.venv]
+# Native venv: vllm==0.29.0, torch 2.13.0+cu130, ray 2.58.0. Used for
+# multi-node Ray runs and as the `vllm bench serve` client.
+path = "$HOME/inference-sim-lab/.venv"
+
+[[nodes]]
+name = "node1"
+ssh_host = "10.1.1.68"
+address = "10.1.1.68"
+sim_node_id = 1
+gpu_count = 1
+default_launch = "venv"
+notes = "No nvidia container runtime; native venv only."
+
+[nodes.venv]
+path = "$HOME/inference-sim-lab/.venv"
+
+[[nodes]]
+name = "node2"
+ssh_host = "10.1.1.67"
+address = "10.1.1.67"
+sim_node_id = 2
+gpu_count = 1
+default_launch = "venv"
+notes = "No nvidia container runtime; dual-boot with a 244 GB Linux root. Venv (copied from node1) and Qwen2.5-7B weights provisioned 2026-10-01, leaving ~4 GB free: no room for the vLLM image or a second model."
+
+[nodes.venv]
+path = "$HOME/inference-sim-lab/.venv"

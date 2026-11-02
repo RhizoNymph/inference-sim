@@ -35,6 +35,8 @@ them superseded.
 | 16 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 | recalibrated scalars / curve | 6.0% | 2.7% (batch 1-32) | 3.0% | validated to batch 32; KV exhaustion beyond |
 | 17 | 2026-10-01 | 1x RTX 3090 (node2), graphics clock locked at 1200 MHz | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, degraded GPU | recalibrated constants, peak scaled to the locked clock | 13.8% | 22.8% | 9.6% (offsetting errors) | **not accurate**: see entry |
 | 18 | 2026-10-01 | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst | curve + frontend profile (blind prediction) | see entry | see entry | see entry | validated below saturation; burst not accurate |
+| 25 | 2026-11-02 | 2x RTX 3090, 2 nodes, bond0 egress throttled to 2 Gbit/s (tc tbf) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, Ray | TP2 PP1 | static batch, degraded network | NIC degradation run-scenario overlay on the lab cluster (blind prediction) | 1.0% | 9.6% | **3.5%** | validated: prefill; decode inherits alpha-beta error |
+| 26 | 2026-11-02 | 1x RTX 3090 each: node0 and node1, same day | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch: decode sweeps 1-64 x 512 per node, PP=1 re-run, GEMM ceiling | entry-14 curve profile (Sep/Oct) and KV-read fits | Sep/Oct runs ~1.7x slower than today | node0 -5%, node1 +19% at batch 32 | see entry | **calibration drift**: Sep/Oct compute fits do not describe today's GPUs |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
 
@@ -487,6 +489,122 @@ baseline's traffic (512 in / 128 out, 200 requests). Scripts:
 - Remaining low-load TTFT gap (~60 ms) is consistent with the proxy's two
   HTTP hops, which the simulator does not model
   (`disaggregated_proxy_hop_not_modeled`).
+
+## 25. RTX 3090 x2, Qwen2.5-7B, TP=2 with a throttled NIC (degraded network)
+
+- Runs: same-day unthrottled baseline
+  [`lab-runs/2026-11-02-qwen7b-static-tp2/`](../lab-runs/2026-11-02-qwen7b-static-tp2/)
+  and throttled
+  [`lab-runs/2026-11-02-qwen7b-static-tp2-nic2g/`](../lab-runs/2026-11-02-qwen7b-static-tp2-nic2g/)
+  (`tools/lab/specs/rtx3090_qwen7b_static_tp2{,_nic2g}.toml`; shapes of entry 12
+  minus 8x2048). The throttle is a `tc` tbf qdisc capping bond0 egress at
+  2 Gbit/s on node0 and node1 (`tools/lab/remote/run_with_nic_throttle.sh`,
+  removed on exit), so both directions of the TP ring run at 2 Gb/s.
+- Blind predictions, committed before the runs were read:
+  [`lab-runs/2026-11-02-tp2-nic-throttle-sim/`](../lab-runs/2026-11-02-tp2-nic-throttle-sim/)
+  (`predict.py`, `predictions.json`). Cluster
+  `examples/rtx3090_lab_cluster_measured_curves.toml`, entry-14 efficiency
+  curve. The degraded state is a run-scenario overlay
+  (`[[scenarios.topology.degraded_nics]]`, node0 x 2/3.61, node1 x 2/9.41),
+  nothing fitted. The overlay suspends the measured curves
+  (`collective_curves_suspended`), so the throttled prediction is alpha-beta.
+
+| model | prefill | decode step | end-to-end |
+|---|---:|---:|---:|
+| unthrottled, measured curves | 8.1% (-16.7 / -7.3 / +0.2 / +8.1) | 6.2% (+8.4 / +11.6 / +3.2 / +1.7) | 4.3% |
+| unthrottled, alpha-beta | 4.6% | 17.1% (-17.3 / -14.8 / -23.7 / +12.6) | 8.6% |
+| **throttled, overlay (alpha-beta)** | **1.0%** (+2.3 / +0.6 / +0.5 / -0.6) | 9.6% (-10.4 / -10.6 / -4.3 / +13.0) | **3.5%** |
+
+(Mean absolute error; per shape 1x512 / 1x2048 / 8x512 / 32x512.)
+
+| shape | prefill real unthrottled -> throttled (ratio) | predicted ratio | decode step real unthrottled -> throttled (ratio) | predicted ratio |
+|---|---|---:|---|---:|
+| 1x512 | 512 -> 878 ms (1.72) | 1.71 | 17.77 -> 17.52 ms (0.99) | 1.07 |
+| 1x2048 | 1,963 -> 3,529 ms (1.80) | 1.73 | 17.32 -> 17.61 ms (1.02) | 1.07 |
+| 8x512 | 3,946 -> 7,044 ms (1.79) | 1.73 | 30.85 -> 32.96 ms (1.07) | 1.34 |
+| 32x512 | 15,269 -> 28,501 ms (1.87) | 1.73 | 47.82 -> 75.96 ms (1.59) | 1.59 |
+
+- The degraded-network overlay predicts throttled prefill within 2.3% on
+  every shape with no fitting: prefill is bandwidth-bound on the
+  activation all-reduce, and alpha-beta on the degraded NICs gets the
+  bandwidth right.
+- Decode carries the alpha-beta model's unthrottled error (latency-bound
+  small all-reduces, entry 7), since the overlay drops the measured curves:
+  -10% at batch 1, +13% at batch 32. The predicted slowdown is right at
+  batch 32 (1.59 vs 1.59) but over-stated at batch 1-8, where the 2 Gb/s cap
+  barely touches 7-57 KiB messages. Scaling the measured curves by the
+  overlay (bandwidth term only) instead of suspending them would keep the
+  decode accuracy of the curves under degradation.
+- The throttled run's end-to-end spread is 2-8x smaller than the
+  unthrottled one (e.g. 32x512: 44 vs 369 ms), consistent with entry 24's
+  finding that node0's unthrottled egress is noisy.
+- Unthrottled with the 09-30 curves, today's TP=2 lands at 4.3% end-to-end
+  against 4.0% in entry 12.
+
+## 26. GPU state drift: node0/node1 decode sweeps, GEMM ceiling, per-node KV reads
+
+- Runs (all 2026-11-02, unchanged vLLM 0.29.0 / torch 2.13.0+cu130 / driver
+  590.48.01 per the probes):
+  node0 decode sweep [`lab-runs/2026-11-02-qwen7b-decode-batch-sweep-node0/`](../lab-runs/2026-11-02-qwen7b-decode-batch-sweep-node0/)
+  (`tools/lab/specs/rtx3090_qwen7b_decode_batch_sweep_node0.toml`),
+  node1 re-run of the 10-01 sweep [`lab-runs/2026-11-02-qwen7b-decode-batch-sweep/`](../lab-runs/2026-11-02-qwen7b-decode-batch-sweep/),
+  node0 re-run of the PP=1 static set [`lab-runs/2026-11-02-qwen7b-static-pp1/`](../lab-runs/2026-11-02-qwen7b-static-pp1/),
+  and a dense GEMM check [`lab-runs/2026-11-02-gemm-peak/`](../lab-runs/2026-11-02-gemm-peak/)
+  (`tools/lab/remote/gemm_peak.py`, torch bf16/fp16 at Qwen2.5-7B prefill shapes).
+  KV-read fits: [`lab-runs/2026-11-02-kv-read-per-node/`](../lab-runs/2026-11-02-kv-read-per-node/)
+  (`lab.py fit-kv-read --mode joint` from `feat/kv-read-bandwidth-scale`).
+
+**Prefill is ~1.7x faster than in September/October on both nodes.**
+
+| run | Sep/Oct | 2026-11-02 | ratio |
+|---|---|---|---:|
+| node0 PP=1 prefill 1x512 / 8x512 / 32x512 (ms) | 114.7 / 780.6 / 3,021 (09-28) | 66.1 / 465.9 / 1,772 | 1.73 / 1.68 / 1.71 |
+| node0 PP=1 decode step 1x512 / 32x512 (ms) | 19.26 / 20.77 | 18.23 / 19.56 | 0.95 / 0.94 |
+| node1 sweep prefill 1x512 / 8x512 / 32x512 (ms) | 117.6 / 813.0 / 3,135 (10-01) | 72.8 / 514.9 / 1,976 | 1.62 / 1.58 / 1.59 |
+| node1 sweep decode step 1x512 / 16x512 / 32x512 (ms) | 19.58 / 20.97 / 22.21 | 18.46 / 22.92 / 26.44 | 0.94 / 1.09 / 1.19 |
+
+- The GEMM check puts today's achievable bf16 tensor throughput at 119-137
+  TFLOP/s on node0 (SM clock 1605-1725 MHz under load, 420 W limit) and
+  106-122 on node1 (1380-1530 MHz, 350 W limit). Today's node0 prefill
+  implies ~120 TFLOP/s; the Sep/Oct runs ~70. The lab cluster's
+  `peak_f16_tflops = 88` (datasheet 71 scaled to 2100 MHz) is below what
+  the GPUs achieve, which `compute_efficiency` (0.85) and the efficiency
+  curve absorbed when fitted on the slower Sep/Oct data.
+- Cause of the Sep/Oct slowdown: not recorded. Software and driver match;
+  compute-bound work slowed ~1.7x while weight-bound decode moved ~5%, the
+  signature of a clock or power cap. Both nodes have rebooted since (node0
+  2026-10-26, node1 2026-10-30), which clears `nvidia-smi -lgc` locks, and
+  node0's shell history shows manual locks (`-lgc 1300` to `1850`) at
+  unknown dates. The probe now records power limit, SM clocks, the clock
+  event reasons bitmask and other GPU processes (`gpu_state`,
+  `gpu_compute_apps`) so the next drift is visible.
+- Consequence: every compute calibration so far (entry 2 scalars, entry 14
+  efficiency curve, entry 17's 1835 MHz sustained clock, entry 20's
+  KV-read scale) describes the Sep/Oct GPU state. Entries 25 and 24 are
+  unaffected in substance (network-dominated). Re-fit the compute profile
+  from a fresh prefill token sweep before the next compute-sensitive
+  validation, and consider `peak_f16_tflops` from the GEMM check.
+
+**KV-read scale: not a per-node constant either.** Same-day sweeps, each
+node fitted alone (`--mode joint`, batch <= 32):
+
+| fitted on | `decode_memory_bandwidth_scale` | `kv_read_bandwidth_scale` | applied to the other node: decode step error |
+|---|---:|---:|---:|
+| node0, 11-02 | 0.887 | 0.790 | node1: 13.4% |
+| node1, 11-02 | 0.855 | 0.154 | node0: 16.0% |
+| node1, 10-01 (entry 20, joint, batch sweep only) | - | 0.426 | - |
+
+- node0's decode step barely grows with KV (18.2 -> 19.6 ms from batch 1 to
+  32); node1's grows 18.5 -> 26.4 ms today against 19.6 -> 22.2 ms on 10-01.
+  node1 today has a 350 W power limit (node0 420 W) and shares its GPU with
+  a 2 GB speech-to-text service; both plausibly slow the batch-heavy steps.
+- So the separate KV-read term absorbs GPU state rather than a property of
+  paged KV reads: it ranges 0.15-0.79 across nodes and days. Keep it
+  opt-in and fit it per node and session; do not ship the entry-20 value
+  as a default.
+- node0 prefill at 2x512 / 4x512: 132.6 / 247.8 ms (the `_todo` item 6
+  shapes), measured in today's GPU state; use them only with a re-fitted
+  compute profile.
 
 ## Untested regimes
 
