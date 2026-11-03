@@ -1069,6 +1069,9 @@ pub(super) struct CalibrationSection {
     pub(super) prefill_compute_scale: Option<f64>,
     pub(super) decode_compute_scale: Option<f64>,
     pub(super) decode_memory_bandwidth_scale: Option<f64>,
+    /// Fraction of peak HBM bandwidth KV-cache reads achieve; absent means
+    /// `decode_memory_bandwidth_scale`.
+    pub(super) kv_read_bandwidth_scale: Option<f64>,
     pub(super) collective_latency_scale: Option<f64>,
     pub(super) collective_bandwidth_scale: Option<f64>,
     pub(super) kv_transfer_scale: Option<f64>,

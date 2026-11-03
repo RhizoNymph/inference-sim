@@ -11,10 +11,10 @@ and decode operations before scheduling. It covers:
   for prefill; `4 * layers * hidden * avg_context * decode_tokens * batch`
   for decode, where `avg_context = prompt + (decode + 1) / 2`.
 - Decode HBM bandwidth: per-step weight reads
-  (`parameter_bytes_per_rank * decode_tokens / bandwidth`) plus KV-cache
-  reads (`2 * layers * kv_heads * head_dim * kv_bytes * avg_context *
-  decode_tokens * batch`, sharded, over bandwidth). Decode latency is
-  `max(flop_term, memory_term) * decode_compute_scale`.
+  (`parameter_bytes_per_rank * decode_tokens / weight_bandwidth`) plus
+  KV-cache reads (`2 * layers * kv_heads * head_dim * kv_bytes * avg_context *
+  decode_tokens * batch`, sharded, over the KV-read bandwidth). Decode latency
+  is `max(flop_term, memory_term) * decode_compute_scale`.
 - Sharding: phase latency is the time for one batch to pass through every
   pipeline stage, so latency divides dense FLOPs and weight bytes by
   `tensor * expert` ranks and attention FLOPs and KV reads by `tensor` ranks
@@ -28,7 +28,9 @@ and decode operations before scheduling. It covers:
   a 3090) are weight-read bound, exactly like the serving step cost.
 - Effective peaks: minimum per-placement GPU peak TFLOPs (dtype-selected)
   times the compute efficiency for the pass; minimum HBM bandwidth times
-  `calibration.decode_memory_bandwidth_scale`.
+  `calibration.decode_memory_bandwidth_scale` for weight reads, and times
+  `calibration.kv_read_bandwidth_scale` for KV-cache reads when that optional
+  key is set (otherwise KV reads use the weight-read bandwidth).
 - Token-dependent compute efficiency: `SimulationCalibration::
   compute_efficiency_at(tokens_per_pass)` returns the optional
   `calibration.compute_efficiency_curve` interpolated at the pass's token
@@ -64,6 +66,44 @@ The JSON `calibration` block reports `compute_efficiency_curve` (or null).
 `tools/lab/lab.py fit-curve` fits it from a batch-1 prefill token sweep
 (docs/features/lab_harness.md).
 
+### KV-read bandwidth scale
+
+```toml
+[calibration]
+decode_memory_bandwidth_scale = 0.8383   # streaming weight reads
+kv_read_bandwidth_scale = 0.4687         # paged KV-cache reads (optional)
+```
+
+Paged attention gathers scattered KV blocks and achieves less bandwidth than
+the streaming weight read; with one shared scale, decode-step error trends
+with total KV (validation ledger entries 9, 16, 20).
+`kv_read_bandwidth_scale` is the fraction of peak HBM bandwidth KV-cache
+reads achieve, an absolute fraction (not a multiplier on
+`decode_memory_bandwidth_scale`). It applies to exactly the roofline terms
+that stream KV cache:
+
+- the static decode memory term's KV bytes (`decode_kv_read_bytes`);
+- the serving step cost's KV bytes: every decoding sequence's context and
+  the earlier chunks a prefill chunk attends to (`prefill_context_tokens`),
+  because both read the paged cache through the same attention path.
+
+It does **not** apply to the static prefill: that roofline has no KV-read
+term (attention over the prompt is a FLOP term and the floor is one weight
+read), so there is nothing to scale.
+
+Absent (the default), `SimulationCalibration::kv_read_bandwidth_scale` is
+`None`, KV reads use the weight-read bandwidth, and every result is bit for
+bit what it was before the key existed (the step cost keeps its single
+`(weights + kv) / bandwidth` division in that case). Validation: finite and
+> 0 in a workload `[calibration]`, a profile `[calibration]` (the workload's
+value overrides the profile's), and a scenario `[scenarios.calibration]`;
+`sanitized()` drops an invalid value back to `None`. The JSON `calibration`
+block reports `kv_read_bandwidth_scale` (or null). When set, decode and
+end-to-end scores carry the approximation `kv_read_bandwidth_scale_uniform`
+(category `memory`): one constant fraction, not a function of block size,
+context length, batch, or attention kernel. `tools/lab/lab.py fit-kv-read`
+fits it (docs/features/lab_harness.md).
+
 ## Non-scope
 
 Layer-aware kernel decomposition (attention vs MLP vs logits; the
@@ -72,8 +112,9 @@ per-kernel tensor-core utilization tables (the curve is one aggregate
 efficiency per token count, not a GEMM-shape table), batch-roofline
 nonlinearity beyond the two-term max, CUDA-graph capture-size padding of
 decode batches (measured negligible on the 3090: decode steps are
-memory-bound, see validation ledger entry 16), a separate effective bandwidth
-for paged KV reads,
+memory-bound, see validation ledger entry 16), KV-read bandwidth as a
+function of block size, context length, or attention kernel (the KV-read
+scale is one constant),
 paged-attention block effects, speculative decoding, prefix-cache-aware
 decode reads, backend microbatch scheduling inside one pipelined batch,
 and any backend-specific behavior. Fitted
@@ -94,8 +135,12 @@ calibration models override these baselines when a profile matches.
      `prefill_compute_scale`, weight bytes / shard / bandwidth x
      `decode_compute_scale`).
    - Decode: `Solver::decode_compute_latency_s` computes the FLOP term
-     (dense + `decode_attention_flops`) and the memory term (weight reads +
-     `decode_kv_read_bytes` / attention shard / bandwidth) and takes the max.
+     (dense + `decode_attention_flops`) and the memory term (weight reads /
+     `DecodeBandwidth::weight_read` + `decode_kv_read_bytes` / attention
+     shard / `DecodeBandwidth::kv_read`) and takes the max. The two
+     bandwidths come from `effective_hbm_bandwidth` and
+     `effective_kv_read_bandwidth`, which are equal unless
+     `kv_read_bandwidth_scale` is set.
    - EndToEnd: prefill + decode.
 3. If a calibration profile supplies a matching phase fit
    (`Solver::fitted_phase_latency`, src/solver/calibration_fits.rs), the
@@ -133,7 +178,8 @@ calibration models override these baselines when a profile matches.
    applied to a step's composition: dense FLOPs for every token, causal
    attention per prefill chunk over its context
    (`2 L H ((p + c)^2 - p^2)`), decode attention over each sequence's
-   context, and one weight read plus every active sequence's KV read, with
+   context, and one weight read plus every active sequence's KV read (at the
+   KV-read bandwidth, `KvReadBandwidth::Separate`, when the scale is set), with
    per-step TP all-reduces and PP send/recvs sized by the step's tokens. A
    pure-decode step at context `prompt + 1` equals the `decode_tokens = 1`
    score; a pure-prefill step equals the prefill score at any prompt length
@@ -180,7 +226,18 @@ calibration models override these baselines when a profile matches.
 - `src/serving/memory.rs` — serving memory components; `kv_cache_gb`
   divides KV by tensor and pipeline ranks.
 - `src/solver/step_cost.rs` — per-engine-step pricing for serving:
-  `IterationCostModel`, `StepWork`, `StepLatency`, `StepCostError`.
+  `IterationCostModel`, `StepWork`, `StepLatency`, `StepCostError`, and the
+  private `KvReadBandwidth` (`SharedWithWeights` | `Separate(bytes/s)`).
+- `src/solver.rs` — `DecodeBandwidth` (weight-read and KV-read bytes/s),
+  `effective_kv_read_bandwidth`, `min_hbm_bytes_per_sec`,
+  `kv_read_bandwidth_approximation`, `KV_READ_BANDWIDTH_SCALE_UNIFORM`.
+- `src/calibration.rs` — `kv_read_bandwidth_scale: Option<f64>`,
+  `effective_kv_read_bandwidth_scale`.
+- `src/config/calibration_config.rs`, `src/config/run_config.rs`,
+  `src/config/sections.rs`, `src/cli/scenario.rs`, `src/cli/calibration.rs`
+  — parsing, validation, scenario override, JSON reporting of the key.
+- `src/solver/kv_read_bandwidth_tests.rs`, `src/config/kv_read_bandwidth_tests.rs`,
+  `src/cli/kv_read_scenario_tests.rs` — KV-read scale tests.
 
 ## Invariants and constraints
 
@@ -210,6 +267,10 @@ calibration models override these baselines when a profile matches.
   sit on the critical path unless a profile opts in.
 - KV-read bytes use `kv_dtype()` (falls back to model dtype) and `kv_heads`,
   so GQA/MQA and quantized KV reduce the memory term.
+- Without `kv_read_bandwidth_scale`, KV reads use exactly the weight-read
+  bandwidth and results are bit-identical to the single-scale model. With
+  it, only KV-cache read bytes move to the KV-read bandwidth; weight reads,
+  the prefill weight-read floor, and the static prefill never use it.
 - Calibration fits, when applicable, fully replace the baseline for that
   phase; baselines are still recorded as fit `baseline_s` evidence.
 - `kv_cache_bytes` (capacity feasibility) remains sized by

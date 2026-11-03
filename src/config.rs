@@ -188,6 +188,7 @@ pub struct RunScenarioCalibrationConfig {
     pub prefill_compute_scale: Option<f64>,
     pub decode_compute_scale: Option<f64>,
     pub decode_memory_bandwidth_scale: Option<f64>,
+    pub kv_read_bandwidth_scale: Option<f64>,
     pub collective_latency_scale: Option<f64>,
     pub collective_bandwidth_scale: Option<f64>,
     pub kv_transfer_scale: Option<f64>,
@@ -1294,5 +1295,7 @@ fn normalize(value: &str) -> String {
 mod calibration_curve_tests;
 #[cfg(test)]
 mod calibration_handoff_tests;
+#[cfg(test)]
+mod kv_read_bandwidth_tests;
 #[cfg(test)]
 mod tests;

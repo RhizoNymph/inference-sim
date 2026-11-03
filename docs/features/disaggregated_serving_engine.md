@@ -30,6 +30,14 @@ each request to prefill and then to decode.
 - Two first-token conventions (`serving.traffic.disaggregated_first_token`):
   `decode_instance` (default, vLLM's proxy) and `prefill_instance`.
 
+- KV-exhaustion preemption (`decode_capacity_policy = "preempt"`, see
+  serving_iteration_engine.md): decode admission allocates blocks for the
+  prompt being pulled, decodes grow it, and a request preempted on its
+  decode worker recomputes prompt plus emitted tokens locally on that worker
+  (vLLM consumes the remote-prefill parameters on the first load), without
+  a second pull. Requests still pulling are never victims; prompt KV held on
+  a prefill worker for a pull is not running and never preempted.
+
 ## Non-scope
 
 - Independent prefill or decode batching and data-parallel replicas stay on
@@ -136,7 +144,7 @@ recompute. A request with one output token then never reaches decode.
    - costs: `RoleCosts` prices prefill-only workers with an
      `IterationCostModel` of the prefill score and every other worker with
      the decode score's.
-3. `run_engine_jobs` (src/serving/engine/core.rs) runs the shared
+3. `run_engine_jobs_configured` (src/serving/engine/core.rs) runs the shared
    discrete-event loop. Disaggregated additions:
    - phases `AwaitingDecode`, `Pulling { ready_s }`, `Recomputing`;
    - the prefill step that completes a moved prompt calls `hand_off`: the
@@ -287,7 +295,7 @@ node0 -> node1 curve (~0.36 GB/s) one pull takes ~81 ms; node1 -> node0
 |---|---|---|
 | `src/serving/engine.rs` | scheduler selection, entry points, approximation records | `SchedulerModel::DisaggregatedEngine`, `PhasePipelineReason::{PartiallyOverlappingWorkers, KvTransferUnplannable}`, `IterationEngineError::{KvPlan, WorkerLayout, fallback_reason}`, `disaggregated_engine_approximations` |
 | `src/serving/engine/disaggregated.rs` | workers, footprints, plans, role costs, recording | `disaggregated_workers`, `DisaggregatedWorkers`, `WorkerLayoutError`, `DisaggregatedRun`, `run_disaggregated_engine` |
-| `src/serving/engine/core.rs` | the loop with handoffs and pulls | `run_engine` (colocated), `run_engine_jobs` (default handoff model), `run_engine_jobs_with`, `EngineError::HandoffToSameWorker` |
+| `src/serving/engine/core.rs` | the loop with handoffs and pulls | `run_engine` (colocated), `run_engine_jobs` (tests: default handoff model, KV reserved), `run_engine_jobs_configured` (KV allocation mode + handoff model), `EngineError::HandoffToSameWorker` |
 | `src/serving/engine/types.rs` | job and handoff types | `EngineJob`, `JobRoute`, `Handoff`, `FirstTokenSource`, `HandoffModel`, `HandoffDelay`, `InvalidHandoffDelay`, `HandoffRecord`, `RequestTimeline::handoff`, `WorkerStepCost`, `UniformCost` |
 | `src/serving/engine/capacity.rs` | two holdings per request, partial release | `HoldingKey`, `CapacityLedger::{fits_on, never_fits_on, allocate_on, release_sequences_at}` |
 | `src/serving/engine/limits.rs` | shared worker/request builders | `EngineWorker::on_gpus`, `engine_request` |
@@ -383,7 +391,10 @@ them). The original blind predictions follow.
 Originally not yet measured. `examples/rtx3090_qwen7b_disaggregated_workload.toml`
 is the reference case for the planned lab run (node0 prefill, node1 decode,
 NixlConnector over UCX TCP on the 10GbE bond). Predictions from the
-recalibrated 3090 constants and the measured network, 200 requests:
+recalibrated 3090 constants and the measured network, 200 requests (made
+before the example gained `kv_read_bandwidth_scale`, which slows each decode
+step by roughly 0.1-0.4 ms at these contexts and batches; see validation
+ledger entry 20):
 
 | rate (req/s) | TTFT p50 ms | TTFT p99 ms | TPOT p50 ms | ITL p50 ms | ITL p99 ms | out tok/s | KV pull p50 ms |
 |---|---|---|---|---|---|---|---|
