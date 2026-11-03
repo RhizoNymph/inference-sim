@@ -1,5 +1,7 @@
 mod efficiency_curve;
 
+use serde::Deserialize;
+
 pub use efficiency_curve::{
     ComputeEfficiencyCurve, EfficiencyCurveError, EfficiencyPoint, MAX_EFFICIENCY_CURVE_POINTS,
 };
@@ -50,6 +52,38 @@ pub struct SimulationCalibration {
     pub disaggregation_proxy_latency_us: f64,
     /// How concurrent disaggregated KV transfers share directed links.
     pub kv_link_sharing: KvLinkSharing,
+    /// How a static multi-request batch moves through pipeline stages.
+    pub pipeline_microbatching: PipelineMicrobatching,
+}
+
+/// How the static solver runs a multi-request batch through pipeline stages.
+///
+/// Backend behavior, not a fitted constant: it belongs in the calibration
+/// profile of the serving stack that exhibits it.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PipelineMicrobatching {
+    /// The whole batch is one forward pass that traverses the stages in
+    /// order; stages never overlap within one batch.
+    #[default]
+    WholeBatch,
+    /// vLLM V1's batch queue with pipeline parallelism
+    /// (`max_concurrent_batches = pipeline_parallel_size`): the engine core
+    /// starts a step as soon as the first request arrives, so the first step
+    /// carries one request and the next step carries the rest of the batch
+    /// while the first is still in flight. The two steps overlap across
+    /// stages; see docs/features/pipeline_parallel_overlap.md.
+    VllmBatchQueue,
+}
+
+impl PipelineMicrobatching {
+    /// The TOML/JSON spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WholeBatch => "whole_batch",
+            Self::VllmBatchQueue => "vllm_batch_queue",
+        }
+    }
 }
 
 /// How concurrent KV transfers share the directed route resources (links,
@@ -104,6 +138,7 @@ impl Default for SimulationCalibration {
             frontend_latency_per_prompt_token_us: 0.0,
             disaggregation_proxy_latency_us: 0.0,
             kv_link_sharing: KvLinkSharing::Fifo,
+            pipeline_microbatching: PipelineMicrobatching::WholeBatch,
         }
     }
 }
@@ -156,6 +191,7 @@ impl SimulationCalibration {
                 0.0,
             ),
             kv_link_sharing: self.kv_link_sharing,
+            pipeline_microbatching: self.pipeline_microbatching,
         }
     }
 

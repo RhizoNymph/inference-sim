@@ -209,6 +209,7 @@ pub struct RunScenarioCalibrationConfig {
     pub frontend_latency_per_prompt_token_us: Option<f64>,
     pub disaggregation_proxy_latency_us: Option<f64>,
     pub kv_link_sharing: Option<KvLinkSharing>,
+    pub pipeline_microbatching: Option<crate::calibration::PipelineMicrobatching>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1301,5 +1302,7 @@ mod calibration_curve_tests;
 mod calibration_handoff_tests;
 #[cfg(test)]
 mod kv_read_bandwidth_tests;
+#[cfg(test)]
+mod pipeline_microbatching_tests;
 #[cfg(test)]
 mod tests;

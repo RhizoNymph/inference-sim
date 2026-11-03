@@ -1940,6 +1940,9 @@ pub(super) fn calibration_with_defaults(
             .disaggregation_proxy_latency_us
             .unwrap_or(defaults.disaggregation_proxy_latency_us),
         kv_link_sharing,
+        pipeline_microbatching: section
+            .pipeline_microbatching
+            .unwrap_or(defaults.pipeline_microbatching),
     }
     .sanitized())
 }

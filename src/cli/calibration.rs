@@ -151,6 +151,11 @@ pub(super) fn write_calibration<W: Write>(
         "{indent}  \"kv_link_sharing\": \"{}\",",
         calibration.kv_link_sharing.as_str()
     )?;
+    writeln!(
+        writer,
+        "{indent}  \"pipeline_microbatching\": \"{}\",",
+        calibration.pipeline_microbatching.as_str()
+    )?;
     write_compute_efficiency_curve(
         writer,
         calibration.compute_efficiency_curve.as_ref(),

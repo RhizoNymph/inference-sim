@@ -16,6 +16,11 @@ mod curve_tests;
 mod efficiency_curve_tests;
 #[cfg(test)]
 mod kv_read_bandwidth_tests;
+mod microbatch;
+#[cfg(test)]
+mod microbatch_clock_tests;
+#[cfg(test)]
+mod microbatch_tests;
 mod network_cost;
 mod operations;
 mod placement;
@@ -26,6 +31,7 @@ use clock_degradation::StageClockDegradation;
 use collective_pricing::{
     CurvePricing, PricedCollective, all_traffic_priced_by_curves, collective_pricing_approximations,
 };
+use microbatch::microbatch_overlap_approximation;
 pub use operations::schedule_operations;
 pub use step_cost::{IterationCostModel, StepCostError, StepLatency, StepWork};
 
@@ -460,17 +466,38 @@ impl Solver {
             calibration,
             &stage_clocks,
         );
-        let (operations, priced_collectives) = Self::build_operation_trace(
+        let microbatches = Self::microbatch_compute(
             cluster,
             model,
             request,
             config,
             &placement,
-            &groups,
-            compute_latency_s,
-            &stage_latency_scales,
             calibration,
+            &calibration_fits,
+            &stage_clocks,
         );
+        let (operations, priced_collectives) = match &microbatches {
+            Some(compute) => Self::build_microbatched_trace(
+                cluster,
+                model,
+                config,
+                &placement,
+                &groups,
+                calibration,
+                compute,
+            ),
+            None => Self::build_operation_trace(
+                cluster,
+                model,
+                request,
+                config,
+                &placement,
+                &groups,
+                compute_latency_s,
+                &stage_latency_scales,
+                calibration,
+            ),
+        };
         let scheduled_operations = schedule_operations(&operations);
         let estimated_latency_s = scheduled_operations
             .iter()
@@ -501,6 +528,12 @@ impl Solver {
             &priced_collectives,
             &calibration_fits,
         );
+        if let Some(compute) = &microbatches {
+            push_approximation(
+                &mut approximations,
+                microbatch_overlap_approximation(request, compute),
+            );
+        }
         approximations
             .extend(stage_clocks.approximation(phase_label(request.phase), &stage_latency_scales));
         if let Some(approximation) = kv_read_bandwidth_approximation(request.phase, calibration) {

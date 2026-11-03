@@ -1113,6 +1113,7 @@ pub(super) struct CalibrationSection {
     pub(super) disaggregation_proxy_latency_us: Option<f64>,
     /// `fifo` or `fair_share`.
     pub(super) kv_link_sharing: Option<String>,
+    pub(super) pipeline_microbatching: Option<crate::calibration::PipelineMicrobatching>,
 }
 
 #[derive(Deserialize)]

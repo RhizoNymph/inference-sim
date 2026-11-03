@@ -1456,5 +1456,6 @@ pub(super) fn calibration_overrides_from_section(
             "calibration.kv_link_sharing",
             section.kv_link_sharing.as_deref(),
         )?,
+        pipeline_microbatching: section.pipeline_microbatching,
     })
 }
