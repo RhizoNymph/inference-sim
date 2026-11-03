@@ -1,0 +1,81 @@
+{
+  "record": "lab.manifest.v1",
+  "run_id": "2026-10-01-nccl-curve",
+  "experiment": "nccl-curve",
+  "mode": "collective-bench",
+  "vllm_version_pin": null,
+  "nodes": [
+    "node0",
+    "node1"
+  ],
+  "launch": "venv",
+  "remote_run_dir": "$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve",
+  "status": "complete",
+  "error": null,
+  "started_at": "2026-10-02T05:53:08+00:00",
+  "finished_at": "2026-10-02T05:55:23+00:00",
+  "simulator_git_sha": null,
+  "simulator_git_dirty": null,
+  "probes": {
+    "node0": {
+      "record": "lab.probe.v1",
+      "hostname": "node0",
+      "python": "3.12.3",
+      "vllm_version": "0.29.0",
+      "torch_version": "2.13.0+cu130",
+      "ray_version": "2.58.0",
+      "transformers_version": "5.17.0",
+      "cuda_version": "13.0",
+      "nccl_version": "2.29.7",
+      "kernel": "6.17.0-35-generic",
+      "gpus": [
+        {
+          "name": "NVIDIA GeForce RTX 3090",
+          "memory_mib": 24576,
+          "pcie_gen_max": "4"
+        }
+      ],
+      "driver_version": "590.48.01"
+    },
+    "node1": {
+      "record": "lab.probe.v1",
+      "hostname": "node1",
+      "python": "3.12.3",
+      "vllm_version": "0.29.0",
+      "torch_version": "2.13.0+cu130",
+      "ray_version": "2.58.0",
+      "transformers_version": "5.17.0",
+      "cuda_version": "13.0",
+      "nccl_version": "2.29.7",
+      "kernel": "6.14.0-37-generic",
+      "gpus": [
+        {
+          "name": "NVIDIA GeForce RTX 3090",
+          "memory_mib": 24576,
+          "pcie_gen_max": "3"
+        }
+      ],
+      "driver_version": "580.65.06"
+    }
+  },
+  "spec_file": "spec.toml",
+  "lab_file": "lab.toml",
+  "commands": [
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\nmkdir -p \"$HOME/inference-sim-lab/bench\" \"$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve\"\nLAB_EOF",
+    "scp -q /home/nymph/inference-sim-lab/controller/tools/lab/remote/collective_bench.py /home/nymph/inference-sim-lab/controller/tools/lab/remote/probe_env.py 10.1.1.69:inference-sim-lab/bench/",
+    "ssh -o BatchMode=yes 10.1.1.68 bash -l -s <<'LAB_EOF'\nmkdir -p \"$HOME/inference-sim-lab/bench\" \"$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve\"\nLAB_EOF",
+    "scp -q /home/nymph/inference-sim-lab/controller/tools/lab/remote/collective_bench.py /home/nymph/inference-sim-lab/controller/tools/lab/remote/probe_env.py 10.1.1.68:inference-sim-lab/bench/",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\npkill -f '[c]ollective_bench.py' || true\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.68 bash -l -s <<'LAB_EOF'\npkill -f '[c]ollective_bench.py' || true\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\nenv PATH=\"$HOME/inference-sim-lab/.venv/bin:$PATH\" NCCL_SOCKET_IFNAME=\"bond0\" GLOO_SOCKET_IFNAME=\"bond0\" PYTHONUNBUFFERED=\"1\" CUDA_HOME=\"/usr/local/cuda\" python \"$HOME/inference-sim-lab/bench/probe_env.py\"\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.68 bash -l -s <<'LAB_EOF'\nenv PATH=\"$HOME/inference-sim-lab/.venv/bin:$PATH\" NCCL_SOCKET_IFNAME=\"bond0\" GLOO_SOCKET_IFNAME=\"bond0\" PYTHONUNBUFFERED=\"1\" CUDA_HOME=\"/usr/local/cuda\" python \"$HOME/inference-sim-lab/bench/probe_env.py\"\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\ncd \"$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve\" || exit 1\nnohup env PATH=\"$HOME/inference-sim-lab/.venv/bin:$PATH\" NCCL_SOCKET_IFNAME=\"bond0\" GLOO_SOCKET_IFNAME=\"bond0\" PYTHONUNBUFFERED=\"1\" CUDA_HOME=\"/usr/local/cuda\" MASTER_ADDR=\"10.1.1.69\" MASTER_PORT=\"29500\" RANK=\"0\" WORLD_SIZE=\"2\" LOCAL_RANK=\"0\" python \"$HOME/inference-sim-lab/bench/collective_bench.py\" --min-bytes 1024 --max-bytes 268435456 --iters 30 --warmup 5 --ops all_reduce,all_gather,reduce_scatter,all_to_all,send_recv --sim-node-id 0 --output \"$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl\" > \"$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank0.log\" 2>&1 < /dev/null &\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.68 bash -l -s <<'LAB_EOF'\ncd \"$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve\" || exit 1\nnohup env PATH=\"$HOME/inference-sim-lab/.venv/bin:$PATH\" NCCL_SOCKET_IFNAME=\"bond0\" GLOO_SOCKET_IFNAME=\"bond0\" PYTHONUNBUFFERED=\"1\" CUDA_HOME=\"/usr/local/cuda\" MASTER_ADDR=\"10.1.1.69\" MASTER_PORT=\"29500\" RANK=\"1\" WORLD_SIZE=\"2\" LOCAL_RANK=\"0\" python \"$HOME/inference-sim-lab/bench/collective_bench.py\" --min-bytes 1024 --max-bytes 268435456 --iters 30 --warmup 5 --ops all_reduce,all_gather,reduce_scatter,all_to_all,send_recv --sim-node-id 1 --output \"$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl\" > \"$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank1.log\" 2>&1 < /dev/null &\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\nn=$(grep -c '^{.*\"record\": \"lab.collective.v1\"' \"$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl\" 2>/dev/null); d=$(grep -c '^{.*\"record\": \"lab.done.v1\"' \"$HOME/inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl\" 2>/dev/null); if pgrep -f '[c]ollective_bench.py.*2026-10-01-nccl-curve' >/dev/null; then a=1; else a=0; fi; if [ \"${d:-0}\" -ge 1 ] && [ \"${n:-0}\" -ge 114 ]; then c=1; else c=0; fi; echo \"complete=$c progress=${n:-0} alive=$a\"\nLAB_EOF",
+    "scp -q 10.1.1.69:inference-sim-lab/runs/2026-10-01-nccl-curve/collective_curve.jsonl /home/nymph/inference-sim-lab/controller/lab-runs/2026-10-01-nccl-curve/collective_curve.jsonl",
+    "scp -q 10.1.1.69:inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank0.log /home/nymph/inference-sim-lab/controller/lab-runs/2026-10-01-nccl-curve/collective_rank0.log",
+    "scp -q 10.1.1.68:inference-sim-lab/runs/2026-10-01-nccl-curve/collective_rank1.log /home/nymph/inference-sim-lab/controller/lab-runs/2026-10-01-nccl-curve/collective_rank1.log",
+    "ssh -o BatchMode=yes 10.1.1.69 bash -l -s <<'LAB_EOF'\npkill -f '[c]ollective_bench.py' || true\nLAB_EOF",
+    "ssh -o BatchMode=yes 10.1.1.68 bash -l -s <<'LAB_EOF'\npkill -f '[c]ollective_bench.py' || true\nLAB_EOF"
+  ]
+}

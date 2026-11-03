@@ -322,11 +322,22 @@ impl ServingDisaggregatedFirstToken {
     }
 }
 
+/// What happens when decode KV capacity runs out.
+///
+/// On the iteration engine `CandidateReject` and `RequestReject` both reserve
+/// each request's whole KV footprint at admission and queue; `Preempt` is
+/// vLLM V1's paged allocation with recompute preemption. The phase-pipeline
+/// scheduler treats `Preempt` like `CandidateReject`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ServingDecodeCapacityPolicy {
     #[default]
     CandidateReject,
     RequestReject,
+    /// Allocate KV blocks as tokens are computed and, when a running request
+    /// needs a block and none is free, preempt the lowest-priority (then most
+    /// recently admitted) running request, which recomputes its context
+    /// when readmitted.
+    Preempt,
 }
 
 impl ServingDecodeCapacityPolicy {
@@ -334,6 +345,7 @@ impl ServingDecodeCapacityPolicy {
         match self {
             Self::CandidateReject => "candidate_reject",
             Self::RequestReject => "request_reject",
+            Self::Preempt => "preempt",
         }
     }
 }

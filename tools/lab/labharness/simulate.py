@@ -80,7 +80,26 @@ class ProfileCalibration:
         return f"profile-{self.path.stem}"
 
 
-type Calibration = DefaultCalibration | ScalarCalibration | ProfileCalibration
+@dataclass(frozen=True, slots=True)
+class ProfileOverrideCalibration:
+    """A calibration profile with some `[calibration]` keys overridden inline.
+
+    The simulator loads the profile as the defaults and overlays the workload's
+    `[calibration]` table, so every other profile key (efficiency curve,
+    frontend latency, scalars) still applies.
+    """
+
+    path: Path
+    overrides: tuple[tuple[str, float], ...]
+
+    @property
+    def label(self) -> str:
+        short = {"decode_memory_bandwidth_scale": "dmbs", "kv_read_bandwidth_scale": "kv"}
+        parts = "-".join(f"{short.get(key, key)}{value:.4f}" for key, value in self.overrides)
+        return f"profile-{self.path.stem}-{parts}"
+
+
+type Calibration = DefaultCalibration | ScalarCalibration | ProfileCalibration | ProfileOverrideCalibration
 
 
 def _calibration_lines(calibration: Calibration) -> list[str]:
@@ -100,6 +119,13 @@ def _calibration_lines(calibration: Calibration) -> list[str]:
             ]
         case ProfileCalibration():
             return ["", *table("calibration_profile", [("path", str(calibration.path.resolve()))])]
+        case ProfileOverrideCalibration():
+            return [
+                "",
+                *table("calibration_profile", [("path", str(calibration.path.resolve()))]),
+                "",
+                *table("calibration", list(calibration.overrides)),
+            ]
 
 
 # ---------------------------------------------------------------------------

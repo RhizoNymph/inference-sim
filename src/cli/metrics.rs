@@ -670,6 +670,21 @@ pub(super) fn write_serving_metrics<W: Write>(
     )?;
     writeln!(
         writer,
+        "{indent}    \"preemptions\": {},",
+        metrics.preemptions
+    )?;
+    writeln!(
+        writer,
+        "{indent}    \"preempted_requests\": {},",
+        metrics.preempted_requests
+    )?;
+    writeln!(
+        writer,
+        "{indent}    \"preemption_recompute_tokens\": {},",
+        metrics.preemption_recompute_tokens
+    )?;
+    writeln!(
+        writer,
         "{indent}    \"admitted_requests\": {},",
         metrics.admitted_requests
     )?;

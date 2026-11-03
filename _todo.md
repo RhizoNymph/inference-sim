@@ -44,9 +44,17 @@ constants an H100 run can fit.
       Disaggregated prefill/decode across nodes (1 prefill + 1-2 decode)
       with a vLLM KV connector, to validate the KV-transfer model for the
       first time.
-      - [ ] fair-share link bandwidth across concurrent KV pulls (burst:
-        per-transfer 0.1 s -> 2.8 s at ~300 MB/s aggregate).
-      - [ ] proxy hops (~60 ms remaining low-load TTFT gap).
+      - [x] [done 2026-10-20, ledger 21: `calibration.kv_link_sharing =
+        "fair_share"`, max-min fair rates per directed resource; pull time
+        under load now tracks NIXL (rate 8: 242 vs 263 ms); burst still
+        -46% because vLLM keeps far more pulls in flight and NIXL aggregate
+        degrades, not a sharing problem] fair-share link bandwidth across
+        concurrent KV pulls (burst: per-transfer 0.1 s -> 2.8 s at ~300 MB/s
+        aggregate).
+      - [x] [done 2026-10-20, ledger 21: `calibration.
+        disaggregation_proxy_latency_us`, 44 ms fitted on rates 1-4 after
+        removing the ~20 ms KV-pull underpricing; TTFT p50 -6..-9% at rates
+        1-4] proxy hops (~60 ms remaining low-load TTFT gap).
 - [x] 4. [done 2026-09-30, uncommitted in staging: tools/lab, first real
       runs succeeded] Turn-key measurement pipeline: unattended benchmark harness, a fitter
       that emits a complete calibration TOML with holdout stats and feature
@@ -65,19 +73,32 @@ constants an H100 run can fit.
       - [x] [done 2026-10-01, ledger 16] decode batch non-linearity around
         CUDA-graph capture sizes: measured negligible on the 3090 (memory-
         bound steps), not modeled.
-      - [ ] pipeline microbatching inside one multi-request batch (0.85x
-        measured vs 1.03x simulated).
-      - [ ] engine never preempts; vLLM preempts and recomputes under KV
-        exhaustion (2.4x step time measured at batch 48-64,
-        lab-runs/2026-10-01-qwen7b-decode-batch-sweep-tail). Do after the
-        engine-core disaggregation work lands.
-      - [ ] decode step error trends with total KV (-0.7% at batch 1 to -6.5%
-        at batch 32; -0.9% to -4.4% over 4k-16k contexts): paged KV reads run
-        at about half the weight-read bandwidth. Add a KV-read bandwidth
-        scale and fit it from the decode sweep.
-        [2026-11-02, ledger 26: the fitted scale is not portable: 0.79 on
-        node0 vs 0.15 on node1 the same day, 0.43 on node1 on 10-01. Keep
-        it opt-in, fit per node and session.]
+      - [x] [done 2026-10-01, ledger 23] pipeline microbatching inside one
+        multi-request batch (0.85x measured vs 1.03x simulated): vLLM's PP
+        batch queue runs the first-arriving request as its own step and
+        overlaps the rest; modeled opt-in as a 1 + (B - 1) split
+        (`pipeline_microbatching = "vllm_batch_queue"`). 7B PP=2 prefill
+        10.4% -> 8.3%, 14B 8.7% -> 6.5%, no refit; residual overlap
+        depends on request arrival timing (unmeasured).
+      - [x] [done 2026-10-01, ledger 19] engine never preempts; vLLM preempts
+        and recomputes under KV exhaustion (2.4x step time measured at batch
+        48-64). `decode_capacity_policy = "preempt"` adds paged allocation
+        with recompute preemption: decode step at batch 40-64 within 3.8-7.7%
+        (mean 6.3%, was 50.9% uncapped), batches <= 32 unchanged.
+      - [x] [done 2026-10-01, ledger 20: `kv_read_bandwidth_scale = 0.469`,
+        fitted by `lab.py fit-kv-read` on node1; decode step 2.7% / 2.5% ->
+        1.3% / 1.6% held out, batch-32 -6.5% -> -1.7%; does not transfer to
+        node0, which shows no KV trend] decode step error trends with total
+        KV (-0.7% at batch 1 to -6.5% at batch 32; -0.9% to -4.4% over
+        4k-16k contexts): paged KV reads run at about half the weight-read
+        bandwidth. Add a KV-read bandwidth scale and fit it from the decode
+        sweep.
+      - [x] [done 2026-11-02, ledger 26: same-day decode sweeps on both
+        nodes; the fitted scale is not portable: 0.79 on node0 vs 0.15 on
+        node1 the same day, 0.43 on node1 on 10-01. Keep it opt-in, fit per
+        node and session.] node0 vs node1 KV-read bandwidth: node0 static
+        decode has no KV trend (32x512 20.8 vs 22.2 ms on node1). Measure a
+        node0 decode batch sweep; fit the KV-read scale per node if it holds.
       - [ ] node1 prefills ~3% slower than node0 (curve fitted on node0);
         batched small prefills on node1 (2-4 x 512) take per-sequence time
         and are 8-16% under. Measure 2x512/4x512 on node0 to tell node
@@ -102,6 +123,14 @@ constants an H100 run can fit.
         1.26x slower with memory clocks untouched. Peak-only scaling: prefill
         13.8%, decode 22.8% error. Needs a degraded-GPU compute factor
         relative to the sustained clock plus a bandwidth factor.
+      - [x] [done 2026-10-01, ledger 22] degraded-GPU clock model: per-GPU
+        `sustained_sm_clock_mhz` / `bandwidth_knee_sm_clock_mhz` /
+        `locked_sm_clock_mhz`, compute factor locked/sustained, bandwidth
+        factor min(1, locked/knee), applied per pipeline stage and serving
+        worker. Clock 1200 re-predicted: prefill 13.8% -> 4.8% (curve 1.1%),
+        decode 22.8% -> 3.0%, e2e 9.6% -> 2.6% (LOO 4.9 / 4.3 / 3.2%). Both
+        clocks fitted on the one locked run: measure a second lock clock
+        (900/1500 MHz) to test the knee before trusting other clocks.
       - [x] [done 2026-11-02, ledger 25] throttled NIC (`tc` tbf, 2 Gbit/s
         egress on node0+node1), TP=2: blind run-scenario overlay prediction
         within 2.3% on every prefill, 3.5% e2e. Decode inherits alpha-beta's
@@ -192,16 +221,27 @@ constants an H100 run can fit.
   bandwidth, and vLLM's vocab-parallel embedding all-reduce + logits
   all-gather in the TP trace. TP=2 4.0% e2e with no fitted network scalar
   (batch-8 decode fixed); PP=2 2.4% (was 1.6%; within run spread).
-- Open from collectives: re-run collective-bench with receiver-timed
-  node0->node1 sends and all_gather/reduce_scatter/all_to_all curves; TP
+- [done 2026-10-01, ledger 24] Receiver-timed collective re-measure: the
+  derived 0->1 region is gone, but node0's egress is too noisy for one sweep
+  (all_reduce 1.0-1.7x between sweeps); curves recorded, not adopted. Open:
+  median of several sweeps, decode-size all_gather with CUDA graphs, and a
+  NIXL KV-transfer fit for disaggregation (NCCL p2p prices 77 ms vs vLLM's
+  95-115 ms).
+- Open from collectives: TP
   prefill all-reduce runs ~1.4x the isolated benchmark in situ; batch-1
   decode all-reduce carries eager overhead CUDA graphs avoid.
 - [resolved 2026-09-30] The serving engine's per-step TP pricing now
   includes the embedding all-reduce and the logits all-gather (sized by
   sampling sequences, i.e. decodes plus prompt-completing chunks), so an
   engine decode step again equals the static one-token decode under TP.
-- Open: vLLM overlaps pipeline stages across requests inside one batch
-  (7B and 14B PP=2 prefill faster than serial); not modeled.
+- [resolved 2026-10-01, ledger 23] vLLM overlaps pipeline stages across
+  requests inside one batch (7B and 14B PP=2 prefill faster than serial).
+  Cause (vLLM 0.29 source): `max_concurrent_batches = PP` batch queue plus
+  offline requests reaching the engine core one at a time, so the first step
+  carries one request and the next step the rest. Modeled by
+  `[calibration] pipeline_microbatching = "vllm_batch_queue"`. The same
+  first-request step at PP=1 explains node1's per-sequence 2x512/3x512
+  prefills (item 6, last sub-item); the PP=1 model is unchanged.
 
 ## After H100s (ordered by information per H100-hour)
 
