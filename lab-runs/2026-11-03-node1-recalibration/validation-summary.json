@@ -1,0 +1,776 @@
+[
+  {
+    "profile": "old",
+    "dataset": "node1 static PP=1",
+    "role": "scalars in-sample",
+    "validation": "lab-runs/2026-11-03-qwen7b-static-pp1-node1/validation-recal-old.json",
+    "mean_abs_pct": {
+      "prefill": 53.65,
+      "decode_step": 4.32,
+      "end_to_end": 12.91
+    },
+    "shapes": {
+      "1x512": {
+        "prefill": 56.58,
+        "decode_step": 5.36,
+        "end_to_end": 7.57
+      },
+      "1x2048": {
+        "prefill": 52.14,
+        "decode_step": 5.31,
+        "end_to_end": 4.23
+      },
+      "8x512": {
+        "prefill": 48.71,
+        "decode_step": 4.13,
+        "end_to_end": 10.56
+      },
+      "8x2048": {
+        "prefill": 55.12,
+        "decode_step": 4.32,
+        "end_to_end": 22.33
+      },
+      "32x512": {
+        "prefill": 55.69,
+        "decode_step": -2.46,
+        "end_to_end": 19.85
+      }
+    }
+  },
+  {
+    "profile": "old",
+    "dataset": "node1 prefill sweep",
+    "role": "curve in-sample",
+    "validation": "lab-runs/2026-11-03-qwen7b-prefill-token-sweep-node1/validation-recal-old.json",
+    "mean_abs_pct": {
+      "prefill": 30.06,
+      "decode_step": 4.33,
+      "end_to_end": 4.91
+    },
+    "shapes": {
+      "1x16": {
+        "prefill": -9.42,
+        "decode_step": 5.23,
+        "end_to_end": -16.76
+      },
+      "1x32": {
+        "prefill": -37.21,
+        "decode_step": -9.57,
+        "end_to_end": -8.55
+      },
+      "1x64": {
+        "prefill": -36.79,
+        "decode_step": -8.67,
+        "end_to_end": -2.61
+      },
+      "1x128": {
+        "prefill": -17.29,
+        "decode_step": 0.49,
+        "end_to_end": 0.95
+      },
+      "1x256": {
+        "prefill": 1.78,
+        "decode_step": 2.3,
+        "end_to_end": 3.0
+      },
+      "1x512": {
+        "prefill": 11.63,
+        "decode_step": 6.06,
+        "end_to_end": -6.82
+      },
+      "1x1024": {
+        "prefill": 52.68,
+        "decode_step": 0.61,
+        "end_to_end": -0.3
+      },
+      "1x2048": {
+        "prefill": 53.2,
+        "decode_step": 5.39,
+        "end_to_end": -0.69
+      },
+      "1x4096": {
+        "prefill": 50.56,
+        "decode_step": 0.64,
+        "end_to_end": 4.48
+      }
+    }
+  },
+  {
+    "profile": "old",
+    "dataset": "node1 long context 4k-8k",
+    "role": "held out",
+    "validation": "lab-runs/2026-11-03-qwen7b-static-longctx-node1/validation-recal-old.json",
+    "mean_abs_pct": {
+      "prefill": 51.63,
+      "decode_step": 3.97,
+      "end_to_end": 5.96
+    },
+    "shapes": {
+      "1x4096": {
+        "prefill": 52.8,
+        "decode_step": 4.95,
+        "end_to_end": 0.34
+      },
+      "1x8192": {
+        "prefill": 50.46,
+        "decode_step": 2.99,
+        "end_to_end": 11.59
+      }
+    }
+  },
+  {
+    "profile": "old",
+    "dataset": "node1 long context 16k, 2x8k, 4x4k",
+    "role": "held out",
+    "validation": "lab-runs/2026-11-03-qwen7b-static-longctx-node1-tail/validation-recal-old.json",
+    "mean_abs_pct": {
+      "prefill": 50.05,
+      "decode_step": 3.6,
+      "end_to_end": 18.14
+    },
+    "shapes": {
+      "1x16384": {
+        "prefill": 47.88,
+        "decode_step": 0.15,
+        "end_to_end": 20.15
+      },
+      "2x8192": {
+        "prefill": 50.71,
+        "decode_step": -4.18,
+        "end_to_end": 17.13
+      },
+      "4x4096": {
+        "prefill": 51.58,
+        "decode_step": -6.47,
+        "end_to_end": 17.14
+      }
+    }
+  },
+  {
+    "profile": "old",
+    "dataset": "node1 decode sweep 1-32 x 512",
+    "role": "held out",
+    "validation": "lab-runs/2026-11-02-qwen7b-decode-batch-sweep/validation-recal-old.json",
+    "mean_abs_pct": {
+      "prefill": 41.95,
+      "decode_step": 10.25,
+      "end_to_end": 4.12
+    },
+    "shapes": {
+      "1x512": {
+        "prefill": 57.16,
+        "decode_step": 5.35,
+        "end_to_end": -6.82
+      },
+      "2x512": {
+        "prefill": -5.13,
+        "decode_step": -4.95,
+        "end_to_end": -2.2
+      },
+      "3x512": {
+        "prefill": 24.3,
+        "decode_step": -4.46,
+        "end_to_end": -4.14
+      },
+      "4x512": {
+        "prefill": 27.55,
+        "decode_step": 4.32,
+        "end_to_end": -1.94
+      },
+      "6x512": {
+        "prefill": 36.3,
+        "decode_step": -3.97,
+        "end_to_end": -1.7
+      },
+      "8x512": {
+        "prefill": 47.35,
+        "decode_step": -9.86,
+        "end_to_end": 0.51
+      },
+      "12x512": {
+        "prefill": 37.7,
+        "decode_step": -8.99,
+        "end_to_end": -3.44
+      },
+      "16x512": {
+        "prefill": 52.09,
+        "decode_step": -12.38,
+        "end_to_end": 0.15
+      },
+      "20x512": {
+        "prefill": 54.0,
+        "decode_step": -11.12,
+        "end_to_end": 6.19
+      },
+      "24x512": {
+        "prefill": 54.39,
+        "decode_step": -14.32,
+        "end_to_end": 8.44
+      },
+      "28x512": {
+        "prefill": 53.86,
+        "decode_step": -21.8,
+        "end_to_end": 5.84
+      },
+      "32x512": {
+        "prefill": 53.57,
+        "decode_step": -21.48,
+        "end_to_end": 8.02
+      }
+    }
+  },
+  {
+    "profile": "old",
+    "dataset": "node0 static PP=1 (transfer)",
+    "role": "held out, other node",
+    "validation": "lab-runs/2026-11-02-qwen7b-static-pp1/validation-recal-old.json",
+    "mean_abs_pct": {
+      "prefill": 68.78,
+      "decode_step": 5.95,
+      "end_to_end": 20.87
+    },
+    "shapes": {
+      "1x512": {
+        "prefill": 72.98,
+        "decode_step": 6.68,
+        "end_to_end": 9.33
+      },
+      "1x2048": {
+        "prefill": 66.77,
+        "decode_step": 6.71,
+        "end_to_end": 13.05
+      },
+      "8x512": {
+        "prefill": 62.83,
+        "decode_step": 5.04,
+        "end_to_end": 15.21
+      },
+      "8x2048": {
+        "prefill": 70.04,
+        "decode_step": 5.21,
+        "end_to_end": 33.05
+      },
+      "32x512": {
+        "prefill": 71.27,
+        "decode_step": 6.1,
+        "end_to_end": 33.72
+      }
+    }
+  },
+  {
+    "profile": "new",
+    "dataset": "node1 static PP=1",
+    "role": "scalars in-sample",
+    "validation": "lab-runs/2026-11-03-qwen7b-static-pp1-node1/validation-recal-new.json",
+    "mean_abs_pct": {
+      "prefill": 9.73,
+      "decode_step": 1.73,
+      "end_to_end": 2.99
+    },
+    "shapes": {
+      "1x512": {
+        "prefill": 40.28,
+        "decode_step": 1.0,
+        "end_to_end": 2.82
+      },
+      "1x2048": {
+        "prefill": -0.69,
+        "decode_step": 0.95,
+        "end_to_end": -4.48
+      },
+      "8x512": {
+        "prefill": -1.23,
+        "decode_step": -0.18,
+        "end_to_end": -1.53
+      },
+      "8x2048": {
+        "prefill": 3.03,
+        "decode_step": -0.0,
+        "end_to_end": -2.18
+      },
+      "32x512": {
+        "prefill": 3.41,
+        "decode_step": -6.5,
+        "end_to_end": -3.92
+      }
+    }
+  },
+  {
+    "profile": "new",
+    "dataset": "node1 prefill sweep",
+    "role": "curve in-sample",
+    "validation": "lab-runs/2026-11-03-qwen7b-prefill-token-sweep-node1/validation-recal-new.json",
+    "mean_abs_pct": {
+      "prefill": 10.11,
+      "decode_step": 4.67,
+      "end_to_end": 8.57
+    },
+    "shapes": {
+      "1x16": {
+        "prefill": -13.18,
+        "decode_step": 0.87,
+        "end_to_end": -20.21
+      },
+      "1x32": {
+        "prefill": -39.81,
+        "decode_step": -13.32,
+        "end_to_end": -12.34
+      },
+      "1x64": {
+        "prefill": -38.02,
+        "decode_step": -12.45,
+        "end_to_end": -6.63
+      },
+      "1x128": {
+        "prefill": 0.0,
+        "decode_step": -3.68,
+        "end_to_end": -2.91
+      },
+      "1x256": {
+        "prefill": -0.0,
+        "decode_step": -1.93,
+        "end_to_end": -1.2
+      },
+      "1x512": {
+        "prefill": -0.0,
+        "decode_step": 1.67,
+        "end_to_end": -10.93
+      },
+      "1x1024": {
+        "prefill": -0.0,
+        "decode_step": -3.56,
+        "end_to_end": -6.67
+      },
+      "1x2048": {
+        "prefill": 0.0,
+        "decode_step": 1.02,
+        "end_to_end": -8.99
+      },
+      "1x4096": {
+        "prefill": 0.0,
+        "decode_step": -3.53,
+        "end_to_end": -7.23
+      }
+    }
+  },
+  {
+    "profile": "new",
+    "dataset": "node1 long context 4k-8k",
+    "role": "held out",
+    "validation": "lab-runs/2026-11-03-qwen7b-static-longctx-node1/validation-recal-new.json",
+    "mean_abs_pct": {
+      "prefill": 0.78,
+      "decode_step": 0.94,
+      "end_to_end": 8.48
+    },
+    "shapes": {
+      "1x4096": {
+        "prefill": 1.49,
+        "decode_step": 0.6,
+        "end_to_end": -10.91
+      },
+      "1x8192": {
+        "prefill": -0.07,
+        "decode_step": -1.27,
+        "end_to_end": -6.05
+      }
+    }
+  },
+  {
+    "profile": "new",
+    "dataset": "node1 long context 16k, 2x8k, 4x4k",
+    "role": "held out",
+    "validation": "lab-runs/2026-11-03-qwen7b-static-longctx-node1-tail/validation-recal-new.json",
+    "mean_abs_pct": {
+      "prefill": 0.85,
+      "decode_step": 7.5,
+      "end_to_end": 6.37
+    },
+    "shapes": {
+      "1x16384": {
+        "prefill": -1.78,
+        "decode_step": -4.0,
+        "end_to_end": -5.51
+      },
+      "2x8192": {
+        "prefill": 0.1,
+        "decode_step": -8.15,
+        "end_to_end": -7.04
+      },
+      "4x4096": {
+        "prefill": 0.68,
+        "decode_step": -10.35,
+        "end_to_end": -6.58
+      }
+    }
+  },
+  {
+    "profile": "new",
+    "dataset": "node1 decode sweep 1-32 x 512",
+    "role": "held out",
+    "validation": "lab-runs/2026-11-02-qwen7b-decode-batch-sweep/validation-recal-new.json",
+    "mean_abs_pct": {
+      "prefill": 12.08,
+      "decode_step": 12.59,
+      "end_to_end": 11.95
+    },
+    "shapes": {
+      "1x512": {
+        "prefill": 40.79,
+        "decode_step": 0.98,
+        "end_to_end": -10.94
+      },
+      "2x512": {
+        "prefill": -37.86,
+        "decode_step": -8.89,
+        "end_to_end": -8.44
+      },
+      "3x512": {
+        "prefill": -18.75,
+        "decode_step": -8.42,
+        "end_to_end": -11.2
+      },
+      "4x512": {
+        "prefill": -16.74,
+        "decode_step": 0.0,
+        "end_to_end": -10.06
+      },
+      "6x512": {
+        "prefill": -10.11,
+        "decode_step": -7.95,
+        "end_to_end": -11.25
+      },
+      "8x512": {
+        "prefill": -2.13,
+        "decode_step": -13.59,
+        "end_to_end": -10.49
+      },
+      "12x512": {
+        "prefill": -8.54,
+        "decode_step": -12.77,
+        "end_to_end": -16.21
+      },
+      "16x512": {
+        "prefill": 1.01,
+        "decode_step": -16.01,
+        "end_to_end": -14.94
+      },
+      "20x512": {
+        "prefill": 2.28,
+        "decode_step": -14.8,
+        "end_to_end": -11.42
+      },
+      "24x512": {
+        "prefill": 2.55,
+        "decode_step": -17.87,
+        "end_to_end": -10.91
+      },
+      "28x512": {
+        "prefill": 2.2,
+        "decode_step": -25.04,
+        "end_to_end": -14.18
+      },
+      "32x512": {
+        "prefill": 2.0,
+        "decode_step": -24.73,
+        "end_to_end": -13.41
+      }
+    }
+  },
+  {
+    "profile": "new",
+    "dataset": "node0 static PP=1 (transfer)",
+    "role": "held out, other node",
+    "validation": "lab-runs/2026-11-02-qwen7b-static-pp1/validation-recal-new.json",
+    "mean_abs_pct": {
+      "prefill": 19.73,
+      "decode_step": 1.56,
+      "end_to_end": 4.86
+    },
+    "shapes": {
+      "1x512": {
+        "prefill": 54.96,
+        "decode_step": 2.26,
+        "end_to_end": 4.5
+      },
+      "1x2048": {
+        "prefill": 8.86,
+        "decode_step": 2.29,
+        "end_to_end": 3.61
+      },
+      "8x512": {
+        "prefill": 8.15,
+        "decode_step": 0.69,
+        "end_to_end": 2.61
+      },
+      "8x2048": {
+        "prefill": 12.94,
+        "decode_step": 0.85,
+        "end_to_end": 6.4
+      },
+      "32x512": {
+        "prefill": 13.76,
+        "decode_step": 1.71,
+        "end_to_end": 7.19
+      }
+    }
+  },
+  {
+    "profile": "new-static512",
+    "dataset": "node1 static PP=1",
+    "role": "scalars in-sample",
+    "validation": "lab-runs/2026-11-03-qwen7b-static-pp1-node1/validation-recal-new-static512.json",
+    "mean_abs_pct": {
+      "prefill": 1.67,
+      "decode_step": 1.73,
+      "end_to_end": 2.74
+    },
+    "shapes": {
+      "1x512": {
+        "prefill": 0.0,
+        "decode_step": 1.0,
+        "end_to_end": 1.6
+      },
+      "1x2048": {
+        "prefill": -0.69,
+        "decode_step": 0.95,
+        "end_to_end": -4.48
+      },
+      "8x512": {
+        "prefill": -1.23,
+        "decode_step": -0.18,
+        "end_to_end": -1.53
+      },
+      "8x2048": {
+        "prefill": 3.03,
+        "decode_step": -0.0,
+        "end_to_end": -2.18
+      },
+      "32x512": {
+        "prefill": 3.41,
+        "decode_step": -6.5,
+        "end_to_end": -3.92
+      }
+    }
+  },
+  {
+    "profile": "new-static512",
+    "dataset": "node1 prefill sweep",
+    "role": "curve in-sample",
+    "validation": "lab-runs/2026-11-03-qwen7b-prefill-token-sweep-node1/validation-recal-new-static512.json",
+    "mean_abs_pct": {
+      "prefill": 13.3,
+      "decode_step": 4.67,
+      "end_to_end": 8.69
+    },
+    "shapes": {
+      "1x16": {
+        "prefill": -13.18,
+        "decode_step": 0.87,
+        "end_to_end": -20.21
+      },
+      "1x32": {
+        "prefill": -39.81,
+        "decode_step": -13.32,
+        "end_to_end": -12.34
+      },
+      "1x64": {
+        "prefill": -38.02,
+        "decode_step": -12.45,
+        "end_to_end": -6.63
+      },
+      "1x128": {
+        "prefill": 0.0,
+        "decode_step": -3.68,
+        "end_to_end": -2.91
+      },
+      "1x256": {
+        "prefill": -0.0,
+        "decode_step": -1.93,
+        "end_to_end": -1.2
+      },
+      "1x512": {
+        "prefill": -28.71,
+        "decode_step": 1.67,
+        "end_to_end": -11.99
+      },
+      "1x1024": {
+        "prefill": -0.0,
+        "decode_step": -3.56,
+        "end_to_end": -6.67
+      },
+      "1x2048": {
+        "prefill": 0.0,
+        "decode_step": 1.02,
+        "end_to_end": -8.99
+      },
+      "1x4096": {
+        "prefill": 0.0,
+        "decode_step": -3.53,
+        "end_to_end": -7.23
+      }
+    }
+  },
+  {
+    "profile": "new-static512",
+    "dataset": "node1 long context 4k-8k",
+    "role": "held out",
+    "validation": "lab-runs/2026-11-03-qwen7b-static-longctx-node1/validation-recal-new-static512.json",
+    "mean_abs_pct": {
+      "prefill": 0.78,
+      "decode_step": 0.94,
+      "end_to_end": 8.48
+    },
+    "shapes": {
+      "1x4096": {
+        "prefill": 1.49,
+        "decode_step": 0.6,
+        "end_to_end": -10.91
+      },
+      "1x8192": {
+        "prefill": -0.07,
+        "decode_step": -1.27,
+        "end_to_end": -6.05
+      }
+    }
+  },
+  {
+    "profile": "new-static512",
+    "dataset": "node1 long context 16k, 2x8k, 4x4k",
+    "role": "held out",
+    "validation": "lab-runs/2026-11-03-qwen7b-static-longctx-node1-tail/validation-recal-new-static512.json",
+    "mean_abs_pct": {
+      "prefill": 0.85,
+      "decode_step": 7.5,
+      "end_to_end": 6.37
+    },
+    "shapes": {
+      "1x16384": {
+        "prefill": -1.78,
+        "decode_step": -4.0,
+        "end_to_end": -5.51
+      },
+      "2x8192": {
+        "prefill": 0.1,
+        "decode_step": -8.15,
+        "end_to_end": -7.04
+      },
+      "4x4096": {
+        "prefill": 0.68,
+        "decode_step": -10.35,
+        "end_to_end": -6.58
+      }
+    }
+  },
+  {
+    "profile": "new-static512",
+    "dataset": "node1 decode sweep 1-32 x 512",
+    "role": "held out",
+    "validation": "lab-runs/2026-11-02-qwen7b-decode-batch-sweep/validation-recal-new-static512.json",
+    "mean_abs_pct": {
+      "prefill": 8.71,
+      "decode_step": 12.59,
+      "end_to_end": 12.04
+    },
+    "shapes": {
+      "1x512": {
+        "prefill": 0.37,
+        "decode_step": 0.98,
+        "end_to_end": -11.99
+      },
+      "2x512": {
+        "prefill": -37.86,
+        "decode_step": -8.89,
+        "end_to_end": -8.44
+      },
+      "3x512": {
+        "prefill": -18.75,
+        "decode_step": -8.42,
+        "end_to_end": -11.2
+      },
+      "4x512": {
+        "prefill": -16.74,
+        "decode_step": 0.0,
+        "end_to_end": -10.06
+      },
+      "6x512": {
+        "prefill": -10.11,
+        "decode_step": -7.95,
+        "end_to_end": -11.25
+      },
+      "8x512": {
+        "prefill": -2.13,
+        "decode_step": -13.59,
+        "end_to_end": -10.49
+      },
+      "12x512": {
+        "prefill": -8.54,
+        "decode_step": -12.77,
+        "end_to_end": -16.21
+      },
+      "16x512": {
+        "prefill": 1.01,
+        "decode_step": -16.01,
+        "end_to_end": -14.94
+      },
+      "20x512": {
+        "prefill": 2.28,
+        "decode_step": -14.8,
+        "end_to_end": -11.42
+      },
+      "24x512": {
+        "prefill": 2.55,
+        "decode_step": -17.87,
+        "end_to_end": -10.91
+      },
+      "28x512": {
+        "prefill": 2.2,
+        "decode_step": -25.04,
+        "end_to_end": -14.18
+      },
+      "32x512": {
+        "prefill": 2.0,
+        "decode_step": -24.73,
+        "end_to_end": -13.41
+      }
+    }
+  },
+  {
+    "profile": "new-static512",
+    "dataset": "node0 static PP=1 (transfer)",
+    "role": "held out, other node",
+    "validation": "lab-runs/2026-11-02-qwen7b-static-pp1/validation-recal-new-static512.json",
+    "mean_abs_pct": {
+      "prefill": 10.84,
+      "decode_step": 1.56,
+      "end_to_end": 4.61
+    },
+    "shapes": {
+      "1x512": {
+        "prefill": 10.47,
+        "decode_step": 2.26,
+        "end_to_end": 3.26
+      },
+      "1x2048": {
+        "prefill": 8.86,
+        "decode_step": 2.29,
+        "end_to_end": 3.61
+      },
+      "8x512": {
+        "prefill": 8.15,
+        "decode_step": 0.69,
+        "end_to_end": 2.61
+      },
+      "8x2048": {
+        "prefill": 12.94,
+        "decode_step": 0.85,
+        "end_to_end": 6.4
+      },
+      "32x512": {
+        "prefill": 13.76,
+        "decode_step": 1.71,
+        "end_to_end": 7.19
+      }
+    }
+  }
+]

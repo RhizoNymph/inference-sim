@@ -43,6 +43,7 @@ them superseded.
 | 24 | 2026-10-01 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 (Ray / NixlConnector) | TP2, PP2, 1P1D | static batch + disaggregated serving | entries 12/13/18 setups with receiver-timed NCCL curves | TP2 5.0% (was 12.5%) | TP2 14.7% (was 7.2%) | TP2 6.3% (was 4.0%), PP2 1.7% (was 2.4%) | curves recorded, **not adopted**: see entry |
 | 25 | 2026-11-02 | 2x RTX 3090, 2 nodes, bond0 egress throttled to 2 Gbit/s (tc tbf) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, Ray | TP2 PP1 | static batch, degraded network | NIC degradation run-scenario overlay on the lab cluster (blind prediction) | 1.0% | 9.6% | **3.5%** | validated: prefill; decode inherits alpha-beta error |
 | 26 | 2026-11-02 | 1x RTX 3090 each: node0 and node1, same day | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch: decode sweeps 1-64 x 512 per node, PP=1 re-run, GEMM ceiling | entry-14 curve profile (Sep/Oct) and KV-read fits | Sep/Oct runs ~1.7x slower than today | node0 -5%, node1 +19% at batch 32 | see entry | **calibration drift**: Sep/Oct compute fits do not describe today's GPUs |
+| 27 | 2026-11-03 | 1x RTX 3090 (node1, 350 W) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch: 5 shapes, prefill token sweep, long context 4k-16k | recalibrated on node1 against measured-GEMM peaks (121.9 TFLOP/s) | 0.8% held out (long context) | 0.9-7.5% held out | 2.7% in-sample, 4.6% node0 transfer | validated; replaces the Sep/Oct compute profile |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
 
@@ -959,6 +960,71 @@ node fitted alone (`--mode joint`, batch <= 32):
 - node0 prefill at 2x512 / 4x512: 132.6 / 247.8 ms (the `_todo` item 6
   shapes), measured in today's GPU state; use them only with a re-fitted
   compute profile.
+
+## 27. Compute recalibration on node1 in the current GPU state
+
+- Runs (node1 only, controller on node1, 2026-11-03; probes record a 350 W
+  power limit and the user's 2 GB speech-to-text service on the GPU):
+  [`lab-runs/2026-11-03-qwen7b-static-pp1-node1/`](../lab-runs/2026-11-03-qwen7b-static-pp1-node1/)
+  (the five PP=1 shapes), [`lab-runs/2026-11-03-qwen7b-prefill-token-sweep-node1/`](../lab-runs/2026-11-03-qwen7b-prefill-token-sweep-node1/)
+  (16-4096 tokens; `gpu_pmon.log` shows no other process using the SMs),
+  long context [`lab-runs/2026-11-03-qwen7b-static-longctx-node1/`](../lab-runs/2026-11-03-qwen7b-static-longctx-node1/)
+  (1x4096, 1x8192; the spec's 0.90 memory utilization ran out of memory at
+  1x16384 beside the 2 GB service) and
+  [`-tail/`](../lab-runs/2026-11-03-qwen7b-static-longctx-node1-tail/)
+  (1x16384, 2x8192, 4x4096 at 0.85). The first sweep run is kept as
+  `2026-11-03-qwen7b-prefill-token-sweep-node1.noisy-contention/`; its re-run
+  reproduced it within a few percent, so it was not contention after all.
+- Analysis: [`lab-runs/2026-11-03-node1-recalibration/`](../lab-runs/2026-11-03-node1-recalibration/)
+  (`rtx3090_cluster_gemm_peak.toml`, `validate.py`, `validation-summary.{md,json}`,
+  `calibration_profile-node1-nov-static512.toml`).
+- Peak: against the old `peak_f16_tflops = 88`, node1's prefills need
+  `compute_efficiency = 1.30`, and `lab.py fit-curve` rejects efficiencies
+  above 1. The fit uses `rtx3090_cluster_gemm_peak.toml`: node0 136.8 and node1
+  121.9 TFLOP/s from the entry-26 GEMM check (best case at Qwen2.5-7B
+  prefill shapes); node2 unmeasured, left at 88.
+- Fit: `lab.py calibrate` on the static run gives `compute_efficiency =
+  0.836` (Oct: 0.849 against 88) and `decode_memory_bandwidth_scale = 0.8745`
+  (0.8383). Against the measured peak, the efficiency barely moved: the drift
+  was the hardware ceiling, not the kernels. `lab.py fit-curve
+  --memory-bound-margin 0.7` adds 128: 0.348, 256: 0.405, 512: 0.520,
+  1024: 0.823, 2048: 0.834, 4096: 0.846. The default margin (0.25) kept 1x32
+  and 1x64, which today sit 66% above the weight-read floor (fixed
+  overhead, not compute); their 0.11-0.22 points dragged decode steps
+  compute-bound (+8 points of decode error), so they are excluded as in Oct.
+- 1x512 disagrees between specs on the same day: 102.5 ms in the prefill
+  sweep (`max_model_len = 4352`), 73.1 ms in the static run and 67-73 ms in
+  both nodes' decode sweeps (`max_model_len = 4096`). The two agreed in
+  Sep/Oct (114 ms). The `-static512` variant replaces the sweep's 512 point
+  with the static run's (0.730).
+
+| dataset | role | old profile (entry 14, peak 88) prefill / step / e2e | new | **new, static 512** |
+|---|---|---|---|---|
+| node1 static PP=1 | scalars in-sample | 53.6% / 4.3% / 12.9% | 9.7% / 1.7% / 3.0% | **1.7% / 1.7% / 2.7%** |
+| node1 prefill sweep | curve in-sample | 30.1% / 4.3% / 4.9% | 10.1% / 4.7% / 8.6% | 13.3% / 4.7% / 8.7% |
+| node1 long context 4k-8k | held out | 51.6% / 4.0% / 6.0% | 0.8% / 0.9% / 8.5% | **0.8% / 0.9%** / 8.5% |
+| node1 long context 16k, 2x8k, 4x4k | held out | 50.0% / 3.6% / 18.1% | 0.8% / 7.5% / 6.4% | **0.8%** / 7.5% / 6.4% |
+| node1 decode sweep 1-32 x 512 (11-02) | held out | 42.0% / 10.2% / 4.1% | 12.1% / 12.6% / 11.9% | 8.7% / 12.6% / 12.0% |
+| node0 static PP=1 (11-02) | held out, other node | 68.8% / 6.0% / 20.9% | 19.7% / 1.6% / 4.9% | 10.8% / **1.6% / 4.6%** |
+
+- Prefill: 50% -> 0.8% on held-out long context; node0 transfers within
+  10.8% on prefill (node0 runs ~10% faster than node1, matching their GEMM
+  ceilings, but each node's own peak is in the cluster, so the residual is
+  the 1x512 point and 32x512).
+- The prefill sweep's in-sample error comes from 1x16-1x64 (-13% to -40%,
+  overhead-bound, outside the curve) and its own 1x512.
+- End-to-end on node1 runs 6-11% under while prefill and decode match to
+  ~1%: node1's separately timed end-to-end runs are ~380 ms longer than its
+  own prefill + 128 decode steps (1x4096: 521.6 + 128 x 18.78 = 2,925 ms vs
+  3,309 ms measured), with spreads up to 405 ms. That is a measurement
+  inconsistency on node1, not a model term.
+- Decode on node1's 11-02 sweep is 9-25% under at batch 8-32: node1's
+  batch-32 step was 26.44 ms that day and 21.28 ms in today's static run
+  (same node, same software), the unstable decode slope noted in entry 26.
+- Recommendation: use `calibration_profile-node1-nov-static512.toml` with
+  `rtx3090_cluster_gemm_peak.toml` for this lab until the next state change,
+  and re-check `gpu_state` in each run's probe against node1's (350 W,
+  `clock_event_reasons` idle 0x1, one 2 GB co-tenant).
 
 ## Untested regimes
 

@@ -109,13 +109,19 @@ constants an H100 run can fit.
         cost close to per-sequence time; the token-count efficiency curve
         over-credits them. Still open: model it (efficiency by per-sequence
         tokens, not step tokens).
-- [ ] 6b. [found 2026-11-02, ledger 26] GPU state drift: Sep/Oct prefill
+- [x] 6b. [refit 2026-11-03 on node1, ledger 27: measured-GEMM peaks + new scalars/curve; held-out long-context prefill 0.8%] GPU state drift: Sep/Oct prefill
       ran ~1.7x slower than today on both nodes (unchanged software;
       likely a clock lock or power cap, since cleared by reboots). Re-fit
       the compute profile (prefill token sweep + PP=1) in the current state
       before more compute-sensitive validation; consider peak_f16_tflops
       from the GEMM check (119-137 TFLOP/s achieved vs 88 assumed). The
       probe now records power limit, clocks and other GPU processes.
+- [ ] 6c. [found 2026-11-03, ledger 27] Open from the recalibration:
+      1x512 prefill is 102.5 ms in the prefill-sweep spec (max_model_len
+      4352) but 67-73 ms elsewhere the same day; node1's separately timed
+      end-to-end runs exceed prefill + decode by ~380 ms; harness: a re-run
+      with the same name and date picks up the old remote results.jsonl
+      (move or clear the remote run dir before re-running).
 - [ ] 7. Degraded states: throttled NIC, lowered GPU clocks, node removed
       mid-run.
       - [x] [done 2026-10-01, ledger 17] GPU clock locked at 1200 MHz:
