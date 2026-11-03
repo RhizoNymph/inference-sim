@@ -11,6 +11,9 @@ use serde::Deserialize;
 mod calibration_config;
 mod cluster;
 mod collective_curves;
+mod gpu_clock_config;
+#[cfg(test)]
+mod gpu_clock_config_tests;
 mod run_config;
 mod sections;
 mod serving_config;
@@ -20,12 +23,13 @@ use calibration_config::{
     calibration_applicability_warnings, calibration_coverage_report, calibration_gate_violations,
     calibration_invalid_shape_warnings, calibration_with_defaults, load_calibration_profile,
     nonempty_metadata, parse_approximation_policy, parse_calibration_policy,
-    parse_compute_efficiency_curve, validate_nonnegative_optional_f64,
+    parse_compute_efficiency_curve, parse_kv_link_sharing, validate_nonnegative_optional_f64,
     validate_optional_max_sequence_tokens, validate_positive_fraction_optional_f64,
     validate_positive_optional_f64, validate_positive_optional_u32,
 };
 use cluster::*;
 use collective_curves::{CollectiveCurveSection, parse_collective_curves};
+use gpu_clock_config::{GpuClockOverrideConfig, merge_gpu_clock};
 use run_config::*;
 use sections::*;
 use serving_config::*;
@@ -41,7 +45,7 @@ use crate::{
     ServingServicesConfig, ServingShapeProfile, ServingSloMissPenaltyWeights, ServingSloPolicy,
     ServingTraceRequest, ServingTraffic, ServingTrafficClass, ServingValueDistribution,
     SimulationCalibration, Solver,
-    calibration::ComputeEfficiencyCurve,
+    calibration::{ComputeEfficiencyCurve, KvLinkSharing},
     topology_graph::{RoutedResourceKind, TopologyGraph},
     types::{
         common::{
@@ -188,6 +192,7 @@ pub struct RunScenarioCalibrationConfig {
     pub prefill_compute_scale: Option<f64>,
     pub decode_compute_scale: Option<f64>,
     pub decode_memory_bandwidth_scale: Option<f64>,
+    pub kv_read_bandwidth_scale: Option<f64>,
     pub collective_latency_scale: Option<f64>,
     pub collective_bandwidth_scale: Option<f64>,
     pub kv_transfer_scale: Option<f64>,
@@ -202,6 +207,9 @@ pub struct RunScenarioCalibrationConfig {
     pub allow_compute_comm_overlap: Option<bool>,
     pub frontend_latency_us: Option<f64>,
     pub frontend_latency_per_prompt_token_us: Option<f64>,
+    pub disaggregation_proxy_latency_us: Option<f64>,
+    pub kv_link_sharing: Option<KvLinkSharing>,
+    pub pipeline_microbatching: Option<crate::calibration::PipelineMicrobatching>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1290,5 +1298,11 @@ fn normalize(value: &str) -> String {
 
 #[cfg(test)]
 mod calibration_curve_tests;
+#[cfg(test)]
+mod calibration_handoff_tests;
+#[cfg(test)]
+mod kv_read_bandwidth_tests;
+#[cfg(test)]
+mod pipeline_microbatching_tests;
 #[cfg(test)]
 mod tests;

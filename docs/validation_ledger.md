@@ -35,6 +35,12 @@ them superseded.
 | 16 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 | recalibrated scalars / curve | 6.0% | 2.7% (batch 1-32) | 3.0% | validated to batch 32; KV exhaustion beyond |
 | 17 | 2026-10-01 | 1x RTX 3090 (node2), graphics clock locked at 1200 MHz | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, degraded GPU | recalibrated constants, peak scaled to the locked clock | 13.8% | 22.8% | 9.6% (offsetting errors) | **not accurate**: see entry |
 | 18 | 2026-10-01 | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst | curve + frontend profile (blind prediction) | see entry | see entry | see entry | validated below saturation; burst not accurate |
+| 19 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 on the iteration engine, KV-exhaustion preemption | curve-only profile scalars, logged KV capacity (transfer) | 2.7% (40-64) | **6.3%** (40-64; was 50.9% uncapped / 27.2% reserved), 2.5% (1-32, unchanged) | see entry | validated; preemption cliff reproduced |
+| 20 | 2026-10-01 | 1x RTX 3090 24 GB (node1; transfer to node0 and PP=2) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-32 x 512 + 4k-16k contexts | curve + frontend profile + `kv_read_bandwidth_scale = 0.469` (dataset holdout) | unchanged | 1.3% / 1.6% held out (was 2.7% / 2.5%) | 2.1% / 1.1% held out (was 3.0% / 3.1%) | validated on node1; does not transfer to node0 |
+| 21 | 2026-10-01 (re-prediction 2026-10-20, no new measurement) | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst (ledger 18 data) | curve + frontend + fair-share KV links + proxy constant 44 ms (fitted on rates 1-4) | see entry | see entry | see entry | TTFT p50 within 6-9% at rates 1-4, p90 within 2-14% at rates 1-8; rate 8 p50 +23%; burst still not accurate |
+| 22 | 2026-10-01 | 1x RTX 3090 (node2), graphics clock locked at 1200 MHz | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, degraded GPU, clock model | recalibrated constants + clock model (sustained clock and bandwidth knee fitted on this run; LOO over shapes) | 4.8% (LOO 4.9%; curve 1.1%) | 3.0% (LOO 4.3%) | 2.6% (LOO 3.2%) | fitted, consistent across shapes; one locked clock only |
+| 23 | 2026-10-01 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B / 14B bf16 | vLLM 0.29.0, Ray | TP1 PP2 | static batch | curve profile + `pipeline_microbatching = "vllm_batch_queue"` (no refit) | 8.3% / 6.5% | 3.8% / 7.2% | 1.7% / 4.8% | validated, with caveats; prefill overlap partly captured |
+| 24 | 2026-10-01 | 2x RTX 3090, 2 nodes, 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 (Ray / NixlConnector) | TP2, PP2, 1P1D | static batch + disaggregated serving | entries 12/13/18 setups with receiver-timed NCCL curves | TP2 5.0% (was 12.5%) | TP2 14.7% (was 7.2%) | TP2 6.3% (was 4.0%), PP2 1.7% (was 2.4%) | curves recorded, **not adopted**: see entry |
 | 25 | 2026-11-02 | 2x RTX 3090, 2 nodes, bond0 egress throttled to 2 Gbit/s (tc tbf) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, Ray | TP2 PP1 | static batch, degraded network | NIC degradation run-scenario overlay on the lab cluster (blind prediction) | 1.0% | 9.6% | **3.5%** | validated: prefill; decode inherits alpha-beta error |
 | 26 | 2026-11-02 | 1x RTX 3090 each: node0 and node1, same day | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch: decode sweeps 1-64 x 512 per node, PP=1 re-run, GEMM ceiling | entry-14 curve profile (Sep/Oct) and KV-read fits | Sep/Oct runs ~1.7x slower than today | node0 -5%, node1 +19% at batch 32 | see entry | **calibration drift**: Sep/Oct compute fits do not describe today's GPUs |
 | 27 | 2026-11-03 | 1x RTX 3090 (node1, 350 W) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch: 5 shapes, prefill token sweep, long context 4k-16k | recalibrated on node1 against measured-GEMM peaks (121.9 TFLOP/s) | 0.8% held out (long context) | 0.9-7.5% held out | 2.7% in-sample, 4.6% node0 transfer | validated; replaces the Sep/Oct compute profile |
@@ -451,6 +457,7 @@ maximum; (2) decode slows 1.26x with memory clocks untouched, because the
 achievable memory bandwidth depends on the SM clock. A degraded-GPU state
 therefore needs both a compute factor (relative to the sustained clock) and a
 bandwidth factor; scaling peak FLOPs alone misses decode entirely.
+Superseded by entry 22 (the degraded-GPU clock model on the same data).
 
 ## 18. RTX 3090 x2, Qwen2.5-7B, disaggregated prefill/decode serving (NIXL)
 
@@ -489,7 +496,354 @@ baseline's traffic (512 in / 128 out, 200 requests). Scripts:
   is the fix.
 - Remaining low-load TTFT gap (~60 ms) is consistent with the proxy's two
   HTTP hops, which the simulator does not model
-  (`disaggregated_proxy_hop_not_modeled`).
+  (`disaggregated_proxy_hop_not_modeled`). Both are addressed in entry 21.
+
+## 19. RTX 3090, Qwen2.5-7B, decode batch sweep on the iteration engine: KV-exhaustion preemption
+
+Data: entry 16's runs (`lab-runs/2026-10-01-qwen7b-decode-batch-sweep/` and
+`-tail/`, node1; the tail's batch 32 and 40 values are used). Simulation:
+`lab-runs/2026-10-01-preemption-sim/` (`predict.py`, `predictions.json`,
+`report.md`), simulator on branch `feat/serving-engine-preemption` (base
+7ef3439). Each shape is B requests at t = 0 with 512-token prompts on the
+serving iteration engine, run with 1 and with 1 + 128 output tokens; decode
+= difference of the makespans (as `bench_latency.py` measures).
+`max_num_batched_tokens` 32,768, 64 sequences, vLLM's logged KV cache of
+24,896 tokens (1,556 blocks of 16), curve-only profile scalars, no frontend
+latency. Nothing was fitted.
+
+| batch | real ms/step | no KV limit | reserved at admission | preempt (recompute) | preempted requests / recomputed tokens |
+|---:|---:|---:|---:|---:|---|
+| 1-32 | 19.25-21.89 | 2.5% mean \|err\| | identical | identical | 0 |
+| 40 | 28.73 | 21.09 (-26.6%) | 40.59 (+41.3%) | **27.66 (-3.8%)** | 2 / 1,232 |
+| 48 | 52.86 | 21.43 (-59.5%) | 40.69 (-23.0%) | **48.90 (-7.5%)** | 10 / 5,664 |
+| 56 | 53.49 | 21.77 (-59.3%) | 41.18 (-23.0%) | **49.39 (-7.7%)** | 10 / 5,664 |
+| 64 | 53.02 | 22.11 (-58.3%) | 41.52 (-21.7%) | **49.73 (-6.2%)** | 10 / 5,664 |
+
+- With `decode_capacity_policy = "preempt"` the engine allocates KV blocks
+  as tokens are computed and preempts in vLLM V1 recompute mode (newest
+  running request frees its blocks, goes to the front of the queue, and
+  recomputes prompt plus generated tokens as chunked prefill). Mean |error|
+  at batch 40-64 is 6.3% (was 50.9% with no KV limit and 27.2% with whole
+  footprints reserved at admission). The 2.4x step time at 48-64 comes out
+  2.3-2.4x.
+- Batches 1-32 fit the cache and are bit-identical in all modes.
+- Prefill (1 output token) at 40-64: -2.1% to -3.0%; at 56-64 the prompts
+  already exceed the cache and are admitted in two waves.
+- The remaining -4% to -8% is the decode-step under-prediction already seen
+  at batch 28-32 (KV-read bandwidth, entry 16).
+- Caveats: one model, one GPU, one prompt length; the static batch sweep
+  only (no online serving run at KV exhaustion); preempted requests are
+  assumed to lose all prefix-cache hits on their own blocks (prefix caching
+  was off in these runs).
+
+## 20. RTX 3090, Qwen2.5-7B, separate KV-read bandwidth scale for decode
+
+- Data: the node1 decode batch sweep
+  ([`lab-runs/2026-10-01-qwen7b-decode-batch-sweep/`](../lab-runs/2026-10-01-qwen7b-decode-batch-sweep/),
+  `measured.jsonl`, batch 1-32 x 512; 40x512 and the `-tail` run excluded by
+  `--max-batch 32` because KV exhaustion makes vLLM preempt, entry 16) and the
+  node1 long-context run
+  ([`lab-runs/2026-09-30-qwen7b-static-longctx-node1/`](../lab-runs/2026-09-30-qwen7b-static-longctx-node1/),
+  4k-16k). Analysis: [`lab-runs/2026-10-01-kv-read-scale/`](../lab-runs/2026-10-01-kv-read-scale/)
+  (`report-kv-read-<tag>.md`, `kv-read-fit-<tag>.json`,
+  `calibration_profile-<tag>.toml`; `transfer.py`, `transfer.md`,
+  `transfer.json`; per-regime `validation-kv-*.json` in each measured run dir).
+- Simulator: `feat/kv-read-bandwidth-scale` (base 7ef3439). Change: optional
+  `[calibration] kv_read_bandwidth_scale`, the fraction of peak HBM bandwidth
+  KV-cache reads achieve, applied to the static decode KV-read term and to
+  the serving step cost's KV reads (decode contexts and prefill-chunk
+  re-reads); weight reads keep `decode_memory_bandwidth_scale`. Absent, every
+  result is unchanged (docs/features/compute_roofline.md).
+- Base calibration: the curve + frontend profile
+  (`lab-runs/2026-10-01-qwen7b-prefill-token-sweep/calibration_profile-curve.toml`,
+  `decode_memory_bandwidth_scale = 0.8383`). Fitted by `lab.py fit-kv-read`
+  (least squares on relative decode-step error; holdout = leave one dataset
+  out; every error re-simulated):
+
+| mode | fitted on | `kv_read_bandwidth_scale` | `decode_memory_bandwidth_scale` |
+|---|---|---:|---:|
+| **after** (weights kept) | batch sweep + long context | **0.4687** | 0.8383 |
+| after | batch sweep only (holds out long context) | 0.4285 | 0.8383 |
+| after | long context only (holds out batch sweep) | 0.5277 | 0.8383 |
+| joint | batch sweep + long context | 0.4715 | 0.8379 |
+| joint | batch sweep only / long context only | 0.4256 / 0.5014 | - |
+
+  Joint fitting moves the weight scale by 0.05%: the weight-read scale fitted
+  at 512-2048 prompts stays right, only KV reads were mispriced. Paged KV
+  reads achieve ~0.47 of peak, 56% of the weight-read fraction.
+
+| dataset | decode step before | fitted (all) | **held out** | trend before | trend fitted | trend held out | e2e before | e2e held out |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| batch sweep 1-32 x 512 | 2.7% | 1.1% | **1.3%** | -3.23 | -0.61 | -1.27 | 3.0% | 2.1% |
+| long context 4k-16k | 2.5% | 0.9% | **1.6%** | -2.26 | +0.35 | +0.91 | 3.1% | 1.1% |
+
+  (Mode after; trend = OLS slope of the signed decode-step error in points per
+  10k KV tokens per step.)
+
+  Decode step error by batch (before -> fitted -> held out): 1: -0.7 -> -0.5
+  -> -0.5%; 4: -0.2 -> +0.5 -> +0.3%; 8: -1.7 -> -0.3 -> -0.7%; 16: -4.2 ->
+  -1.7 -> -2.3%; 24: -2.5 -> +1.3 -> +0.3%; 28: -5.9 -> -1.7 -> -2.7%; 32:
+  -6.5 -> -1.7 -> -3.0%. By context: 1x4096 -0.9 -> +0.3 -> +0.6%; 1x8192
+  -1.2 -> +1.2 -> +1.7%; 1x16384 -2.8 -> +1.7 -> +2.6%; 2x8192 -3.1 -> +1.4
+  -> +2.3%; 4x4096 -4.4 -> +0.0 -> +1.0%.
+- Does the trend disappear? Mostly. Fitting on both node1 datasets cuts the
+  slope 5x on the batch sweep (-3.23 -> -0.61) and removes it on long context
+  (-2.26 -> +0.35); the worst shape goes from -6.5% to -1.7%. Held out, the
+  slope shrinks 2.5x on each but each dataset alone over- or under-fits the
+  other (0.43 vs 0.53), leaving a residual -1.3 / +0.9 points per 10k: one
+  constant KV fraction is a good but not exact model (batch-heavy vs
+  context-heavy KV reads differ by ~20% in achieved bandwidth).
+- Transfer (not fitted, `transfer.md`; same node0-fitted curve + frontend
+  profile with and without the node1 KV scale):
+
+| regime | decode step before -> kv | end-to-end before -> kv |
+|---|---|---|
+| 7B PP=1, 5 shapes (node0) | 0.5% -> **2.7%** | 0.9% -> 2.1% |
+| 7B PP=2 (node0 + node1) | 3.8% -> 2.8% | 1.3% -> 2.1% |
+| 14B PP=2 (model transfer) | 7.2% -> 6.2% | 5.1% -> 5.3% |
+| serving 1-10 req/s + inf (node0) | TPOT p50 6.5% -> 4.7% | E2EL p50 7.1% -> 3.8% |
+
+  Serving TPOT at 6 req/s -15.8% -> -7.7%, at 8 req/s -12.7% -> -10.5%;
+  TTFT p50 17.7% -> 15.5%; ITL p50 2.9% -> 3.7%.
+- Caveat: **node0's static decode shows no KV trend** (32x512 measured
+  20.77 ms on node0 vs 22.21 ms on node1; both run FLASH_ATTN with
+  `kv_cache_dtype=auto`), so the node1 scale over-predicts node0 static
+  decode by up to +5% at 32x512. Adding the node0 PP=1 run as a third
+  dataset (tag `after-with-node0`) fits 0.526, holds node0 out at 2.7% and
+  the batch sweep at 1.8%. The KV-read fraction therefore behaves like a
+  per-node (Docker on node0 vs native venv on node1, or board) constant, not
+  a per-GPU-model one; the reference 3090 example
+  (`examples/rtx3090_qwen7b_disaggregated_workload.toml`) carries it because
+  its decode worker is node1. Not resolved before H100s: fit it per node, or
+  measure a node0 decode batch sweep to tell node variance from environment.
+
+## 21. Fair-share KV links and the disaggregation proxy constant (re-prediction of 18)
+
+Data: ledger 18's measurement (`lab-runs/2026-10-01-disagg-1p1d/`), nothing
+re-measured. Predictions: `lab-runs/2026-10-01-fair-share-sim/predict.py`
+(`predictions.json`), the same workload and curve + frontend calibration as
+18, with three variants: `fifo` (ledger 18's prediction),
+`kv_link_sharing = "fair_share"`, and fair share plus
+`disaggregation_proxy_latency_us = 44000`.
+
+Fair share: concurrent KV flows progress at max-min fair rates over the
+directed route resources they cross, rates recomputed whenever a transfer
+starts or finishes; a lone flow takes exactly its curve price, so runs with
+no overlapping pulls are bit-identical to FIFO (tests pin this).
+
+Proxy constant: estimated, not blind. At rates 1-4 the residual
+`measured TTFT p50 - simulated (fair share, no proxy)` is 62 / 74 / 63 ms.
+vLLM's NIXL metrics (decode_server.log, transfer-weighted per benchmark) give
+a mean pull of 103 / 113 / 129 ms against a simulated mean pull of
+83 / 85 / 111 ms, i.e. 20 / 28 / 18 ms of the residual is the known KV-pull
+underpricing (node0->node1 curve below 64 MiB is derived, sender-timed). The
+rest, 41 / 46 / 45 ms, is consistent across load and is taken as the proxy
+hop: 44 ms (the prefill response returning to the proxy, the proxy's second
+HTTP request, and the decode API server's request handling, including
+re-tokenizing the prompt). The colocated frontend latency (5081 us +
+14.44 us/token = 12.5 ms) is applied once to every request's arrival and is
+not part of the 44 ms.
+
+| rate | measured TTFT p50 / p90 ms | FIFO (18) | fair share | fair share + proxy | TPOT p50 real / sim | out tok/s real / sim |
+|---|---|---|---|---|---|---|
+| 1 | 317 / 357 | 256 (-19%) / 263 (-26%) | 256 (-19%) / 263 (-26%) | 300 (-6%) / 307 (-14%) | 19.65 / 19.56 | 126 / 136 (+8%) |
+| 2 | 331 / 406 | 258 (-22%) / 329 (-19%) | 258 (-22%) / 329 (-19%) | 302 (-9%) / 373 (-8%) | 21.23 / 19.66 | 249 / 268 (+8%) |
+| 4 | 337 / 568 | 274 (-19%) / 453 (-20%) | 274 (-19%) / 514 (-9%) | 318 (-6%) / 558 (-2%) | 21.68 / 19.91 | 480 / 520 (+8%) |
+| 6 | 423 / 842 | 391 (-7%) / 699 (-17%) | 417 (-1%) / 819 (-3%) | 461 (+9%) / 863 (+3%) | 20.95 / 20.14 | 692 / 753 (+9%) |
+| 8 | 647 / 1,227 | 639 (-1%) / 968 (-21%) | 753 (+16%) / 1,140 (-7%) | 797 (+23%) / 1,184 (-4%) | 21.01 / 20.35 | 890 / 969 (+9%) |
+| burst | 19,777 / 27,441 | 10,309 (-48%) / 18,134 (-34%) | 10,558 (-47%) / 18,383 (-33%) | 10,602 (-46%) / 18,427 (-33%) | 21.75 / 20.54 | 795 / 1,136 (+43%) |
+
+Mean |error| over rates 1-8: TTFT p50 13.8% (FIFO) -> 15.6% (fair share) ->
+10.5% (fair share + proxy); TTFT p90 20.7% -> 12.9% -> 5.9%. TPOT and
+throughput are unchanged by either (the decode worker is not link-bound below
+saturation).
+
+Mean KV pull, NIXL vs simulated (FIFO / fair share), ms: rate 1 103 / 82 / 83,
+2 113 / 83 / 85, 4 129 / 96 / 110, 6 173 / 122 / 162, 8 263 / 162 / 242,
+burst 2,283 / 202 / 323.
+
+- Fair sharing is the right contention model: pull time under load now tracks
+  NIXL's (rate 8: 242 vs 263 ms, FIFO 162 ms), and the TTFT tail improves at
+  every rate. The remaining per-pull gap is the ~20 ms standalone underpricing.
+- Rate 6-8 p50 now overshoots (+9%, +23% with the proxy). FIFO's near-exact
+  rate-8 p50 was offsetting errors (pulls too fast, no proxy hop). Under fair
+  share every concurrent pull is slowed, so the median request waits longer;
+  the real system's p50 is lower while its p90 is higher than both, i.e. its
+  pull-time distribution is wider than the even split max-min gives (NIXL
+  probably drains some transfers ahead of others). Not modeled.
+- Burst does not close (-46% TTFT p50, +43% throughput). It is not a
+  link-sharing problem: the simulated burst pull averages 323 ms against
+  NIXL's 2.3 s, and the measured run delivers ~6.2 req/s (32 s for 200)
+  where the link alone at the measured standalone 100 ms/pull would allow
+  ~10 req/s and the simulator's 81 ms curve ~12 req/s. Under a 200-request
+  burst vLLM keeps far more pulls in flight than the simulator's decode
+  admission allows (the simulator admits a pull only when a decode sequence
+  slot and the full decode KV fit), and aggregate NIXL throughput degrades
+  with that many concurrent transfers (per-window aggregate 96-300 MB/s in
+  the burst). Both need a burst-specific measurement (decode-side scheduler
+  logs of WAITING_FOR_REMOTE_KVS counts) before modeling.
+- The proxy constant is fitted on rates 1-4 of this run; it is not validated
+  on held-out data. Status: TTFT validated below saturation (p50 within 6-9%
+  at rates 1-4, p90 within 2-14% at rates 1-8); rate-8 p50 and the burst are
+  not accurate.
+
+## 22. RTX 3090, Qwen2.5-7B, locked clock re-predicted with the degraded-GPU clock model
+
+Data: entry 17's runs (locked: `lab-runs/2026-10-01-qwen7b-static-node2-clock1200/`;
+full clock: `lab-runs/2026-09-28-static-batch/real_pp1.jsonl`, node0). Script
+and outputs: `lab-runs/2026-10-01-degraded-gpu-sim/` (`predict.py`,
+`results.json`, `summary.md`). Calibration: the recalibrated scalar profile
+of entry 17 (`calibration_profile-pp1-recalibrated.toml`, 88 TFLOPs peak), no
+refit of any calibration scalar. Model: docs/features/degraded_gpu_model.md.
+
+**Fitted on the 1200 MHz data** (there is no other degraded clock):
+`sustained_sm_clock_mhz = 1834` (1200 x median prefill slowdown 1.528x) and
+`bandwidth_knee_sm_clock_mhz = 1564` (1200 x median decode-step slowdown
+1.303x). Both are measured/measured ratios; the simulator is not tuned.
+Leave-one-shape-out refits both clocks on four shapes (sustained 1831-1839,
+knee 1539-1585 MHz) and predicts the fifth.
+
+| variant | prefill | decode step | end-to-end |
+|---|---:|---:|---:|
+| full clock, no lock (reference) | 4.3% | 0.5% | 1.5% |
+| naive: peak x 1200/2100 (entry 17) | 13.8% | 22.8% | 9.6% |
+| sustained clock only, no knee | 4.8% | 22.8% | 14.0% |
+| clock model, in-sample | 4.8% | 3.0% | 2.6% |
+| clock model, LOO | 4.9% | 4.3% | 3.2% |
+| clock model + efficiency curve profile | 1.1% | 3.0% | 2.6% |
+
+| shape | naive prefill / decode | clock model prefill / decode | LOO prefill / decode |
+|---|---|---|---|
+| 1x512 | -3.9% / -20.0% | -16.1% / +4.3% | -16.2% / +5.8% |
+| 1x2048 | +13.7% / -19.6% | -0.7% / +4.8% | -0.8% / +6.2% |
+| 8x512 | +14.8% / -25.4% | +0.3% / -2.8% | +0.6% / -4.3% |
+| 8x2048 | +18.0% / -25.7% | +3.0% / -3.2% | +3.2% / -4.8% |
+| 32x512 | +18.7% / -23.3% | +3.7% / -0.1% | +3.9% / -0.3% |
+
+Findings: (1) one compute factor and one bandwidth factor explain all five
+shapes and all three phases to within a few percent, held-out included, so
+the two-factor structure is right for this card at this clock. (2) The 1x512
+prefill residual (-16%) is the full-clock short-prompt GEMM under-prediction
+carried over (-15% at full clock with the scalar profile); with the
+efficiency curve it is -1.6%. (3) Decode slowdown depends on batch (1.26x at
+batch 1, 1.34x at batch 8, 1.30x at batch 32); a single bandwidth factor
+leaves +4-5% at batch 1 and -3% at batch 8. (4) An unlocked clock model
+reproduces the no-clock predictions bit for bit (checked by the script).
+
+Limits: two clocks (full and 1200 MHz) on one GPU are thin evidence. The
+knee form, the power-law alternative and a linear bandwidth-vs-clock line all
+pass through these two points; nothing here tests a lock between 1200 MHz and
+the knee, below 1200 MHz, another GPU, or a locked GPU in a multi-GPU
+placement. The full-clock baseline is node0 and the locked run node2, so
+card-to-card variance is folded into both fitted clocks. Next measurement: a
+second lock (e.g. 900 and 1500 MHz) on the same node to test the knee.
+
+## 23. RTX 3090 x2, Qwen2.5-7B and 14B, PP=2: pipeline overlap inside one static batch
+
+- Data: the committed PP=2 runs (`lab-runs/2026-09-28-static-batch/real_pp2.jsonl`,
+  `lab-runs/2026-09-30-qwen14b-static-pp2/measured.jsonl`) and the 7B PP=1
+  run as an unchanged check; no new measurement. Analysis:
+  [`lab-runs/2026-10-01-pipeline-overlap-sim/`](../lab-runs/2026-10-01-pipeline-overlap-sim/)
+  (`revalidate.py`, `summary.md`, `revalidation.json`, per-variant
+  `validation-po-*.json`).
+- Simulator: `feat/pipeline-batch-overlap`. Cause, read from the vLLM
+  v0.29.0 source: with PP>1 and the Ray executor (no async scheduling) the V1
+  engine core keeps `max_concurrent_batches = pipeline_parallel_size` steps
+  in flight; offline requests reach the engine core one at a time and it
+  steps on the first arrival, so the first step carries about one request
+  and the next step the rest, which overlaps across stages; in-flight
+  prompts are never rescheduled, and a stage waits for its previous send
+  before the next forward. Details in
+  docs/features/pipeline_parallel_overlap.md.
+- Model: `[calibration] pipeline_microbatching = "vllm_batch_queue"` splits a
+  batch of B >= 2 on >= 2 stages into 1 + (B - 1) prompt passes in one trace
+  (decode stays whole-batch). Variants: **before** = ledger 14's curve
+  profile (`profile-curve-net.toml`, default `whole_batch`, reproduces
+  entry 14 exactly); **after** = the same profile plus the policy. Same
+  cluster (node0 NIC 3.61 Gb/s), `collective_latency_scale = 1.824`; no
+  constant refitted.
+
+| regime | variant | prefill | decode step | end-to-end |
+|---|---|---:|---:|---:|
+| 7B PP=2 | before | 10.4% | 3.8% | 1.3% |
+| | after | **8.3%** | 3.8% | 1.7% |
+| 14B PP=2 | before | 8.7% | 7.2% | 5.1% |
+| | after | **6.5%** | 7.2% | **4.8%** |
+| 7B PP=1 | before = after | 0.8% | 0.5% | 0.9% |
+
+| shape | 7B prefill | 7B e2e | 14B prefill | 14B e2e |
+|---|---|---|---|---|
+| 8x512 | +23.9% -> +18.9% | -2.7% -> -3.7% | +17.2% -> +12.3% | -3.1% -> -4.1% |
+| 8x2048 | +16.1% -> +9.7% | +0.7% -> -2.4% | +18.1% -> +11.3% | +5.0% -> +1.8% |
+| 32x512 | -0.6% -> -1.7% | +1.7% -> +1.1% | +0.2% -> -0.9% | -3.0% -> -3.6% |
+
+Batch-1 shapes are unchanged. PP=2 / PP=1 prefill ratio for 7B 8x512:
+measured 0.85, simulated 1.09 before and 1.04 after (8x2048: 0.93 vs 1.08 ->
+1.02).
+
+- Caveats: the real overlap is deeper than 1 + (B - 1). Fitting the size j
+  of the second step in a 1 + j + rest split to each shape gives j of about
+  3 (7B 8x512), 1.5 (8x2048), 0-1 (32x512) and 2 / 1.3 / 0 for 14B: more
+  requests reach the engine before the second schedule when prompts are
+  short, as an arrival race predicts, and PP=2 prefill spreads are 10-25x
+  the PP=1 spreads. Pricing that needs the offline request-ingest and
+  schedule-and-submit times, which are unmeasured. 7B end-to-end gets
+  slightly worse (1.3% -> 1.7%) because prefill over-prediction no longer
+  cancels the batch-8 decode under-prediction (-11.0% at 8x512), which this
+  change does not touch. The same first-request step exists at PP=1 and
+  explains node1's per-sequence 2x512/3x512 prefills (235.5 ms = 2 x
+  117.6 ms; entry 14 caveat), but the PP=1 model is unchanged. The policy is
+  opt-in because a whole-batch pass is the right model for backends without
+  a batch queue; the serving iteration engine does not overlap steps.
+
+## 24. Receiver-timed collective curves (re-measure of entries 12-13)
+
+Data: [`lab-runs/2026-10-01-nccl-curve/`](../lab-runs/2026-10-01-nccl-curve/)
+(`tools/lab/specs/rtx3090_nccl_curve.toml`: torch.distributed bf16 over bond0,
+node0+node1, 1 KiB-256 MiB, every send timed on the receiver, plus
+all_gather/reduce_scatter/all_to_all). Re-predictions:
+`lab-runs/2026-10-01-nccl-curve/repredict/` (`repredict.py`,
+`predictions.json`, and `rtx3090_lab_cluster_receiver_timed_curves.toml`
+from `lab.py curves` on the entry-12 asymmetric base). Same compute
+constants, traces and calibrations as entries 12, 13 and 18; only the curves
+change.
+
+| run | old curves (09-30 sweep, 0->1 derived below 64 MiB) | receiver-timed curves (10-01 sweep) |
+|---|---|---|
+| TP=2 mean abs err prefill / decode step / e2e | 12.5% / 7.2% / 4.0% | 5.0% / 14.7% / 6.3% |
+| PP=2 mean abs err prefill / decode step / e2e | 15.3% / 3.5% / 2.4% | 15.2% / 3.8% / 1.7% |
+| 1P1D TTFT p50 rate 1 / 4 / 8 (real 317 / 337 / 647 ms) | -19% / -19% / -1% | -26% / -25% / -4% |
+| 1P1D KV pull, 28 MiB node0->node1 (vLLM logs ~95-115 ms) | 80.8 ms | 77.4 ms |
+
+- The node1->node0 send curve reproduces the 09-30 sweep within 2% at every
+  size, so the benchmark itself is stable. Everything that crosses node0's
+  slow egress is not: all_reduce medians move 1.0-1.7x between the two sweeps
+  in the 256 KiB-32 MiB band, and the receiver-timed node0->node1 sends have
+  p90/p10 up to 3x at 1-8 MiB within one sweep. node0 also hosts the user's
+  container stack and embedding server, so its egress is shared; a single
+  sweep is one sample of a noisy link.
+- TP=2 prefill improves (the slower all_reduce at 3.7 MB is closer to the
+  ~1.4x in-situ cost noted in entry 12). TP=2 decode worsens because the
+  LM-head logits all_gather is now curve-priced (entry 12 priced it by
+  alpha-beta): the isolated 1-5 MiB all_gather runs at ~0.36 GB/s, the slow
+  direction's rate, and costs +3 ms per step at batch 8 and +11 ms at batch
+  32, more than vLLM pays in situ (real batch-32 step 51.3 ms, sim 60.0 ms).
+- NCCL point-to-point is not a proxy for NIXL over UCX TCP: the measured
+  curve prices the 28 MiB pull at 77 ms, below the old derived 81 ms and
+  further from the 95-115 ms vLLM logs. A KV-transfer fit from vLLM's
+  per-transfer metrics (calibration-profile `kv_transfer`) is the better
+  source for disaggregated runs.
+- Not adopted: `examples/rtx3090_lab_cluster_measured_curves.toml` keeps the
+  09-30 curves, since neither sweep dominates and the switch would make two
+  of three workloads worse. To adopt measured curves on this lab, take
+  several sweeps at different times (or with node0 idle) and use the
+  per-size median; benchmark the decode-size all_gather with CUDA graphs.
+- Side effect seen while testing the switch: `kv_flows_over_the_slow_direction_cost_more`
+  depends on step-boundary phase. Completed pulls are promoted at the decode
+  worker's next step start (19.5 ms steps), so the decode queue is
+  `19.5 - (pull mod 19.5) + 19.5` ms for isolated requests: 36 ms at an
+  80.8 ms pull, 20 ms at 77.4 ms. A 3 ms pull change moves TTFT by 21 ms.
+  Real vLLM has the same quantization but with jittered phase.
 
 ## 25. RTX 3090 x2, Qwen2.5-7B, TP=2 with a throttled NIC (degraded network)
 
@@ -679,7 +1033,8 @@ unvalidated.
 
 - Tensor parallelism (TP >= 2), within a node (no NVLink/PCIe P2P lab yet) or
   across nodes.
-- Pipeline parallelism beyond 2 stages, and PP=2 with a PP=2-fitted profile.
+- Pipeline parallelism beyond 2 stages (the batch-queue overlap of entry 23
+  is unmeasured there), and PP=2 with a PP=2-fitted profile.
 - Expert parallelism / MoE models; data parallelism / multiple replicas.
 - Models other than Qwen2.5-7B (larger dense models, GQA ratios, FFN sizes;
   the fit leaves `ffn_hidden_size` at the simulator default).

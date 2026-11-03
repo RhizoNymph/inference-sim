@@ -1,5 +1,7 @@
 mod efficiency_curve;
 
+use serde::Deserialize;
+
 pub use efficiency_curve::{
     ComputeEfficiencyCurve, EfficiencyCurveError, EfficiencyPoint, MAX_EFFICIENCY_CURVE_POINTS,
 };
@@ -14,7 +16,15 @@ pub struct SimulationCalibration {
     pub compute_efficiency_curve: Option<ComputeEfficiencyCurve>,
     pub prefill_compute_scale: f64,
     pub decode_compute_scale: f64,
+    /// Fraction of peak HBM bandwidth streaming weight reads achieve; also
+    /// the KV-read fraction unless `kv_read_bandwidth_scale` is set.
     pub decode_memory_bandwidth_scale: f64,
+    /// Optional fraction of peak HBM bandwidth that KV-cache reads achieve
+    /// (paged attention gathers scattered blocks and runs below streaming
+    /// weight reads). `None` prices KV reads at
+    /// `decode_memory_bandwidth_scale`; see
+    /// [`SimulationCalibration::effective_kv_read_bandwidth_scale`].
+    pub kv_read_bandwidth_scale: Option<f64>,
     pub collective_latency_scale: f64,
     pub collective_bandwidth_scale: f64,
     pub kv_transfer_scale: f64,
@@ -33,6 +43,74 @@ pub struct SimulationCalibration {
     pub frontend_latency_us: f64,
     /// Additional per-request API-server latency per prompt token.
     pub frontend_latency_per_prompt_token_us: f64,
+    /// Disaggregated serving only: per-request latency between the prefill
+    /// instance finishing a prompt and the decode instance seeing the request
+    /// (the prefill response's trip back to the proxy, the proxy's second
+    /// HTTP request, and the decode API server's request handling). Zero
+    /// means not modeled. It is on top of `frontend_latency_us`, which covers
+    /// the client-facing API-server path once.
+    pub disaggregation_proxy_latency_us: f64,
+    /// How concurrent disaggregated KV transfers share directed links.
+    pub kv_link_sharing: KvLinkSharing,
+    /// How a static multi-request batch moves through pipeline stages.
+    pub pipeline_microbatching: PipelineMicrobatching,
+}
+
+/// How the static solver runs a multi-request batch through pipeline stages.
+///
+/// Backend behavior, not a fitted constant: it belongs in the calibration
+/// profile of the serving stack that exhibits it.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PipelineMicrobatching {
+    /// The whole batch is one forward pass that traverses the stages in
+    /// order; stages never overlap within one batch.
+    #[default]
+    WholeBatch,
+    /// vLLM V1's batch queue with pipeline parallelism
+    /// (`max_concurrent_batches = pipeline_parallel_size`): the engine core
+    /// starts a step as soon as the first request arrives, so the first step
+    /// carries one request and the next step carries the rest of the batch
+    /// while the first is still in flight. The two steps overlap across
+    /// stages; see docs/features/pipeline_parallel_overlap.md.
+    VllmBatchQueue,
+}
+
+impl PipelineMicrobatching {
+    /// The TOML/JSON spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WholeBatch => "whole_batch",
+            Self::VllmBatchQueue => "vllm_batch_queue",
+        }
+    }
+}
+
+/// How concurrent KV transfers share the directed route resources (links,
+/// NIC and fabric hops) they cross.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum KvLinkSharing {
+    /// Every resource is a first-come-first-served queue: a transfer holds
+    /// every resource on its route for its uncontended duration, so
+    /// concurrent transfers serialize. The default only because it is the
+    /// historical behavior; measured NIXL/UCX TCP pulls fair-share
+    /// (validation ledger entries 18 and 21).
+    #[default]
+    Fifo,
+    /// Processor sharing: active flows progress at max-min fair rates across
+    /// the resources on their routes, recomputed whenever a transfer starts
+    /// or finishes. A flow running alone takes exactly its uncontended
+    /// (curve or alpha-beta) price.
+    FairShare,
+}
+
+impl KvLinkSharing {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fifo => "fifo",
+            Self::FairShare => "fair_share",
+        }
+    }
 }
 
 impl Default for SimulationCalibration {
@@ -43,6 +121,7 @@ impl Default for SimulationCalibration {
             prefill_compute_scale: 1.0,
             decode_compute_scale: 1.0,
             decode_memory_bandwidth_scale: 1.0,
+            kv_read_bandwidth_scale: None,
             collective_latency_scale: 1.0,
             collective_bandwidth_scale: 1.0,
             kv_transfer_scale: 1.0,
@@ -57,6 +136,9 @@ impl Default for SimulationCalibration {
             allow_compute_comm_overlap: false,
             frontend_latency_us: 0.0,
             frontend_latency_per_prompt_token_us: 0.0,
+            disaggregation_proxy_latency_us: 0.0,
+            kv_link_sharing: KvLinkSharing::Fifo,
+            pipeline_microbatching: PipelineMicrobatching::WholeBatch,
         }
     }
 }
@@ -69,6 +151,9 @@ impl SimulationCalibration {
             prefill_compute_scale: positive_or(self.prefill_compute_scale, 1.0),
             decode_compute_scale: positive_or(self.decode_compute_scale, 1.0),
             decode_memory_bandwidth_scale: positive_or(self.decode_memory_bandwidth_scale, 1.0),
+            kv_read_bandwidth_scale: self
+                .kv_read_bandwidth_scale
+                .filter(|scale| scale.is_finite() && *scale > 0.0),
             collective_latency_scale: positive_or(self.collective_latency_scale, 1.0),
             collective_bandwidth_scale: positive_or(self.collective_bandwidth_scale, 1.0),
             kv_transfer_scale: positive_or(self.kv_transfer_scale, 1.0),
@@ -101,6 +186,12 @@ impl SimulationCalibration {
                 self.frontend_latency_per_prompt_token_us,
                 0.0,
             ),
+            disaggregation_proxy_latency_us: nonnegative_or(
+                self.disaggregation_proxy_latency_us,
+                0.0,
+            ),
+            kv_link_sharing: self.kv_link_sharing,
+            pipeline_microbatching: self.pipeline_microbatching,
         }
     }
 
@@ -114,12 +205,25 @@ impl SimulationCalibration {
         }
     }
 
+    /// Fraction of peak HBM bandwidth KV-cache reads achieve: the separate
+    /// `kv_read_bandwidth_scale` when set, otherwise the weight-read
+    /// `decode_memory_bandwidth_scale`.
+    pub fn effective_kv_read_bandwidth_scale(&self) -> f64 {
+        self.kv_read_bandwidth_scale
+            .unwrap_or(self.decode_memory_bandwidth_scale)
+    }
+
     /// Client-observed API-server latency for one request with
     /// `prompt_tokens` prompt tokens, in seconds.
     pub fn frontend_latency_s(&self, prompt_tokens: u32) -> f64 {
         (self.frontend_latency_us
             + self.frontend_latency_per_prompt_token_us * f64::from(prompt_tokens))
             / 1e6
+    }
+
+    /// Disaggregated proxy/handoff latency per moved request, in seconds.
+    pub fn disaggregation_proxy_latency_s(&self) -> f64 {
+        self.disaggregation_proxy_latency_us / 1e6
     }
 
     /// Whether any frontend latency is configured.
@@ -178,6 +282,36 @@ mod tests {
     }
 
     #[test]
+    fn kv_read_scale_defaults_to_the_weight_read_scale() {
+        let calibration = SimulationCalibration {
+            decode_memory_bandwidth_scale: 0.8383,
+            ..SimulationCalibration::default()
+        };
+        assert_eq!(calibration.kv_read_bandwidth_scale, None);
+        assert_eq!(calibration.effective_kv_read_bandwidth_scale(), 0.8383);
+        let separate = SimulationCalibration {
+            kv_read_bandwidth_scale: Some(0.45),
+            ..calibration
+        };
+        assert_eq!(separate.effective_kv_read_bandwidth_scale(), 0.45);
+        assert_eq!(separate.sanitized().kv_read_bandwidth_scale, Some(0.45));
+    }
+
+    #[test]
+    fn sanitized_drops_an_invalid_kv_read_scale() {
+        for invalid in [0.0, -0.5, f64::NAN, f64::INFINITY] {
+            let calibration = SimulationCalibration {
+                decode_memory_bandwidth_scale: 0.8,
+                kv_read_bandwidth_scale: Some(invalid),
+                ..SimulationCalibration::default()
+            }
+            .sanitized();
+            assert_eq!(calibration.kv_read_bandwidth_scale, None, "{invalid}");
+            assert_eq!(calibration.effective_kv_read_bandwidth_scale(), 0.8);
+        }
+    }
+
+    #[test]
     fn frontend_latency_defaults_to_zero() {
         let calibration = SimulationCalibration::default();
         assert!(!calibration.models_frontend_latency());
@@ -206,5 +340,32 @@ mod tests {
         .sanitized();
         assert_eq!(calibration.frontend_latency_us, 0.0);
         assert_eq!(calibration.frontend_latency_per_prompt_token_us, 0.0);
+    }
+
+    #[test]
+    fn proxy_latency_and_link_sharing_default_to_unmodeled_fifo() {
+        let calibration = SimulationCalibration::default();
+        assert_eq!(calibration.disaggregation_proxy_latency_us, 0.0);
+        assert_eq!(calibration.disaggregation_proxy_latency_s(), 0.0);
+        assert_eq!(calibration.kv_link_sharing, KvLinkSharing::Fifo);
+        assert_eq!(KvLinkSharing::FairShare.as_str(), "fair_share");
+    }
+
+    #[test]
+    fn sanitized_clamps_invalid_proxy_latency_and_keeps_link_sharing() {
+        let calibration = SimulationCalibration {
+            disaggregation_proxy_latency_us: f64::NAN,
+            kv_link_sharing: KvLinkSharing::FairShare,
+            ..SimulationCalibration::default()
+        }
+        .sanitized();
+        assert_eq!(calibration.disaggregation_proxy_latency_us, 0.0);
+        assert_eq!(calibration.kv_link_sharing, KvLinkSharing::FairShare);
+        let valid = SimulationCalibration {
+            disaggregation_proxy_latency_us: 40_000.0,
+            ..SimulationCalibration::default()
+        }
+        .sanitized();
+        assert!((valid.disaggregation_proxy_latency_s() - 0.04).abs() < 1e-15);
     }
 }

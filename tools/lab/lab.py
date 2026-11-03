@@ -20,6 +20,10 @@ Subcommands (see docs/features/lab_harness.md):
   fit-curve  static-batch prefill sweep: fit compute efficiency versus tokens
              per forward pass (and optionally the frontend latency) into a
              copy of a base profile, then check the simulator loads it
+  fit-kv-read  static-batch decode runs (batch sweep, long context): fit a
+             separate KV-read bandwidth scale (after or jointly with the
+             weight-read scale) with dataset holdout, into a copy of a base
+             profile, then check the simulator loads it
 
 Only the standard library is needed locally; the remote/ scripts run inside
 the vLLM environment on the nodes.
@@ -56,7 +60,15 @@ from labharness.curves import (
 )
 from labharness.curves_toml import check_base_cluster, render_cluster, render_curves
 from labharness.efficiency_curve import DEFAULT_MEMORY_BOUND_MARGIN
-from labharness.errors import CurveError, FitError, LabError, ResultParseError, RunDirError, SpecError
+from labharness.errors import (
+    CurveError,
+    FitError,
+    LabError,
+    ResultParseError,
+    RunDirError,
+    SimulatorError,
+    SpecError,
+)
 from labharness.evaluate import (
     calibrate_static,
     evaluate_serving,
@@ -66,6 +78,17 @@ from labharness.evaluate import (
     verify_profile,
 )
 from labharness.frontend import FrontendFit, FrontendSample, fit_frontend_latency, load_frontend_ttfts
+from labharness.kv_read_eval import (
+    DEFAULT_MAX_BATCH,
+    KvDataset,
+    KvFitOutcome,
+    fit_kv_read_datasets,
+    outcome_json,
+    outcome_markdown,
+    select_measurements,
+)
+from labharness.kv_read_fit import KvFitMode
+from labharness.kv_read_profile import KvProfileInputs, render_kv_read_profile
 from labharness.logging_setup import configure_logging, get_logger
 from labharness.profile import Provenance
 from labharness.report import (
@@ -81,6 +104,7 @@ from labharness.results import (
     StaticMeasurement,
     load_bench_serve,
     load_static,
+    number_or_none,
     parse_kv_cache_tokens,
 )
 from labharness.runner import Runner, dry_run
@@ -89,7 +113,9 @@ from labharness.simulate import (
     DefaultCalibration,
     ProfileCalibration,
     ScalarCalibration,
+    SimPhase,
     SimRunner,
+    static_workload_toml,
     sweep_serving,
     sweep_static,
 )
@@ -194,6 +220,39 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="isolated-request bench serve results (in<N>_out1.json) to fit frontend latency from",
     )
+
+    fit_kv = sub.add_parser(
+        "fit-kv-read", help="fit a separate KV-read bandwidth scale from decode runs into a profile"
+    )
+    fit_kv.add_argument(
+        "--dataset",
+        action="append",
+        required=True,
+        metavar="NAME:SPEC:RUN_DIR[:MEASURED]",
+        help="a static-batch decode run (repeat; at least two for dataset holdout)",
+    )
+    fit_kv.add_argument(
+        "--base-profile", type=Path, required=True, help="profile the KV-read scale is added to"
+    )
+    fit_kv.add_argument(
+        "--mode",
+        choices=[m.value for m in KvFitMode],
+        default=KvFitMode.AFTER.value,
+        help="after: keep the base decode_memory_bandwidth_scale; joint: refit it too",
+    )
+    fit_kv.add_argument(
+        "--max-batch",
+        type=int,
+        default=DEFAULT_MAX_BATCH,
+        help="exclude measured shapes with a larger batch (KV-exhaustion preemption)",
+    )
+    fit_kv.add_argument("--out-dir", type=Path, required=True, help="where the profile, JSON, and report go")
+    fit_kv.add_argument("--tag", default="kv-read", help="output name tag")
+    fit_kv.add_argument("--binary", type=Path, default=DEFAULT_BINARY)
+    fit_kv.add_argument(
+        "--cluster", type=Path, help="simulator cluster TOML (default: each spec's lab cluster_toml)"
+    )
+    fit_kv.add_argument("--concurrency", type=int, default=8)
 
     curves = sub.add_parser("curves", help="collective-benchmark JSON lines -> [[collective_curves]] TOML")
     curves.add_argument("input", type=Path, help="collective_curve.jsonl (new or legacy format)")
@@ -594,6 +653,117 @@ async def cmd_fit_curve(args: argparse.Namespace) -> None:
     _write(run_dir / f"report-calibration-{tag}.md", "\n".join(fragment), "report fragment")
 
 
+def _kv_datasets(args: argparse.Namespace, work_root: Path) -> list[KvDataset]:
+    if not args.binary.is_file():
+        raise SpecError("simulator binary not found; run `cargo build --release`", path=str(args.binary))
+    datasets = []
+    for text in args.dataset:
+        parts = text.split(":")
+        if len(parts) not in (3, 4) or not all(parts):
+            raise SpecError("--dataset must be NAME:SPEC:RUN_DIR[:MEASURED]", path="cli", field="dataset")
+        name, spec, run_dir = parts[0], Path(parts[1]), Path(parts[2])
+        measured_path = run_dir / (parts[3] if len(parts) == 4 else "measured.jsonl")
+        exp = parse_experiment(spec)
+        if not isinstance(exp.workload, StaticBatchWorkload):
+            raise SpecError("fit-kv-read needs static-batch specs", path=str(spec), field="experiment.mode")
+        if not run_dir.is_dir():
+            raise RunDirError("run directory does not exist", path=str(run_dir))
+        kept, excluded = select_measurements(load_static(measured_path), max_batch=args.max_batch)
+        runner = SimRunner(
+            binary=args.binary.resolve(),
+            cluster=_cluster(args, exp),
+            work_dir=work_root / name,
+            concurrency=args.concurrency,
+        )
+        datasets.append(KvDataset(name, exp, kept, excluded, runner, _repo_relative(measured_path)))
+    return datasets
+
+
+async def _verify_kv_profile(
+    datasets: Sequence[KvDataset], profile_path: Path, outcome: KvFitOutcome
+) -> None:
+    """Load the emitted profile and require it to echo the fit and reproduce the fitted predictions."""
+    fit = outcome.fit
+    first = datasets[0]
+    wl = first.exp.workload
+    if not isinstance(wl, StaticBatchWorkload):
+        raise SpecError("fit-kv-read needs static-batch specs", path=str(first.exp.path))
+    calibration = ProfileCalibration(profile_path)
+    payload = await first.runner.run(
+        f"{calibration.label}-kv-check",
+        static_workload_toml(
+            first.exp.model, first.exp.parallelism, first.measured[0].shape, wl.decode_tokens,
+            SimPhase.DECODE, calibration,
+        ),
+        asyncio.Semaphore(1),
+    )  # fmt: skip
+    block = payload.get("calibration")
+    if not isinstance(block, dict):
+        raise SimulatorError("simulator did not report a calibration block", workload=str(profile_path))
+    for key, expected in (
+        ("kv_read_bandwidth_scale", fit.kv_read_bandwidth_scale),
+        ("decode_memory_bandwidth_scale", fit.decode_memory_bandwidth_scale),
+    ):
+        reported = number_or_none(block, key)
+        if reported is None or abs(reported - expected) > expected * 1e-5:
+            raise SimulatorError(
+                f"simulator reports {key} = {reported}, expected {expected:.6f}", workload=str(profile_path)
+            )
+    for dataset, result in zip(datasets, outcome.datasets, strict=True):
+        through = await evaluate_static(
+            dataset.runner, dataset.exp, dataset.measured, calibration, "kv profile check"
+        )
+        for (_, expected_row), (_, got) in zip(result.fitted.pairs, through.pairs, strict=True):
+            drift = abs(got.decode_ms - expected_row.decode_ms) / expected_row.decode_ms * 100.0
+            if drift > 0.01:
+                raise SimulatorError(
+                    f"profile decode prediction drifts {drift:.4f}% from the fit", workload=str(profile_path)
+                )
+
+
+async def cmd_fit_kv_read(args: argparse.Namespace) -> None:
+    out_dir = args.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tag = args.tag
+    try:
+        base_text = args.base_profile.read_text(encoding="utf-8")
+        base = tomllib.loads(base_text)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise SpecError(f"cannot read base profile: {error}", path=str(args.base_profile)) from error
+    weight_scale = base.get("calibration", {}).get("decode_memory_bandwidth_scale", 1.0)
+    if not isinstance(weight_scale, int | float) or weight_scale <= 0:
+        raise SpecError(
+            "base profile decode_memory_bandwidth_scale must be positive", path=str(args.base_profile)
+        )
+    datasets = _kv_datasets(args, out_dir.resolve() / "sim-work" / tag)
+    mode = KvFitMode(args.mode)
+    outcome = await fit_kv_read_datasets(datasets, args.base_profile.resolve(), float(weight_scale), mode)
+
+    profile_path = out_dir / f"calibration_profile-{tag}.toml"
+    profile_text = render_kv_read_profile(
+        KvProfileInputs(
+            base_text=base_text,
+            base_label=_repo_relative(args.base_profile),
+            fit=outcome.fit,
+            sources=[d.source for d in datasets],
+            holdout=outcome.holdout_summaries(),
+        )
+    )
+    _write(profile_path, profile_text, "kv read profile")
+    await _verify_kv_profile(datasets, profile_path.resolve(), outcome)
+    payload = {
+        "record": "lab.kv_read_fit.v1",
+        "tag": tag,
+        "base_profile": _repo_relative(args.base_profile),
+        "max_batch": args.max_batch,
+        "profile": _repo_relative(profile_path),
+        **outcome_json(outcome),
+    }
+    _write(out_dir / f"kv-read-fit-{tag}.json", _json(payload), "kv read results")
+    report = outcome_markdown(outcome, tag, _repo_relative(profile_path), _repo_relative(args.base_profile))
+    _write(out_dir / f"report-kv-read-{tag}.md", report, "report fragment")
+
+
 def cmd_curves(args: argparse.Namespace) -> None:
     source = str(args.input)
     data = load_bench(args.input)
@@ -657,6 +827,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cmd_curves(args)
             case "fit-curve":
                 asyncio.run(cmd_fit_curve(args))
+            case "fit-kv-read":
+                asyncio.run(cmd_fit_kv_read(args))
         return 0
     except (LabError, ExceptionGroup) as raised:
         errors = _lab_errors(raised)

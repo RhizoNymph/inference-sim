@@ -1163,6 +1163,11 @@ fn write_node_gpu_inventory<W: Write>(
             "{indent}          \"peak_f8_tflops\": {},",
             json_optional_value(profile.peak_f8_flops)
         )?;
+        writeln!(
+            writer,
+            "{indent}          \"clock\": {},",
+            gpu_clock_json(&profile)
+        )?;
         let gpu_labels = node
             .gpu_labels(*local_gpu_id)
             .map(|labels| labels.iter().cloned().collect::<Vec<_>>())
@@ -1862,4 +1867,22 @@ fn reduction_min_message_gb(accelerator: &ReductionAccelerator) -> Option<f64> {
         ReductionAccelerator::None => None,
         ReductionAccelerator::Supported { min_message } => Some(min_message.as_gigabytes()),
     }
+}
+
+/// The GPU's declared clock model, lock state, and resulting factors as a
+/// one-line JSON object, or `null` without a clock model.
+fn gpu_clock_json(profile: &crate::types::gpu::GpuProfile) -> String {
+    let Some(clock) = profile.clock else {
+        return "null".to_string();
+    };
+    let model = clock.model();
+    let degradation = clock.degradation();
+    format!(
+        "{{\"sustained_sm_clock_mhz\": {}, \"bandwidth_knee_sm_clock_mhz\": {}, \"locked_sm_clock_mhz\": {}, \"compute_factor\": {}, \"bandwidth_factor\": {}}}",
+        json_f64(model.sustained().mhz()),
+        json_optional_value(model.bandwidth_knee().map(|knee| knee.mhz())),
+        json_optional_value(clock.locked_clock().map(|locked| locked.mhz())),
+        json_f64(degradation.compute()),
+        json_f64(degradation.bandwidth()),
+    )
 }

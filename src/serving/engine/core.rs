@@ -22,30 +22,57 @@
 //! - the prefill step that completes the prompt samples the prefill
 //!   instance's token; the request leaves the prefill worker's running set
 //!   (its sequence slot frees) but its prompt KV stays there;
-//! - it joins the decode worker's waiting queue at that instant; admission
-//!   there (in queue order, when its decode KV fits) reserves the decode KV and
-//!   starts the KV pull on the FIFO link queues; it takes no token budget;
+//! - it joins the decode worker's waiting queue after the handoff delay (the
+//!   proxy hop; zero unless calibrated); admission there (in queue order, when
+//!   its decode KV fits) reserves the decode KV and starts the KV pull on the
+//!   transfer network (FIFO link queues or fair-shared links,
+//!   `HandoffModel::link_sharing`); it takes no token budget;
 //! - when the pull completes, the prefill worker's KV is released and the
 //!   request becomes runnable on the decode worker at its next step: under
 //!   `FirstTokenSource::DecodeInstance` it first recomputes its last prompt
 //!   token (a one-token chunk that samples the client's first token), under
 //!   `PrefillInstance` it decodes token 2 directly.
 //!
-//! Workers interact only through shared capacity limits, handoffs, and link
-//! queues, so the loop always advances the worker with the earliest clock;
-//! transfers are therefore reserved in non-decreasing time order.
+//! Under `KvAllocationMode::PagedRecompute` (vLLM V1 recompute preemption) a
+//! request holds blocks only for the tokens it has computed: admission needs
+//! blocks for its first chunk, and each scheduled item grows its holding
+//! before it runs. When a running request needs a block and none is free,
+//! the lowest-priority, then most recently admitted, running request that
+//! has not been scheduled in this step is preempted (possibly the requester
+//! itself): it frees every block, goes to the front of the waiting queue, and
+//! on readmission recomputes its whole context (prompt plus emitted tokens)
+//! as prefill through the normal chunked token budget; the pass's last chunk
+//! samples its next token. A step that preempted admits nothing new. A
+//! disaggregated request preempted on its decode worker recomputes there; it
+//! is never pulled again.
+//!
+//! Workers interact only through shared capacity limits, handoffs, and the
+//! transfer network, so the loop always advances the worker with the earliest
+//! clock; transfers therefore start in non-decreasing time order. Before a
+//! worker acts at time `t`, the network is advanced to `t`: every transfer
+//! finishing by then is recorded and frees its prefill KV at its exact finish
+//! time. A pull's completion time is the network's projection (exact unless
+//! another transfer starts first, in which case it is re-read), so a worker
+//! sleeping on pulls wakes at the right time under fair sharing too.
+
+mod budget;
+mod paged;
+#[cfg(test)]
+mod test_run;
 
 use std::collections::VecDeque;
 
 use crate::solver::StepWork;
 
 use super::capacity::{CapacityLedger, HoldingKey};
-use super::transfer::LinkQueues;
+use super::transfer::{KvNetwork, TransferWindow};
 use super::types::{
-    ChunkRecord, EngineJob, EngineLimits, EngineOutcome, EngineRequest, EngineRequestId,
-    EngineStep, FirstTokenSource, HandoffRecord, RequestFate, RequestTimeline, StepCost,
-    StepLimits, TokenRecord, UniformCost, WorkerId, WorkerStepCost,
+    ChunkPass, ChunkRecord, EngineJob, EngineLimits, EngineOutcome, EngineRequest, EngineRequestId,
+    EngineStep, FirstTokenSource, HandoffModel, HandoffRecord, KvAllocationMode, RequestFate,
+    RequestTimeline, TokenRecord, WorkerId, WorkerStepCost,
 };
+use budget::{StepBudget, add_chunk};
+use paged::KvGrant;
 
 const TIME_EPSILON_S: f64 = 1e-12;
 /// Nudge for a blocked worker that waits on another worker sharing its clock,
@@ -83,6 +110,35 @@ impl std::fmt::Display for EngineError {
 
 impl std::error::Error for EngineError {}
 
+/// Which context a prefill pass computes, and what its last chunk does.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum PrefillPass {
+    /// The prompt (`prefill_tokens` beyond the cached prefix); completing it
+    /// samples the first token, or hands a disaggregated request off.
+    Prompt,
+    /// After a preemption during decode: the prompt plus the `emitted`
+    /// output tokens, on the worker that decodes; completing it samples
+    /// token `emitted + 1`.
+    Resume { emitted: u32 },
+}
+
+impl PrefillPass {
+    /// Tokens per sequence (beyond the cached prompt) the pass computes.
+    fn target(self, request: &EngineRequest) -> u32 {
+        match self {
+            Self::Prompt => request.prefill_tokens,
+            Self::Resume { emitted } => request.prefill_tokens.saturating_add(emitted),
+        }
+    }
+
+    fn chunk_pass(self) -> ChunkPass {
+        match self {
+            Self::Prompt => ChunkPass::Prompt,
+            Self::Resume { .. } => ChunkPass::Resume,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum Phase {
     NotArrived,
@@ -90,17 +146,24 @@ enum Phase {
     Waiting,
     Prefilling {
         computed: u32,
+        pass: PrefillPass,
     },
     /// Disaggregated: prefill done, waiting for decode admission.
     AwaitingDecode,
-    /// Disaggregated: admitted on decode, KV pull completes at `ready_s`.
+    /// Disaggregated: admitted on decode, KV pull in flight (`None`) or
+    /// completed at `arrived_s`.
     Pulling {
-        ready_s: f64,
+        arrived_s: Option<f64>,
     },
     /// Disaggregated, `DecodeInstance`: recomputes the last prompt token.
     Recomputing,
     Decoding {
         emitted: u32,
+    },
+    /// Preempted under paged allocation: queued at the front of its worker's
+    /// waiting queue to redo `pass` from its first token.
+    Preempted {
+        pass: PrefillPass,
     },
     Finished,
 }
@@ -110,6 +173,8 @@ struct WorkerQueue {
     clock_s: f64,
     /// Future arrivals (fresh requests and handoffs), by (time, request index).
     pending: VecDeque<(f64, EngineRequestId)>,
+    /// Preempted requests first (most recently preempted at the front, as
+    /// vLLM prepends them), then everything else in `queue_order`.
     waiting: Vec<EngineRequestId>,
     running: Vec<EngineRequestId>,
 }
@@ -120,6 +185,7 @@ struct StepPlan {
     decodes: Vec<EngineRequestId>,
     chunks: Vec<(EngineRequestId, u32)>,
     recomputes: Vec<EngineRequestId>,
+    preempted: Vec<EngineRequestId>,
 }
 
 impl StepPlan {
@@ -128,28 +194,54 @@ impl StepPlan {
     }
 }
 
-/// Simulates every colocated request to completion (or rejection) and
-/// returns the step-by-step record.
+/// Simulates every colocated request to completion (or rejection) with KV
+/// reserved at admission and returns the step-by-step record.
+#[cfg(test)]
 pub(in crate::serving) fn run_engine(
     requests: &[EngineRequest],
     limits: &EngineLimits,
-    cost: &mut impl StepCost,
+    cost: &mut impl super::types::StepCost,
 ) -> Result<EngineOutcome, EngineError> {
     let jobs = requests
         .iter()
         .cloned()
         .map(EngineJob::colocated)
         .collect::<Vec<_>>();
-    run_engine_jobs(&jobs, limits, &mut UniformCost(cost))
+    run_engine_jobs(&jobs, limits, &mut super::types::UniformCost(cost))
 }
 
-/// Simulates colocated and disaggregated jobs together.
+/// Simulates colocated and disaggregated jobs together with KV reserved at
+/// admission and the default handoff model (FIFO links, no handoff delay).
+#[cfg(test)]
 pub(in crate::serving) fn run_engine_jobs(
     jobs: &[EngineJob],
     limits: &EngineLimits,
     cost: &mut impl WorkerStepCost,
 ) -> Result<EngineOutcome, EngineError> {
-    let mut engine = Engine::new(jobs, limits)?;
+    run_engine_jobs_configured(
+        jobs,
+        limits,
+        KvAllocationMode::ReservedAtAdmission,
+        HandoffModel::default(),
+        cost,
+    )
+}
+
+#[cfg(test)]
+pub(in crate::serving) use test_run::run_engine_jobs_with;
+
+/// Simulates colocated and disaggregated jobs together: `kv` sets how KV
+/// blocks are allocated (reserved at admission or paged with recompute
+/// preemption), `handoff` how KV pulls share links and the delay before a
+/// handoff reaches decode.
+pub(in crate::serving) fn run_engine_jobs_configured(
+    jobs: &[EngineJob],
+    limits: &EngineLimits,
+    kv: KvAllocationMode,
+    handoff: HandoffModel,
+    cost: &mut impl WorkerStepCost,
+) -> Result<EngineOutcome, EngineError> {
+    let mut engine = Engine::new(jobs, limits, kv, handoff)?;
     engine.run(cost);
     Ok(EngineOutcome {
         steps: engine.steps,
@@ -160,16 +252,23 @@ pub(in crate::serving) fn run_engine_jobs(
 struct Engine<'a> {
     jobs: &'a [EngineJob],
     limits: &'a EngineLimits,
+    kv: KvAllocationMode,
     workers: Vec<WorkerQueue>,
     phases: Vec<Phase>,
     timelines: Vec<RequestTimeline>,
     steps: Vec<EngineStep>,
     ledger: CapacityLedger,
-    links: LinkQueues,
+    links: KvNetwork,
+    handoff_delay_s: f64,
 }
 
 impl<'a> Engine<'a> {
-    fn new(jobs: &'a [EngineJob], limits: &'a EngineLimits) -> Result<Self, EngineError> {
+    fn new(
+        jobs: &'a [EngineJob],
+        limits: &'a EngineLimits,
+        kv: KvAllocationMode,
+        handoff: HandoffModel,
+    ) -> Result<Self, EngineError> {
         let mut workers = vec![WorkerQueue::default(); limits.workers.len()];
         let mut order = (0..jobs.len()).collect::<Vec<_>>();
         order.sort_by(|left, right| {
@@ -206,12 +305,14 @@ impl<'a> Engine<'a> {
         Ok(Self {
             jobs,
             limits,
+            kv,
             workers,
             phases: vec![Phase::NotArrived; jobs.len()],
             timelines: vec![RequestTimeline::default(); jobs.len()],
             steps: Vec::new(),
             ledger: CapacityLedger::new(limits, jobs.len()),
-            links: LinkQueues::new(0),
+            links: KvNetwork::new(handoff.link_sharing),
+            handoff_delay_s: handoff.delay.seconds(),
         })
     }
 
@@ -221,6 +322,7 @@ impl<'a> Engine<'a> {
 
     fn run(&mut self, cost: &mut impl WorkerStepCost) {
         while let Some((worker, now_s)) = self.next_worker() {
+            self.complete_transfers(now_s);
             self.ledger.apply_releases_until(now_s);
             self.workers[worker].clock_s = now_s;
             self.enqueue_arrivals(worker, now_s);
@@ -230,6 +332,35 @@ impl<'a> Engine<'a> {
                 None => self.wait_when_blocked(worker, now_s),
             }
         }
+        // Pulls of requests cancelled mid-transfer still finish on the
+        // network; record their windows.
+        for (id, window) in self.links.drain() {
+            self.finish_pull(id, window);
+        }
+    }
+
+    /// Advances the transfer network to `now_s` and records every pull that
+    /// finished by then.
+    fn complete_transfers(&mut self, now_s: f64) {
+        self.links.advance_to(now_s);
+        for (id, window) in self.links.take_completed() {
+            self.finish_pull(id, window);
+        }
+    }
+
+    /// The prefill worker frees the prompt KV once the decode side has it;
+    /// the request becomes runnable at its decode worker's next step.
+    fn finish_pull(&mut self, id: EngineRequestId, window: TransferWindow) {
+        self.ledger
+            .release_at(HoldingKey::Primary(id), window.finish_s);
+        if self.phases[id] == (Phase::Pulling { arrived_s: None }) {
+            self.phases[id] = Phase::Pulling {
+                arrived_s: Some(window.finish_s),
+            };
+        }
+        if let Some(record) = self.timelines[id].handoff.as_mut() {
+            record.transfer = Some(window);
+        }
     }
 
     /// Earliest time a pull into this worker completes.
@@ -238,7 +369,7 @@ impl<'a> Engine<'a> {
             .running
             .iter()
             .filter_map(|id| match self.phases[*id] {
-                Phase::Pulling { ready_s } => Some(ready_s),
+                Phase::Pulling { arrived_s } => arrived_s.or_else(|| self.links.finish_s(*id)),
                 _ => None,
             })
             .min_by(f64::total_cmp)
@@ -322,17 +453,26 @@ impl<'a> Engine<'a> {
                 self.phases[id] = Phase::Waiting;
             }
             let jobs = self.jobs;
+            let phases = &self.phases;
             let waiting = &mut self.workers[worker].waiting;
-            let position = waiting.partition_point(|queued| {
-                queue_order(&jobs[*queued].request, &jobs[id].request)
-                    != std::cmp::Ordering::Greater
-            });
+            let preempted = waiting
+                .iter()
+                .take_while(|queued| matches!(phases[**queued], Phase::Preempted { .. }))
+                .count();
+            let position = preempted
+                + waiting[preempted..].partition_point(|queued| {
+                    queue_order(&jobs[*queued].request, &jobs[id].request)
+                        != std::cmp::Ordering::Greater
+                });
             waiting.insert(position, id);
         }
     }
 
     /// The first limit either of the request's footprints exceeds on its own.
     fn never_fits(&self, id: EngineRequestId) -> Option<super::types::CapacityExcess> {
+        if let KvAllocationMode::PagedRecompute { block_tokens } = self.kv {
+            return self.never_fits_paged(id, block_tokens);
+        }
         let request = self.request(id);
         self.ledger.never_fits(request).or_else(|| {
             let handoff = self.jobs[id].handoff()?;
@@ -399,88 +539,160 @@ impl<'a> Engine<'a> {
         let mut budget = StepBudget::new(step_limits, self.limits);
         let mut plan = StepPlan::default();
 
-        for &id in &self.workers[worker].running {
+        let mut index = 0;
+        while let Some(&id) = self.workers[worker].running.get(index) {
             let request = self.request(id);
-            match self.phases[id] {
+            let sequences = request.sequences.max(1);
+            let item = match self.phases[id] {
                 Phase::Decoding { emitted } => {
-                    let tokens = u64::from(request.sequences.max(1));
-                    if tokens > budget.tokens && !plan.is_empty() {
+                    if u64::from(sequences) > budget.tokens && !plan.is_empty() {
+                        index += 1;
                         continue;
                     }
-                    budget.tokens = budget.tokens.saturating_sub(tokens);
-                    plan.work
-                        .add_decode(request.sequences.max(1), request.prompt_tokens() + emitted);
-                    plan.decodes.push(id);
+                    Item::Decode { emitted }
                 }
-                Phase::Prefilling { computed } => {
-                    let chunk = budget.chunk(request, computed, plan.is_empty());
+                Phase::Prefilling { computed, pass } => {
+                    let remaining = pass.target(request).saturating_sub(computed);
+                    let chunk = budget.chunk(request, remaining, plan.is_empty());
                     if chunk == 0 {
+                        index += 1;
                         continue;
                     }
-                    budget.consume_prefill(request, chunk);
-                    add_chunk(&mut plan.work, request, computed, chunk);
-                    plan.chunks.push((id, chunk));
+                    Item::Chunk {
+                        computed,
+                        chunk,
+                        target: pass.target(request),
+                    }
                 }
                 Phase::Recomputing => {
-                    let tokens = u64::from(request.sequences.max(1));
-                    if tokens > budget.tokens && !plan.is_empty() {
+                    if u64::from(sequences) > budget.tokens && !plan.is_empty() {
+                        index += 1;
                         continue;
                     }
-                    budget.consume_prefill(request, 1);
-                    plan.work.add_completing_prefill_chunk(
-                        request.sequences.max(1),
-                        request.prompt_tokens().saturating_sub(1),
-                        1,
-                    );
-                    plan.recomputes.push(id);
+                    Item::Recompute
                 }
                 Phase::NotArrived
                 | Phase::Waiting
                 | Phase::AwaitingDecode
                 | Phase::Pulling { .. }
-                | Phase::Finished => {}
+                | Phase::Preempted { .. }
+                | Phase::Finished => {
+                    index += 1;
+                    continue;
+                }
+            };
+            match self.grant_kv(
+                worker,
+                index,
+                id,
+                item.kv_tokens_after(request),
+                now_s,
+                &mut plan,
+            ) {
+                KvGrant::Granted => {}
+                KvGrant::SelfPreempted => break,
             }
+            match item {
+                Item::Decode { emitted } => {
+                    budget.tokens = budget.tokens.saturating_sub(u64::from(sequences));
+                    plan.work
+                        .add_decode(sequences, request.prompt_tokens() + emitted);
+                    plan.decodes.push(id);
+                }
+                Item::Chunk {
+                    computed,
+                    chunk,
+                    target,
+                } => {
+                    budget.consume_prefill(request, chunk);
+                    add_chunk(&mut plan.work, request, computed, chunk, target);
+                    plan.chunks.push((id, chunk));
+                }
+                Item::Recompute => {
+                    budget.consume_prefill(request, 1);
+                    plan.work.add_completing_prefill_chunk(
+                        sequences,
+                        request.prompt_tokens().saturating_sub(1),
+                        1,
+                    );
+                    plan.recomputes.push(id);
+                }
+            }
+            index += 1;
         }
 
+        // vLLM admits nothing in a step that preempted; a step left empty by
+        // its preemptions admits right away instead of idling.
+        if plan.preempted.is_empty() || plan.is_empty() {
+            self.admit_waiting(worker, now_s, &mut budget, &mut plan);
+        }
+
+        (!plan.is_empty()).then_some(plan)
+    }
+
+    /// Admits the head of the waiting queue while it fits and budget remains
+    /// (head of line: a head that does not fit blocks everything behind it).
+    fn admit_waiting(
+        &mut self,
+        worker: WorkerId,
+        now_s: f64,
+        budget: &mut StepBudget,
+        plan: &mut StepPlan,
+    ) {
         while let Some(&id) = self.workers[worker].waiting.first() {
             if budget.tokens == 0 {
                 break;
             }
-            if self.phases[id] == Phase::AwaitingDecode {
-                if !self.admit_for_pull(worker, id, now_s) {
-                    break;
+            let pass = match self.phases[id] {
+                Phase::AwaitingDecode => {
+                    if !self.admit_for_pull(worker, id, now_s) {
+                        break;
+                    }
+                    continue;
                 }
-                continue;
-            }
+                Phase::Preempted { pass } => pass,
+                _ => PrefillPass::Prompt,
+            };
             let request = self.request(id);
-            if !self.ledger.fits(request) {
-                break;
-            }
-            let chunk = budget.chunk(request, 0, plan.is_empty());
+            let target = pass.target(request);
+            let chunk = budget.chunk(request, target, plan.is_empty());
             if chunk == 0 {
                 break;
             }
+            let footprint = self.admission_footprint(request, chunk);
+            if !self.ledger.fits_on(worker, request.class, footprint) {
+                break;
+            }
             self.workers[worker].waiting.remove(0);
-            self.ledger.allocate(id, request);
+            let key = self.holding_key(id, worker);
+            self.ledger
+                .allocate_on(key, worker, request.class, footprint);
             self.workers[worker].running.push(id);
-            self.phases[id] = Phase::Prefilling { computed: 0 };
-            self.timelines[id].admitted_s = Some(now_s);
+            if matches!(self.phases[id], Phase::Preempted { .. }) {
+                if let Some(record) = self.timelines[id].preemptions.last_mut() {
+                    record.resumed_s = Some(now_s);
+                }
+            } else {
+                self.timelines[id].admitted_s = Some(now_s);
+            }
+            self.phases[id] = Phase::Prefilling { computed: 0, pass };
             budget.consume_prefill(request, chunk);
-            add_chunk(&mut plan.work, request, 0, chunk);
+            add_chunk(&mut plan.work, request, 0, chunk, target);
             plan.chunks.push((id, chunk));
         }
-
-        (!plan.is_empty()).then_some(plan)
     }
 
     /// Pulled requests whose KV has arrived become runnable.
     fn promote_pulled(&mut self, worker: WorkerId, now_s: f64) {
         for index in 0..self.workers[worker].running.len() {
             let id = self.workers[worker].running[index];
-            let Phase::Pulling { ready_s } = self.phases[id] else {
+            let Phase::Pulling {
+                arrived_s: Some(arrived_s),
+            } = self.phases[id]
+            else {
                 continue;
             };
-            if ready_s > now_s + TIME_EPSILON_S {
+            if arrived_s > now_s + TIME_EPSILON_S {
                 continue;
             }
             let first_token = self.jobs[id]
@@ -501,29 +713,17 @@ impl<'a> Engine<'a> {
         let Some(handoff) = job.handoff() else {
             return false;
         };
-        if !self
-            .ledger
-            .fits_on(worker, job.request.class, handoff.decode_footprint)
-        {
+        let footprint = self.decode_admission_footprint(&job.request, handoff.decode_footprint);
+        if !self.ledger.fits_on(worker, job.request.class, footprint) {
             return false;
         }
         self.workers[worker].waiting.remove(0);
-        self.ledger.allocate_on(
-            HoldingKey::Decode(id),
-            worker,
-            job.request.class,
-            handoff.decode_footprint,
-        );
-        let window = self.links.reserve(&handoff.plan, now_s, id);
-        // The prefill worker frees the prompt KV once the decode side has it.
         self.ledger
-            .release_at(HoldingKey::Primary(id), window.finish_s);
-        self.phases[id] = Phase::Pulling {
-            ready_s: window.finish_s,
-        };
+            .allocate_on(HoldingKey::Decode(id), worker, job.request.class, footprint);
+        self.links.start(&handoff.plan, now_s, id);
+        self.phases[id] = Phase::Pulling { arrived_s: None };
         if let Some(record) = self.timelines[id].handoff.as_mut() {
             record.decode_admitted_s = Some(now_s);
-            record.transfer = Some(window);
         }
         self.workers[worker].running.push(id);
         true
@@ -540,6 +740,7 @@ impl<'a> Engine<'a> {
         let finish_s = now_s + latency.total_s.max(0.0);
         let step = self.steps.len();
         let running_sequences = self.ledger.worker_sequences(worker);
+        let kv_blocks = self.ledger.worker_blocks(worker);
         let mut token_requests =
             Vec::with_capacity(plan.decodes.len() + plan.chunks.len() + plan.recomputes.len());
         let mut first_token_sequences = 0_u64;
@@ -564,7 +765,7 @@ impl<'a> Engine<'a> {
         }
         let mut prefill_requests = Vec::with_capacity(plan.chunks.len());
         for &(id, chunk) in &plan.chunks {
-            let Phase::Prefilling { computed } = self.phases[id] else {
+            let Phase::Prefilling { computed, pass } = self.phases[id] else {
                 continue;
             };
             let request = self.request(id);
@@ -574,36 +775,65 @@ impl<'a> Engine<'a> {
                 start_s: now_s,
                 finish_s,
                 tokens: u64::from(request.sequences.max(1)) * u64::from(chunk),
+                pass: pass.chunk_pass(),
             });
             prefill_requests.push(id);
-            if computed < request.prefill_tokens {
-                self.phases[id] = Phase::Prefilling { computed };
+            if computed < pass.target(request) {
+                self.phases[id] = Phase::Prefilling { computed, pass };
                 continue;
             }
-            let handoff = self.jobs[id].handoff();
-            let client_token = handoff
-                .is_none_or(|handoff| handoff.first_token == FirstTokenSource::PrefillInstance);
-            if client_token {
-                self.timelines[id].tokens.push(TokenRecord {
-                    step,
-                    start_s: finish_s,
-                    finish_s,
-                });
-                token_requests.push(id);
-                first_token_sequences += u64::from(request.sequences.max(1));
-            }
-            self.phases[id] = Phase::Decoding { emitted: 1 };
-            let needs_decode = match handoff {
-                None => request.output_tokens > 1,
-                Some(handoff) => match handoff.first_token {
-                    FirstTokenSource::DecodeInstance => true,
-                    FirstTokenSource::PrefillInstance => request.output_tokens > 1,
-                },
-            };
-            if !needs_decode {
-                finished.push(id);
-            } else if handoff.is_some() {
-                handed_off.push(id);
+            match pass {
+                PrefillPass::Prompt => {
+                    let handoff = self.jobs[id].handoff();
+                    let client_token = handoff.is_none_or(|handoff| {
+                        handoff.first_token == FirstTokenSource::PrefillInstance
+                    });
+                    if client_token {
+                        self.timelines[id].tokens.push(TokenRecord {
+                            step,
+                            start_s: finish_s,
+                            finish_s,
+                        });
+                        token_requests.push(id);
+                        first_token_sequences += u64::from(request.sequences.max(1));
+                    }
+                    self.phases[id] = Phase::Decoding { emitted: 1 };
+                    let needs_decode = match handoff {
+                        None => request.output_tokens > 1,
+                        Some(handoff) => match handoff.first_token {
+                            FirstTokenSource::DecodeInstance => true,
+                            FirstTokenSource::PrefillInstance => request.output_tokens > 1,
+                        },
+                    };
+                    if !needs_decode {
+                        finished.push(id);
+                    } else if handoff.is_some() {
+                        handed_off.push(id);
+                    }
+                }
+                PrefillPass::Resume { emitted } => {
+                    // The recompute's last chunk samples the next token: the
+                    // client's first (an instant at the step's end, like any
+                    // first token) when nothing was emitted yet.
+                    let first = emitted == 0;
+                    self.timelines[id].tokens.push(TokenRecord {
+                        step,
+                        start_s: if first { finish_s } else { now_s },
+                        finish_s,
+                    });
+                    token_requests.push(id);
+                    if first {
+                        first_token_sequences += u64::from(request.sequences.max(1));
+                        if let Some(record) = self.timelines[id].handoff.as_mut() {
+                            record.recompute_step = Some(step);
+                        }
+                    }
+                    let emitted = emitted + 1;
+                    self.phases[id] = Phase::Decoding { emitted };
+                    if emitted >= request.output_tokens {
+                        finished.push(id);
+                    }
+                }
             }
         }
         for &id in &plan.recomputes {
@@ -648,12 +878,14 @@ impl<'a> Engine<'a> {
             token_requests,
             first_token_sequences,
             running_sequences,
+            kv_blocks,
+            preempted_requests: plan.preempted,
         });
         self.workers[worker].clock_s = finish_s;
     }
 
     /// Moves a request whose prefill finished at `at_s` to its decode
-    /// worker's queue.
+    /// worker's queue, which it joins after the handoff delay.
     fn hand_off(&mut self, worker: WorkerId, id: EngineRequestId, at_s: f64) {
         let Some(handoff) = self.jobs[id].handoff() else {
             return;
@@ -664,9 +896,10 @@ impl<'a> Engine<'a> {
             .retain(|running| *running != id);
         self.ledger
             .release_sequences_at(HoldingKey::Primary(id), at_s);
+        let queued_s = at_s + self.handoff_delay_s;
         self.timelines[id].handoff = Some(HandoffRecord {
             prefill_finish_s: at_s,
-            decode_queued_s: at_s,
+            decode_queued_s: queued_s,
             ..HandoffRecord::default()
         });
         let request_idx = self.request(id).request_idx;
@@ -674,11 +907,11 @@ impl<'a> Engine<'a> {
         let pending = &mut self.workers[handoff.decode_worker].pending;
         let position = pending.partition_point(|(time_s, queued)| {
             time_s
-                .total_cmp(&at_s)
+                .total_cmp(&queued_s)
                 .then_with(|| jobs[*queued].request.request_idx.cmp(&request_idx))
                 != std::cmp::Ordering::Greater
         });
-        pending.insert(position, (at_s, id));
+        pending.insert(position, (queued_s, id));
     }
 
     /// Nothing could run: the worker is idle (its next arrival wakes it), its
@@ -687,13 +920,14 @@ impl<'a> Engine<'a> {
     /// release, pull completion, waiting deadline, or step elsewhere; with
     /// none left, its waiting requests can never be admitted.
     fn wait_when_blocked(&mut self, worker: WorkerId, now_s: f64) {
-        let next_pull_s = self.next_pull_ready_s(worker);
+        // An idle worker, or one whose running requests are all pulling,
+        // keeps its clock: `next_event_s` wakes it at its next arrival
+        // (including a handoff that lands mid-pull) or pull completion, read
+        // from the network at that point.
         if self.workers[worker].waiting.is_empty() {
-            if let Some(ready_s) = next_pull_s {
-                self.workers[worker].clock_s = ready_s.max(now_s + BLOCKED_WAKE_NUDGE_S);
-            }
             return;
         }
+        let next_pull_s = self.next_pull_ready_s(worker);
         let next_arrival_s = self.workers[worker]
             .pending
             .front()
@@ -711,6 +945,8 @@ impl<'a> Engine<'a> {
         let wake_s = [
             next_arrival_s,
             self.ledger.next_release_after(now_s),
+            // A finishing pull frees its prefill KV.
+            self.links.next_finish_after(now_s),
             next_deadline_s,
             other_worker_s,
             next_pull_s,
@@ -744,6 +980,33 @@ impl<'a> Engine<'a> {
     }
 }
 
+/// One scheduled unit of a running request in the step being planned.
+#[derive(Copy, Clone, Debug)]
+enum Item {
+    Decode {
+        emitted: u32,
+    },
+    Chunk {
+        computed: u32,
+        chunk: u32,
+        target: u32,
+    },
+    Recompute,
+}
+
+impl Item {
+    /// KV tokens per sequence the request holds once this item has run.
+    fn kv_tokens_after(self, request: &EngineRequest) -> u64 {
+        match self {
+            Self::Decode { emitted } => u64::from(request.prompt_tokens()) + u64::from(emitted),
+            Self::Chunk {
+                computed, chunk, ..
+            } => u64::from(request.cached_prompt_tokens) + u64::from(computed) + u64::from(chunk),
+            Self::Recompute => u64::from(request.prompt_tokens()),
+        }
+    }
+}
+
 /// Waiting-queue order: higher priority first, then arrival, then index.
 fn queue_order(left: &EngineRequest, right: &EngineRequest) -> std::cmp::Ordering {
     right
@@ -751,79 +1014,4 @@ fn queue_order(left: &EngineRequest, right: &EngineRequest) -> std::cmp::Orderin
         .cmp(&left.priority)
         .then_with(|| left.arrival_s.total_cmp(&right.arrival_s))
         .then_with(|| left.request_idx.cmp(&right.request_idx))
-}
-
-/// Remaining token budget of one step being planned.
-struct StepBudget {
-    tokens: u64,
-    chunk_tokens: Option<u32>,
-    prefill_tokens: Option<u64>,
-    class_prefill_tokens: Vec<Option<u64>>,
-}
-
-impl StepBudget {
-    fn new(step: StepLimits, limits: &EngineLimits) -> Self {
-        Self {
-            tokens: step.token_budget.max(1),
-            chunk_tokens: step.chunk_tokens,
-            prefill_tokens: step.prefill_tokens,
-            class_prefill_tokens: limits
-                .classes
-                .iter()
-                .map(|class| class.prefill_tokens_per_step)
-                .collect(),
-        }
-    }
-
-    /// Prefill tokens (per lockstep sequence) the request may compute now.
-    /// The first item of an otherwise empty step always makes progress.
-    fn chunk(&self, request: &EngineRequest, computed: u32, first_in_step: bool) -> u32 {
-        let remaining = request.prefill_tokens.saturating_sub(computed);
-        if remaining == 0 {
-            return 0;
-        }
-        let sequences = u64::from(request.sequences.max(1));
-        let mut room = self.tokens;
-        if let Some(left) = self.prefill_tokens {
-            room = room.min(left);
-        }
-        if let Some(class) = request.class
-            && let Some(Some(left)) = self.class_prefill_tokens.get(class)
-        {
-            room = room.min(*left);
-        }
-        let mut chunk = u64::from(remaining).min(room / sequences);
-        if let Some(cap) = self.chunk_tokens {
-            chunk = chunk.min(u64::from(cap.max(1)));
-        }
-        if chunk == 0 && first_in_step {
-            chunk = 1;
-        }
-        chunk.min(u64::from(u32::MAX)) as u32
-    }
-
-    fn consume_prefill(&mut self, request: &EngineRequest, chunk: u32) {
-        let tokens = u64::from(request.sequences.max(1)) * u64::from(chunk);
-        self.tokens = self.tokens.saturating_sub(tokens);
-        if let Some(left) = self.prefill_tokens.as_mut() {
-            *left = left.saturating_sub(tokens);
-        }
-        if let Some(class) = request.class
-            && let Some(Some(left)) = self.class_prefill_tokens.get_mut(class)
-        {
-            *left = left.saturating_sub(tokens);
-        }
-    }
-}
-
-// A chunk that reaches the end of the prompt samples each sequence's first
-// token in the same step, so it carries LM-head logits work.
-fn add_chunk(work: &mut StepWork, request: &EngineRequest, computed: u32, chunk: u32) {
-    let sequences = request.sequences.max(1);
-    let context_before = request.cached_prompt_tokens + computed;
-    if computed.saturating_add(chunk) >= request.prefill_tokens {
-        work.add_completing_prefill_chunk(sequences, context_before, chunk);
-    } else {
-        work.add_prefill_chunk(sequences, context_before, chunk);
-    }
 }

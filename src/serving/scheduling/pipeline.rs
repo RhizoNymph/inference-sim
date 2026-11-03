@@ -10,6 +10,9 @@ pub(in crate::serving) struct ScheduledTimeline {
     pub(in crate::serving) operations: Vec<ScheduledOperation>,
     pub(in crate::serving) decode_iterations: Vec<ServingDecodeIterationObservation>,
     pub(in crate::serving) kv_bottlenecks: Vec<String>,
+    /// KV-exhaustion preemptions (iteration engine with recompute
+    /// preemption only; the phase pipeline never preempts).
+    pub(in crate::serving) preemption: PreemptionStats,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -198,5 +201,6 @@ pub(in crate::serving) fn schedule_phase_pipeline(
         operations: scheduler.operations().to_vec(),
         decode_iterations,
         kv_bottlenecks,
+        preemption: PreemptionStats::default(),
     }
 }
