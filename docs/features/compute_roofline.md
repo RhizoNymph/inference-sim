@@ -30,7 +30,10 @@ and decode operations before scheduling. It covers:
   times the compute efficiency for the pass; minimum HBM bandwidth times
   `calibration.decode_memory_bandwidth_scale` for weight reads, and times
   `calibration.kv_read_bandwidth_scale` for KV-cache reads when that optional
-  key is set (otherwise KV reads use the weight-read bandwidth).
+  key is set (otherwise KV reads use the weight-read bandwidth). A GPU with a
+  locked SM clock further scales its own pipeline stage's compute and
+  bandwidth terms, the bandwidth factor applying to weight and KV reads alike
+  (docs/features/degraded_gpu_model.md).
 - Token-dependent compute efficiency: `SimulationCalibration::
   compute_efficiency_at(tokens_per_pass)` returns the optional
   `calibration.compute_efficiency_curve` interpolated at the pass's token

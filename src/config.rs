@@ -11,6 +11,9 @@ use serde::Deserialize;
 mod calibration_config;
 mod cluster;
 mod collective_curves;
+mod gpu_clock_config;
+#[cfg(test)]
+mod gpu_clock_config_tests;
 mod run_config;
 mod sections;
 mod serving_config;
@@ -26,6 +29,7 @@ use calibration_config::{
 };
 use cluster::*;
 use collective_curves::{CollectiveCurveSection, parse_collective_curves};
+use gpu_clock_config::{GpuClockOverrideConfig, merge_gpu_clock};
 use run_config::*;
 use sections::*;
 use serving_config::*;

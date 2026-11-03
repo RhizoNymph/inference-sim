@@ -38,6 +38,7 @@ them superseded.
 | 19 | 2026-10-01 | 1x RTX 3090 24 GB (node1) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-64 x 512 on the iteration engine, KV-exhaustion preemption | curve-only profile scalars, logged KV capacity (transfer) | 2.7% (40-64) | **6.3%** (40-64; was 50.9% uncapped / 27.2% reserved), 2.5% (1-32, unchanged) | see entry | validated; preemption cliff reproduced |
 | 20 | 2026-10-01 | 1x RTX 3090 24 GB (node1; transfer to node0 and PP=2) | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static decode batch sweep 1-32 x 512 + 4k-16k contexts | curve + frontend profile + `kv_read_bandwidth_scale = 0.469` (dataset holdout) | unchanged | 1.3% / 1.6% held out (was 2.7% / 2.5%) | 2.1% / 1.1% held out (was 3.0% / 3.1%) | validated on node1; does not transfer to node0 |
 | 21 | 2026-10-01 (re-prediction 2026-10-20, no new measurement) | 2x RTX 3090: prefill node0, decode node1, NIXL over UCX TCP on 2x10GbE | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0, NixlConnector | 1P1D disaggregated | serving, Poisson 1-8 req/s + burst (ledger 18 data) | curve + frontend + fair-share KV links + proxy constant 44 ms (fitted on rates 1-4) | see entry | see entry | see entry | TTFT p50 within 6-9% at rates 1-4, p90 within 2-14% at rates 1-8; rate 8 p50 +23%; burst still not accurate |
+| 22 | 2026-10-01 | 1x RTX 3090 (node2), graphics clock locked at 1200 MHz | Qwen2.5-7B-Instruct bf16 | vLLM 0.29.0 | TP1 PP1 | static batch, degraded GPU, clock model | recalibrated constants + clock model (sustained clock and bandwidth knee fitted on this run; LOO over shapes) | 4.8% (LOO 4.9%; curve 1.1%) | 3.0% (LOO 4.3%) | 2.6% (LOO 3.2%) | fitted, consistent across shapes; one locked clock only |
 
 ## 1-2. RTX 3090, Qwen2.5-7B, static batch, PP=1
 
@@ -451,6 +452,7 @@ maximum; (2) decode slows 1.26x with memory clocks untouched, because the
 achievable memory bandwidth depends on the SM clock. A degraded-GPU state
 therefore needs both a compute factor (relative to the sustained clock) and a
 bandwidth factor; scaling peak FLOPs alone misses decode entirely.
+Superseded by entry 22 (the degraded-GPU clock model on the same data).
 
 ## 18. RTX 3090 x2, Qwen2.5-7B, disaggregated prefill/decode serving (NIXL)
 
@@ -679,6 +681,57 @@ burst 2,283 / 202 / 323.
   on held-out data. Status: TTFT validated below saturation (p50 within 6-9%
   at rates 1-4, p90 within 2-14% at rates 1-8); rate-8 p50 and the burst are
   not accurate.
+
+## 22. RTX 3090, Qwen2.5-7B, locked clock re-predicted with the degraded-GPU clock model
+
+Data: entry 17's runs (locked: `lab-runs/2026-10-01-qwen7b-static-node2-clock1200/`;
+full clock: `lab-runs/2026-09-28-static-batch/real_pp1.jsonl`, node0). Script
+and outputs: `lab-runs/2026-10-01-degraded-gpu-sim/` (`predict.py`,
+`results.json`, `summary.md`). Calibration: the recalibrated scalar profile
+of entry 17 (`calibration_profile-pp1-recalibrated.toml`, 88 TFLOPs peak), no
+refit of any calibration scalar. Model: docs/features/degraded_gpu_model.md.
+
+**Fitted on the 1200 MHz data** (there is no other degraded clock):
+`sustained_sm_clock_mhz = 1834` (1200 x median prefill slowdown 1.528x) and
+`bandwidth_knee_sm_clock_mhz = 1564` (1200 x median decode-step slowdown
+1.303x). Both are measured/measured ratios; the simulator is not tuned.
+Leave-one-shape-out refits both clocks on four shapes (sustained 1831-1839,
+knee 1539-1585 MHz) and predicts the fifth.
+
+| variant | prefill | decode step | end-to-end |
+|---|---:|---:|---:|
+| full clock, no lock (reference) | 4.3% | 0.5% | 1.5% |
+| naive: peak x 1200/2100 (entry 17) | 13.8% | 22.8% | 9.6% |
+| sustained clock only, no knee | 4.8% | 22.8% | 14.0% |
+| clock model, in-sample | 4.8% | 3.0% | 2.6% |
+| clock model, LOO | 4.9% | 4.3% | 3.2% |
+| clock model + efficiency curve profile | 1.1% | 3.0% | 2.6% |
+
+| shape | naive prefill / decode | clock model prefill / decode | LOO prefill / decode |
+|---|---|---|---|
+| 1x512 | -3.9% / -20.0% | -16.1% / +4.3% | -16.2% / +5.8% |
+| 1x2048 | +13.7% / -19.6% | -0.7% / +4.8% | -0.8% / +6.2% |
+| 8x512 | +14.8% / -25.4% | +0.3% / -2.8% | +0.6% / -4.3% |
+| 8x2048 | +18.0% / -25.7% | +3.0% / -3.2% | +3.2% / -4.8% |
+| 32x512 | +18.7% / -23.3% | +3.7% / -0.1% | +3.9% / -0.3% |
+
+Findings: (1) one compute factor and one bandwidth factor explain all five
+shapes and all three phases to within a few percent, held-out included, so
+the two-factor structure is right for this card at this clock. (2) The 1x512
+prefill residual (-16%) is the full-clock short-prompt GEMM under-prediction
+carried over (-15% at full clock with the scalar profile); with the
+efficiency curve it is -1.6%. (3) Decode slowdown depends on batch (1.26x at
+batch 1, 1.34x at batch 8, 1.30x at batch 32); a single bandwidth factor
+leaves +4-5% at batch 1 and -3% at batch 8. (4) An unlocked clock model
+reproduces the no-clock predictions bit for bit (checked by the script).
+
+Limits: two clocks (full and 1200 MHz) on one GPU are thin evidence. The
+knee form, the power-law alternative and a linear bandwidth-vs-clock line all
+pass through these two points; nothing here tests a lock between 1200 MHz and
+the knee, below 1200 MHz, another GPU, or a locked GPU in a multi-GPU
+placement. The full-clock baseline is node0 and the locked run node2, so
+card-to-card variance is folded into both fitted clocks. Next measurement: a
+second lock (e.g. 900 and 1500 MHz) on the same node to test the knee.
 
 ## Untested regimes
 

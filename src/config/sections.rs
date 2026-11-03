@@ -289,6 +289,12 @@ pub(super) struct NodeSection {
     pub(super) peak_f16_tflops: Option<f64>,
     #[serde(alias = "f8_tflops", alias = "fp8_tflops", alias = "peak_fp8_tflops")]
     pub(super) peak_f8_tflops: Option<f64>,
+    #[serde(alias = "sustained_clock_mhz")]
+    pub(super) sustained_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "bandwidth_knee_clock_mhz")]
+    pub(super) bandwidth_knee_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "locked_clock_mhz", alias = "locked_graphics_clock_mhz")]
+    pub(super) locked_sm_clock_mhz: Option<f64>,
     #[serde(alias = "gpu_label", alias = "gpu_tag")]
     pub(super) gpu_tag: Option<String>,
     #[serde(alias = "gpu_labels", alias = "gpu_tags")]
@@ -325,6 +331,12 @@ pub(super) struct NodeGpuSection {
     pub(super) peak_f16_tflops: Option<f64>,
     #[serde(alias = "f8_tflops", alias = "fp8_tflops", alias = "peak_fp8_tflops")]
     pub(super) peak_f8_tflops: Option<f64>,
+    #[serde(alias = "sustained_clock_mhz")]
+    pub(super) sustained_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "bandwidth_knee_clock_mhz")]
+    pub(super) bandwidth_knee_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "locked_clock_mhz", alias = "locked_graphics_clock_mhz")]
+    pub(super) locked_sm_clock_mhz: Option<f64>,
     #[serde(alias = "label", alias = "gpu_label", alias = "tag", alias = "gpu_tag")]
     pub(super) gpu_tag: Option<String>,
     #[serde(
@@ -361,6 +373,12 @@ pub(super) struct GpuProfileOverrideSection {
     pub(super) peak_f16_tflops: Option<f64>,
     #[serde(alias = "f8_tflops", alias = "fp8_tflops", alias = "peak_fp8_tflops")]
     pub(super) peak_f8_tflops: Option<f64>,
+    #[serde(alias = "sustained_clock_mhz")]
+    pub(super) sustained_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "bandwidth_knee_clock_mhz")]
+    pub(super) bandwidth_knee_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "locked_clock_mhz", alias = "locked_graphics_clock_mhz")]
+    pub(super) locked_sm_clock_mhz: Option<f64>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -413,6 +431,12 @@ pub(super) struct NodeGroupSection {
     pub(super) peak_f16_tflops: Option<f64>,
     #[serde(alias = "f8_tflops", alias = "fp8_tflops", alias = "peak_fp8_tflops")]
     pub(super) peak_f8_tflops: Option<f64>,
+    #[serde(alias = "sustained_clock_mhz")]
+    pub(super) sustained_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "bandwidth_knee_clock_mhz")]
+    pub(super) bandwidth_knee_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "locked_clock_mhz", alias = "locked_graphics_clock_mhz")]
+    pub(super) locked_sm_clock_mhz: Option<f64>,
     #[serde(alias = "gpu_label", alias = "gpu_tag")]
     pub(super) gpu_tag: Option<String>,
     #[serde(alias = "gpu_labels", alias = "gpu_tags")]

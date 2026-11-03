@@ -30,7 +30,14 @@ into `docs/validation_ledger.md` with their raw data under `lab-runs/`.
 5. **Peak FLOPs come from the clock you actually run at.** The 3090's
    datasheet peak assumes a lower boost clock than the card sustains; read
    `nvidia-smi --query-gpu=clocks.max.sm` (and the locked clock, if the
-   cluster pins clocks) and set `peak_f16_tflops` accordingly.
+   cluster pins clocks) and set `peak_f16_tflops` accordingly. The maximum
+   clock is not the sustained one: under prefill the 3090 held ~1835 MHz,
+   not its 2100 MHz maximum, and an SM-clock lock also slows memory-bound
+   decode (1.26-1.34x at 1200 MHz with memory clocks untouched). Log
+   `clocks.sm` during each run, declare `sustained_sm_clock_mhz` (and any
+   lock as `locked_sm_clock_mhz`, ledger 22), and if clocks matter for the
+   H100 cluster, run the static shapes at two locked clocks so the bandwidth
+   knee (`bandwidth_knee_sm_clock_mhz`) is fitted from more than one point.
 6. **Compute efficiency depends on tokens per step.** It rose from ~0.66 at
    256 tokens to ~0.89 at 1k+ on the 3090; fit the efficiency curve from a
    prefill token sweep rather than one scalar.

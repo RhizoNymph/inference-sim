@@ -82,6 +82,7 @@ impl Solver {
         placement: &RankPlacement,
         groups: &ParallelGroups,
         compute_latency_s: f64,
+        stage_latency_scales: &[f64],
         calibration: SimulationCalibration,
     ) -> (Vec<SimOperation>, Vec<PricedCollective>) {
         let mut operations = Vec::new();
@@ -168,7 +169,12 @@ impl Solver {
             operations.push(SimOperation {
                 name: format!("layer {layer_idx} compute"),
                 kind: SimOperationKind::Compute,
-                duration_s: compute_per_layer_s,
+                // Locked GPU clocks slow only their own stage (clock_degradation.rs).
+                duration_s: compute_per_layer_s
+                    * stage_latency_scales
+                        .get(layer_stage as usize)
+                        .copied()
+                        .unwrap_or(1.0),
                 resources: stage_plan.compute_resources.clone(),
                 dependencies: compute_dependencies,
             });

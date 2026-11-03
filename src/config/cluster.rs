@@ -47,6 +47,11 @@ pub(super) fn parse_custom_cluster(file: ClusterFile) -> Result<Cluster, ConfigE
                 hbm_bandwidth_gb_s: section.hbm_bandwidth_gb_s,
                 peak_f16_tflops: section.peak_f16_tflops,
                 peak_f8_tflops: section.peak_f8_tflops,
+                clock: GpuClockOverrideConfig {
+                    sustained_sm_clock_mhz: section.sustained_sm_clock_mhz,
+                    bandwidth_knee_sm_clock_mhz: section.bandwidth_knee_sm_clock_mhz,
+                    locked_sm_clock_mhz: section.locked_sm_clock_mhz,
+                },
             },
             section.gpu_tag,
             section.gpu_tags,
@@ -92,6 +97,11 @@ pub(super) fn parse_custom_cluster(file: ClusterFile) -> Result<Cluster, ConfigE
                     hbm_bandwidth_gb_s: section.hbm_bandwidth_gb_s,
                     peak_f16_tflops: section.peak_f16_tflops,
                     peak_f8_tflops: section.peak_f8_tflops,
+                    clock: GpuClockOverrideConfig {
+                        sustained_sm_clock_mhz: section.sustained_sm_clock_mhz,
+                        bandwidth_knee_sm_clock_mhz: section.bandwidth_knee_sm_clock_mhz,
+                        locked_sm_clock_mhz: section.locked_sm_clock_mhz,
+                    },
                 },
                 section.gpu_tag.clone(),
                 section.gpu_tags.clone(),
@@ -226,6 +236,7 @@ pub(super) struct GpuProfileOverrideConfig {
     hbm_bandwidth_gb_s: Option<f64>,
     peak_f16_tflops: Option<f64>,
     peak_f8_tflops: Option<f64>,
+    clock: GpuClockOverrideConfig,
 }
 
 impl GpuProfileOverrideConfig {
@@ -234,6 +245,7 @@ impl GpuProfileOverrideConfig {
             || self.hbm_bandwidth_gb_s.is_some()
             || self.peak_f16_tflops.is_some()
             || self.peak_f8_tflops.is_some()
+            || self.clock.has_overrides()
     }
 }
 
@@ -341,6 +353,11 @@ pub(super) fn explicit_node_gpus(
                 hbm_bandwidth_gb_s: section.hbm_bandwidth_gb_s,
                 peak_f16_tflops: section.peak_f16_tflops,
                 peak_f8_tflops: section.peak_f8_tflops,
+                clock: GpuClockOverrideConfig {
+                    sustained_sm_clock_mhz: section.sustained_sm_clock_mhz,
+                    bandwidth_knee_sm_clock_mhz: section.bandwidth_knee_sm_clock_mhz,
+                    locked_sm_clock_mhz: section.locked_sm_clock_mhz,
+                },
             },
         )?;
         let labels = parse_gpu_labels(
@@ -419,6 +436,7 @@ pub(super) fn gpu_profile_override_from_base_config(
     if let Some(peak_f8_tflops) = config.peak_f8_tflops {
         profile.peak_f8_flops = Some(peak_f8_tflops);
     }
+    profile.clock = merge_gpu_clock(name, profile.clock, &config.clock)?;
 
     Ok(Some(profile))
 }
@@ -460,6 +478,11 @@ pub(super) fn merge_gpu_profile_overrides(
             hbm_bandwidth_gb_s: entry.hbm_bandwidth_gb_s,
             peak_f16_tflops: entry.peak_f16_tflops,
             peak_f8_tflops: entry.peak_f8_tflops,
+            clock: GpuClockOverrideConfig {
+                sustained_sm_clock_mhz: entry.sustained_sm_clock_mhz,
+                bandwidth_knee_sm_clock_mhz: entry.bandwidth_knee_sm_clock_mhz,
+                locked_sm_clock_mhz: entry.locked_sm_clock_mhz,
+            },
         };
         if !config.has_overrides() {
             return Err(ConfigError::new(format!(
