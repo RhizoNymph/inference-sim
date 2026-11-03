@@ -43,9 +43,13 @@ phase = "end_to_end"
 
 # 3090 constants refit 2026-09-30 (docs/validation_ledger.md entry 11), with
 # the cluster's 88 TFLOPs peak. Nothing is fitted to disaggregated data.
+# kv_read_bandwidth_scale: paged KV reads run at about half the weight-read
+# bandwidth on node1 (the decode node here), fitted 2026-10-01 from the node1
+# decode batch sweep and long-context runs (validation ledger entry 20).
 [calibration]
 compute_efficiency = 0.8494
 decode_memory_bandwidth_scale = 0.8383
+kv_read_bandwidth_scale = 0.468725
 
 [search]
 tensor_ranks = [1]

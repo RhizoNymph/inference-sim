@@ -63,6 +63,14 @@ pub(super) fn write_calibration<W: Write>(
         "{indent}  \"decode_memory_bandwidth_scale\": {},",
         json_f64(calibration.decode_memory_bandwidth_scale)
     )?;
+    match calibration.kv_read_bandwidth_scale {
+        Some(scale) => writeln!(
+            writer,
+            "{indent}  \"kv_read_bandwidth_scale\": {},",
+            json_f64(scale)
+        )?,
+        None => writeln!(writer, "{indent}  \"kv_read_bandwidth_scale\": null,")?,
+    }
     writeln!(
         writer,
         "{indent}  \"collective_latency_scale\": {},",

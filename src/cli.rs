@@ -907,4 +907,6 @@ fn comma(trailing_comma: bool) -> &'static str {
 #[cfg(test)]
 mod curve_scenario_tests;
 #[cfg(test)]
+mod kv_read_scenario_tests;
+#[cfg(test)]
 mod tests;
