@@ -1,0 +1,401 @@
+{
+  "record": "lab.validation.v1",
+  "tag": "recal-new",
+  "mode": "static-batch",
+  "label": "recal-new: qwen7b-decode-batch-sweep under profile-calibration_profile-node1-nov",
+  "calibration": "profile-calibration_profile-node1-nov",
+  "summary": {
+    "prefill_mean_abs_pct": 9.607884393983367,
+    "decode_step_mean_abs_pct": 23.686152417348836,
+    "end_to_end_mean_abs_pct": 18.08270318413719,
+    "end_to_end_max_abs_pct": 43.6862776289834,
+    "count": 16
+  },
+  "rows": [
+    {
+      "shape": "1x512",
+      "measured": {
+        "prefill_ms": 72.799,
+        "decode_ms_per_step": 18.4646,
+        "end_to_end_ms": 2794.826
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 1,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 102.492,
+        "decode_ms": 2386.6846,
+        "decode_ms_per_step": 18.64597,
+        "end_to_end_ms": 2489.1766,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 40.7876220827209,
+        "decode_step": 0.9822757550258281,
+        "end_to_end": -10.936260003306106
+      }
+    },
+    {
+      "shape": "2x512",
+      "measured": {
+        "prefill_ms": 208.544,
+        "decode_ms_per_step": 20.5086,
+        "end_to_end_ms": 2753.777
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 2,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 129.5801,
+        "decode_ms": 2391.854,
+        "decode_ms_per_step": 18.68636,
+        "end_to_end_ms": 2521.4341,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": -37.86436291621912,
+        "decode_step": -8.885251644432104,
+        "end_to_end": -8.437243429660429
+      }
+    },
+    {
+      "shape": "3x512",
+      "measured": {
+        "prefill_ms": 237.279,
+        "decode_ms_per_step": 20.4483,
+        "end_to_end_ms": 2916.412
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 3,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 192.7938,
+        "decode_ms": 2397.0234,
+        "decode_ms_per_step": 18.72675,
+        "end_to_end_ms": 2589.8172,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": -18.74807462944466,
+        "decode_step": -8.419060394079208,
+        "end_to_end": -11.198515470379343
+      }
+    },
+    {
+      "shape": "4x512",
+      "measured": {
+        "prefill_ms": 306.979,
+        "decode_ms_per_step": 18.767,
+        "end_to_end_ms": 2954.94
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 4,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 255.5875,
+        "decode_ms": 2402.1928,
+        "decode_ms_per_step": 18.76713,
+        "end_to_end_ms": 2657.7803,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": -16.741032122718487,
+        "decode_step": 0.000699449166093488,
+        "end_to_end": -10.056368352656904
+      }
+    },
+    {
+      "shape": "6x512",
+      "measured": {
+        "prefill_ms": 422.949,
+        "decode_ms_per_step": 20.4751,
+        "end_to_end_ms": 3146.696
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 6,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 380.1695,
+        "decode_ms": 2412.5316,
+        "decode_ms_per_step": 18.8479,
+        "end_to_end_ms": 2792.7011,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": -10.114577644113126,
+        "decode_step": -7.947198021926634,
+        "end_to_end": -11.249732671983557
+      }
+    },
+    {
+      "shape": "8x512",
+      "measured": {
+        "prefill_ms": 514.856,
+        "decode_ms_per_step": 21.9063,
+        "end_to_end_ms": 3269.727
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 8,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 503.8975,
+        "decode_ms": 2422.8704,
+        "decode_ms_per_step": 18.92868,
+        "end_to_end_ms": 2926.7679,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": -2.1284623273303556,
+        "decode_step": -13.592549895749181,
+        "end_to_end": -10.488921093412385
+      }
+    },
+    {
+      "shape": "12x512",
+      "measured": {
+        "prefill_ms": 826.423,
+        "decode_ms_per_step": 21.8837,
+        "end_to_end_ms": 3818.511
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 12,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 755.8462,
+        "decode_ms": 2443.5481,
+        "decode_ms_per_step": 19.09022,
+        "end_to_end_ms": 3199.3943,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": -8.540030347654893,
+        "decode_step": -12.765120986167787,
+        "end_to_end": -16.213563742516392
+      }
+    },
+    {
+      "shape": "16x512",
+      "measured": {
+        "prefill_ms": 997.672,
+        "decode_ms_per_step": 22.9203,
+        "end_to_end_ms": 4081.767
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 16,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 1007.795,
+        "decode_ms": 2464.2257,
+        "decode_ms_per_step": 19.25176,
+        "end_to_end_ms": 3472.0207,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 1.0146588257463391,
+        "decode_step": -16.005622983501535,
+        "end_to_end": -14.938293734061736
+      }
+    },
+    {
+      "shape": "20x512",
+      "measured": {
+        "prefill_ms": 1231.618,
+        "decode_ms_per_step": 22.7859,
+        "end_to_end_ms": 4227.183
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 20,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 1259.7437,
+        "decode_ms": 2484.9033,
+        "decode_ms_per_step": 19.41331,
+        "end_to_end_ms": 3744.647,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 2.283639001703462,
+        "decode_step": -14.80122719806986,
+        "end_to_end": -11.415071762921075
+      }
+    },
+    {
+      "shape": "24x512",
+      "measured": {
+        "prefill_ms": 1474.148,
+        "decode_ms_per_step": 23.8331,
+        "end_to_end_ms": 4509.214
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 24,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 1511.6925,
+        "decode_ms": 2505.5809,
+        "decode_ms_per_step": 19.57485,
+        "end_to_end_ms": 4017.2734,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 2.5468576425162186,
+        "decode_step": -17.86695331938565,
+        "end_to_end": -10.909675233865592
+      }
+    },
+    {
+      "shape": "28x512",
+      "measured": {
+        "prefill_ms": 1725.73,
+        "decode_ms_per_step": 26.3279,
+        "end_to_end_ms": 4998.595
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 28,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 1763.6412,
+        "decode_ms": 2526.2586,
+        "decode_ms_per_step": 19.7364,
+        "end_to_end_ms": 4289.8998,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 2.1968206498119587,
+        "decode_step": -25.036196896875563,
+        "end_to_end": -14.177888626704103
+      }
+    },
+    {
+      "shape": "32x512",
+      "measured": {
+        "prefill_ms": 1976.078,
+        "decode_ms_per_step": 26.4362,
+        "end_to_end_ms": 5269.273
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 32,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 2015.5899,
+        "decode_ms": 2546.9362,
+        "decode_ms_per_step": 19.89794,
+        "end_to_end_ms": 4562.5261,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 1.999512873479696,
+        "decode_step": -24.732226667410593,
+        "end_to_end": -13.412606653707266
+      }
+    },
+    {
+      "shape": "40x512",
+      "measured": {
+        "prefill_ms": 2453.473,
+        "decode_ms_per_step": 34.2808,
+        "end_to_end_ms": 6638.218
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 40,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 2519.4874,
+        "decode_ms": 2588.2915,
+        "decode_ms_per_step": 20.22103,
+        "end_to_end_ms": 5107.7789,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 2.6906519044635995,
+        "decode_step": -41.01354972207474,
+        "end_to_end": -23.05496927036744
+      }
+    },
+    {
+      "shape": "48x512",
+      "measured": {
+        "prefill_ms": 2947.802,
+        "decode_ms_per_step": 55.4667,
+        "end_to_end_ms": 10038.462
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 48,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 3023.3849,
+        "decode_ms": 2629.6467,
+        "decode_ms_per_step": 20.54412,
+        "end_to_end_ms": 5653.0316,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 2.564042666366322,
+        "decode_step": -62.96135338860974,
+        "end_to_end": -43.6862776289834
+      }
+    },
+    {
+      "shape": "56x512",
+      "measured": {
+        "prefill_ms": 3462.371,
+        "decode_ms_per_step": 54.9953,
+        "end_to_end_ms": 10476.93
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 56,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 3527.2824,
+        "decode_ms": 2671.002,
+        "decode_ms_per_step": 20.8672,
+        "end_to_end_ms": 6198.2844,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 1.8747668866219096,
+        "decode_step": -62.05638854024799,
+        "end_to_end": -40.83873460068933
+      }
+    },
+    {
+      "shape": "64x512",
+      "measured": {
+        "prefill_ms": 3966.485,
+        "decode_ms_per_step": 55.6362,
+        "end_to_end_ms": 10931.175
+      },
+      "simulated": {
+        "record": "lab.sim_static.v1",
+        "batch": 64,
+        "prompt": 512,
+        "decode": 128,
+        "prefill_ms": 4031.1799,
+        "decode_ms": 2712.3572,
+        "decode_ms_per_step": 21.19029,
+        "end_to_end_ms": 6743.5371,
+        "feasible": true
+      },
+      "error_pct": {
+        "prefill": 1.6310377828228249,
+        "decode_step": -61.91276381485886,
+        "end_to_end": -38.30912867098001
+      }
+    }
+  ],
+  "spec": "tools/lab/specs/rtx3090_qwen7b_decode_batch_sweep.toml"
+}

@@ -1,0 +1,74 @@
+{
+  "record": "lab.efficiency_curve.v1",
+  "tag": "node1-nov",
+  "spec": "tools/lab/specs/rtx3090_qwen7b_prefill_token_sweep_node1.toml",
+  "measured": "lab-runs/2026-11-03-qwen7b-prefill-token-sweep-node1/measured.jsonl",
+  "base_profile": "lab-runs/2026-11-03-qwen7b-static-pp1-node1/calibration_profile-node1-nov-gemm-peak.toml",
+  "decode_memory_bandwidth_scale": 0.874542,
+  "curve": {
+    "memory_bound_margin": 0.7,
+    "points": [
+      {
+        "tokens": 128,
+        "efficiency": 0.347901,
+        "shapes": [
+          "1x128"
+        ]
+      },
+      {
+        "tokens": 256,
+        "efficiency": 0.404822,
+        "shapes": [
+          "1x256"
+        ]
+      },
+      {
+        "tokens": 512,
+        "efficiency": 0.520152,
+        "shapes": [
+          "1x512"
+        ]
+      },
+      {
+        "tokens": 1024,
+        "efficiency": 0.822833,
+        "shapes": [
+          "1x1024"
+        ]
+      },
+      {
+        "tokens": 2048,
+        "efficiency": 0.834335,
+        "shapes": [
+          "1x2048"
+        ]
+      },
+      {
+        "tokens": 4096,
+        "efficiency": 0.846385,
+        "shapes": [
+          "1x4096"
+        ]
+      }
+    ],
+    "skipped": [
+      {
+        "shape": "1x16",
+        "tokens": 16,
+        "reason": "memory_bound"
+      },
+      {
+        "shape": "1x32",
+        "tokens": 32,
+        "reason": "memory_bound"
+      },
+      {
+        "shape": "1x64",
+        "tokens": 64,
+        "reason": "memory_bound"
+      }
+    ]
+  },
+  "frontend": null,
+  "profile": "lab-runs/2026-11-03-qwen7b-prefill-token-sweep-node1/calibration_profile-node1-nov.toml"
+}

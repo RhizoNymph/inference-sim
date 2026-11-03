@@ -1,0 +1,2 @@
+{"record": "lab.static_batch.v1", "batch": 1, "prompt": 4096, "decode": 128, "tp": 1, "pp": 1, "prefill_ms": 521.587, "decode_ms": 2404.299, "decode_ms_per_step": 18.7836, "end_to_end_ms": 3309.203, "prefill_spread_ms": 6.078, "e2e_spread_ms": 299.246, "iters": 5}
+{"record": "lab.static_batch.v1", "batch": 1, "prompt": 8192, "decode": 128, "tp": 1, "pp": 1, "prefill_ms": 1117.587, "decode_ms": 2487.192, "decode_ms_per_step": 19.4312, "end_to_end_ms": 3802.406, "prefill_spread_ms": 1.605, "e2e_spread_ms": 379.659, "iters": 5}
