@@ -22,9 +22,11 @@
 //! - the prefill step that completes the prompt samples the prefill
 //!   instance's token; the request leaves the prefill worker's running set
 //!   (its sequence slot frees) but its prompt KV stays there;
-//! - it joins the decode worker's waiting queue at that instant; admission
-//!   there (in queue order, when its decode KV fits) reserves the decode KV and
-//!   starts the KV pull on the FIFO link queues; it takes no token budget;
+//! - it joins the decode worker's waiting queue after the handoff delay (the
+//!   proxy hop; zero unless calibrated); admission there (in queue order, when
+//!   its decode KV fits) reserves the decode KV and starts the KV pull on the
+//!   transfer network (FIFO link queues or fair-shared links,
+//!   `HandoffModel::link_sharing`); it takes no token budget;
 //! - when the pull completes, the prefill worker's KV is released and the
 //!   request becomes runnable on the decode worker at its next step: under
 //!   `FirstTokenSource::DecodeInstance` it first recomputes its last prompt
@@ -44,23 +46,30 @@
 //! disaggregated request preempted on its decode worker recomputes there; it
 //! is never pulled again.
 //!
-//! Workers interact only through shared capacity limits, handoffs, and link
-//! queues, so the loop always advances the worker with the earliest clock;
-//! transfers are therefore reserved in non-decreasing time order.
+//! Workers interact only through shared capacity limits, handoffs, and the
+//! transfer network, so the loop always advances the worker with the earliest
+//! clock; transfers therefore start in non-decreasing time order. Before a
+//! worker acts at time `t`, the network is advanced to `t`: every transfer
+//! finishing by then is recorded and frees its prefill KV at its exact finish
+//! time. A pull's completion time is the network's projection (exact unless
+//! another transfer starts first, in which case it is re-read), so a worker
+//! sleeping on pulls wakes at the right time under fair sharing too.
 
 mod budget;
 mod paged;
+#[cfg(test)]
+mod test_run;
 
 use std::collections::VecDeque;
 
 use crate::solver::StepWork;
 
 use super::capacity::{CapacityLedger, HoldingKey};
-use super::transfer::LinkQueues;
+use super::transfer::{KvNetwork, TransferWindow};
 use super::types::{
     ChunkPass, ChunkRecord, EngineJob, EngineLimits, EngineOutcome, EngineRequest, EngineRequestId,
-    EngineStep, FirstTokenSource, HandoffRecord, KvAllocationMode, RequestFate, RequestTimeline,
-    TokenRecord, WorkerId, WorkerStepCost,
+    EngineStep, FirstTokenSource, HandoffModel, HandoffRecord, KvAllocationMode, RequestFate,
+    RequestTimeline, TokenRecord, WorkerId, WorkerStepCost,
 };
 use budget::{StepBudget, add_chunk};
 use paged::KvGrant;
@@ -141,9 +150,10 @@ enum Phase {
     },
     /// Disaggregated: prefill done, waiting for decode admission.
     AwaitingDecode,
-    /// Disaggregated: admitted on decode, KV pull completes at `ready_s`.
+    /// Disaggregated: admitted on decode, KV pull in flight (`None`) or
+    /// completed at `arrived_s`.
     Pulling {
-        ready_s: f64,
+        arrived_s: Option<f64>,
     },
     /// Disaggregated, `DecodeInstance`: recomputes the last prompt token.
     Recomputing,
@@ -201,24 +211,37 @@ pub(in crate::serving) fn run_engine(
 }
 
 /// Simulates colocated and disaggregated jobs together with KV reserved at
-/// admission.
+/// admission and the default handoff model (FIFO links, no handoff delay).
 #[cfg(test)]
 pub(in crate::serving) fn run_engine_jobs(
     jobs: &[EngineJob],
     limits: &EngineLimits,
     cost: &mut impl WorkerStepCost,
 ) -> Result<EngineOutcome, EngineError> {
-    run_engine_jobs_with(jobs, limits, KvAllocationMode::ReservedAtAdmission, cost)
+    run_engine_jobs_configured(
+        jobs,
+        limits,
+        KvAllocationMode::ReservedAtAdmission,
+        HandoffModel::default(),
+        cost,
+    )
 }
 
-/// Simulates colocated and disaggregated jobs together under `kv`.
-pub(in crate::serving) fn run_engine_jobs_with(
+#[cfg(test)]
+pub(in crate::serving) use test_run::run_engine_jobs_with;
+
+/// Simulates colocated and disaggregated jobs together: `kv` sets how KV
+/// blocks are allocated (reserved at admission or paged with recompute
+/// preemption), `handoff` how KV pulls share links and the delay before a
+/// handoff reaches decode.
+pub(in crate::serving) fn run_engine_jobs_configured(
     jobs: &[EngineJob],
     limits: &EngineLimits,
     kv: KvAllocationMode,
+    handoff: HandoffModel,
     cost: &mut impl WorkerStepCost,
 ) -> Result<EngineOutcome, EngineError> {
-    let mut engine = Engine::new(jobs, limits, kv)?;
+    let mut engine = Engine::new(jobs, limits, kv, handoff)?;
     engine.run(cost);
     Ok(EngineOutcome {
         steps: engine.steps,
@@ -235,7 +258,8 @@ struct Engine<'a> {
     timelines: Vec<RequestTimeline>,
     steps: Vec<EngineStep>,
     ledger: CapacityLedger,
-    links: LinkQueues,
+    links: KvNetwork,
+    handoff_delay_s: f64,
 }
 
 impl<'a> Engine<'a> {
@@ -243,6 +267,7 @@ impl<'a> Engine<'a> {
         jobs: &'a [EngineJob],
         limits: &'a EngineLimits,
         kv: KvAllocationMode,
+        handoff: HandoffModel,
     ) -> Result<Self, EngineError> {
         let mut workers = vec![WorkerQueue::default(); limits.workers.len()];
         let mut order = (0..jobs.len()).collect::<Vec<_>>();
@@ -286,7 +311,8 @@ impl<'a> Engine<'a> {
             timelines: vec![RequestTimeline::default(); jobs.len()],
             steps: Vec::new(),
             ledger: CapacityLedger::new(limits, jobs.len()),
-            links: LinkQueues::new(0),
+            links: KvNetwork::new(handoff.link_sharing),
+            handoff_delay_s: handoff.delay.seconds(),
         })
     }
 
@@ -296,6 +322,7 @@ impl<'a> Engine<'a> {
 
     fn run(&mut self, cost: &mut impl WorkerStepCost) {
         while let Some((worker, now_s)) = self.next_worker() {
+            self.complete_transfers(now_s);
             self.ledger.apply_releases_until(now_s);
             self.workers[worker].clock_s = now_s;
             self.enqueue_arrivals(worker, now_s);
@@ -305,6 +332,35 @@ impl<'a> Engine<'a> {
                 None => self.wait_when_blocked(worker, now_s),
             }
         }
+        // Pulls of requests cancelled mid-transfer still finish on the
+        // network; record their windows.
+        for (id, window) in self.links.drain() {
+            self.finish_pull(id, window);
+        }
+    }
+
+    /// Advances the transfer network to `now_s` and records every pull that
+    /// finished by then.
+    fn complete_transfers(&mut self, now_s: f64) {
+        self.links.advance_to(now_s);
+        for (id, window) in self.links.take_completed() {
+            self.finish_pull(id, window);
+        }
+    }
+
+    /// The prefill worker frees the prompt KV once the decode side has it;
+    /// the request becomes runnable at its decode worker's next step.
+    fn finish_pull(&mut self, id: EngineRequestId, window: TransferWindow) {
+        self.ledger
+            .release_at(HoldingKey::Primary(id), window.finish_s);
+        if self.phases[id] == (Phase::Pulling { arrived_s: None }) {
+            self.phases[id] = Phase::Pulling {
+                arrived_s: Some(window.finish_s),
+            };
+        }
+        if let Some(record) = self.timelines[id].handoff.as_mut() {
+            record.transfer = Some(window);
+        }
     }
 
     /// Earliest time a pull into this worker completes.
@@ -313,7 +369,7 @@ impl<'a> Engine<'a> {
             .running
             .iter()
             .filter_map(|id| match self.phases[*id] {
-                Phase::Pulling { ready_s } => Some(ready_s),
+                Phase::Pulling { arrived_s } => arrived_s.or_else(|| self.links.finish_s(*id)),
                 _ => None,
             })
             .min_by(f64::total_cmp)
@@ -630,10 +686,13 @@ impl<'a> Engine<'a> {
     fn promote_pulled(&mut self, worker: WorkerId, now_s: f64) {
         for index in 0..self.workers[worker].running.len() {
             let id = self.workers[worker].running[index];
-            let Phase::Pulling { ready_s } = self.phases[id] else {
+            let Phase::Pulling {
+                arrived_s: Some(arrived_s),
+            } = self.phases[id]
+            else {
                 continue;
             };
-            if ready_s > now_s + TIME_EPSILON_S {
+            if arrived_s > now_s + TIME_EPSILON_S {
                 continue;
             }
             let first_token = self.jobs[id]
@@ -661,16 +720,10 @@ impl<'a> Engine<'a> {
         self.workers[worker].waiting.remove(0);
         self.ledger
             .allocate_on(HoldingKey::Decode(id), worker, job.request.class, footprint);
-        let window = self.links.reserve(&handoff.plan, now_s, id);
-        // The prefill worker frees the prompt KV once the decode side has it.
-        self.ledger
-            .release_at(HoldingKey::Primary(id), window.finish_s);
-        self.phases[id] = Phase::Pulling {
-            ready_s: window.finish_s,
-        };
+        self.links.start(&handoff.plan, now_s, id);
+        self.phases[id] = Phase::Pulling { arrived_s: None };
         if let Some(record) = self.timelines[id].handoff.as_mut() {
             record.decode_admitted_s = Some(now_s);
-            record.transfer = Some(window);
         }
         self.workers[worker].running.push(id);
         true
@@ -832,7 +885,7 @@ impl<'a> Engine<'a> {
     }
 
     /// Moves a request whose prefill finished at `at_s` to its decode
-    /// worker's queue.
+    /// worker's queue, which it joins after the handoff delay.
     fn hand_off(&mut self, worker: WorkerId, id: EngineRequestId, at_s: f64) {
         let Some(handoff) = self.jobs[id].handoff() else {
             return;
@@ -843,9 +896,10 @@ impl<'a> Engine<'a> {
             .retain(|running| *running != id);
         self.ledger
             .release_sequences_at(HoldingKey::Primary(id), at_s);
+        let queued_s = at_s + self.handoff_delay_s;
         self.timelines[id].handoff = Some(HandoffRecord {
             prefill_finish_s: at_s,
-            decode_queued_s: at_s,
+            decode_queued_s: queued_s,
             ..HandoffRecord::default()
         });
         let request_idx = self.request(id).request_idx;
@@ -853,11 +907,11 @@ impl<'a> Engine<'a> {
         let pending = &mut self.workers[handoff.decode_worker].pending;
         let position = pending.partition_point(|(time_s, queued)| {
             time_s
-                .total_cmp(&at_s)
+                .total_cmp(&queued_s)
                 .then_with(|| jobs[*queued].request.request_idx.cmp(&request_idx))
                 != std::cmp::Ordering::Greater
         });
-        pending.insert(position, (at_s, id));
+        pending.insert(position, (queued_s, id));
     }
 
     /// Nothing could run: the worker is idle (its next arrival wakes it), its
@@ -866,13 +920,14 @@ impl<'a> Engine<'a> {
     /// release, pull completion, waiting deadline, or step elsewhere; with
     /// none left, its waiting requests can never be admitted.
     fn wait_when_blocked(&mut self, worker: WorkerId, now_s: f64) {
-        let next_pull_s = self.next_pull_ready_s(worker);
+        // An idle worker, or one whose running requests are all pulling,
+        // keeps its clock: `next_event_s` wakes it at its next arrival
+        // (including a handoff that lands mid-pull) or pull completion, read
+        // from the network at that point.
         if self.workers[worker].waiting.is_empty() {
-            if let Some(ready_s) = next_pull_s {
-                self.workers[worker].clock_s = ready_s.max(now_s + BLOCKED_WAKE_NUDGE_S);
-            }
             return;
         }
+        let next_pull_s = self.next_pull_ready_s(worker);
         let next_arrival_s = self.workers[worker]
             .pending
             .front()
@@ -890,6 +945,8 @@ impl<'a> Engine<'a> {
         let wake_s = [
             next_arrival_s,
             self.ledger.next_release_after(now_s),
+            // A finishing pull frees its prefill KV.
+            self.links.next_finish_after(now_s),
             next_deadline_s,
             other_worker_s,
             next_pull_s,

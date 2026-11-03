@@ -44,9 +44,17 @@ constants an H100 run can fit.
       Disaggregated prefill/decode across nodes (1 prefill + 1-2 decode)
       with a vLLM KV connector, to validate the KV-transfer model for the
       first time.
-      - [ ] fair-share link bandwidth across concurrent KV pulls (burst:
-        per-transfer 0.1 s -> 2.8 s at ~300 MB/s aggregate).
-      - [ ] proxy hops (~60 ms remaining low-load TTFT gap).
+      - [x] [done 2026-10-20, ledger 21: `calibration.kv_link_sharing =
+        "fair_share"`, max-min fair rates per directed resource; pull time
+        under load now tracks NIXL (rate 8: 242 vs 263 ms); burst still
+        -46% because vLLM keeps far more pulls in flight and NIXL aggregate
+        degrades, not a sharing problem] fair-share link bandwidth across
+        concurrent KV pulls (burst: per-transfer 0.1 s -> 2.8 s at ~300 MB/s
+        aggregate).
+      - [x] [done 2026-10-20, ledger 21: `calibration.
+        disaggregation_proxy_latency_us`, 44 ms fitted on rates 1-4 after
+        removing the ~20 ms KV-pull underpricing; TTFT p50 -6..-9% at rates
+        1-4] proxy hops (~60 ms remaining low-load TTFT gap).
 - [x] 4. [done 2026-09-30, uncommitted in staging: tools/lab, first real
       runs succeeded] Turn-key measurement pipeline: unattended benchmark harness, a fitter
       that emits a complete calibration TOML with holdout stats and feature

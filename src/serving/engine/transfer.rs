@@ -7,18 +7,32 @@
 //! cluster has one for that directed node pair and from the routed
 //! alpha-beta path otherwise (`plan`).
 //!
-//! Contention (`LinkQueues`): every directed route resource (one direction of
-//! a NIC-to-NIC link, a GPU-to-NIC hop, an intra-node fabric hop) is a FIFO
-//! queue. A flow starts when its transfer is ready and every resource on its
-//! route is free, then holds all of them for its uncontended service time.
-//! Concurrent transfers over a shared link therefore serialize, which keeps
-//! the link's aggregate throughput equal to its bandwidth; per-transfer
-//! latency is FIFO rather than fair-share (`kv_transfer_fifo_link_queues`).
+//! Contention between transfers on shared directed route resources (one
+//! direction of a NIC-to-NIC link, a GPU-to-NIC hop, an intra-node fabric
+//! hop) follows `KvLinkSharing` (`network`):
+//!
+//! - `Fifo` (`LinkQueues`): every resource is a FIFO queue. A flow starts
+//!   when its transfer is ready and every resource on its route is free, then
+//!   holds all of them for its uncontended service time, so concurrent
+//!   transfers serialize (`kv_transfer_fifo_link_queues`).
+//! - `FairShare` (`fair_share`): flows start immediately and progress at
+//!   max-min fair rates, recomputed whenever a transfer starts or finishes
+//!   (`kv_transfer_fair_share_links`). Alone, a flow takes exactly its
+//!   uncontended price; a saturated resource moves work at the same
+//!   aggregate rate as under FIFO.
 
+mod fair_share;
+#[cfg(test)]
+mod fair_share_tests;
+mod network;
 mod plan;
 mod shards;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(in crate::serving) use fair_share::{FairShareLinks, max_min_rates};
+pub(in crate::serving) use network::KvNetwork;
 
 #[cfg(test)]
 pub(in crate::serving) use plan::FlowPricing;
@@ -148,8 +162,13 @@ pub(in crate::serving) struct TransferWindow {
     pub(in crate::serving) finish_s: f64,
     pub(in crate::serving) flows: Vec<FlowWindow>,
     /// Earlier transfers (by ticket) that held a resource this one waited for
-    /// or followed on.
+    /// or followed on (FIFO), or that were sharing one of its resources when
+    /// it started (fair share).
     pub(in crate::serving) predecessors: Vec<usize>,
+    /// Fair share only: how much longer the transfer took than its
+    /// uncontended duration because it shared resources (zero under FIFO,
+    /// where contention shows as `start_s - ready_s` instead).
+    pub(in crate::serving) contention_s: f64,
 }
 
 /// FIFO occupancy of every directed route resource.
@@ -220,6 +239,7 @@ impl LinkQueues {
             finish_s: finish_s.max(start_s),
             flows,
             predecessors,
+            contention_s: 0.0,
         }
     }
 
