@@ -5,6 +5,8 @@ use crate::solver::{StepLatency, StepWork};
 
 use super::transfer::{KvTransferPlan, TransferWindow};
 
+use std::num::NonZeroU32;
+
 /// Index of one engine worker (one replica on one routed GPU set).
 pub(in crate::serving) type WorkerId = usize;
 /// Index of a request inside one engine run.
@@ -19,6 +21,42 @@ pub(in crate::serving) struct KvFootprint {
     pub(in crate::serving) sequences: u64,
     pub(in crate::serving) tokens: u64,
     pub(in crate::serving) blocks: u64,
+}
+
+/// How the engine holds KV cache for the requests it runs.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::serving) enum KvAllocationMode {
+    /// Every request reserves its whole `KvFootprint` at admission and keeps
+    /// it until it finishes; KV exhaustion only delays admission.
+    #[default]
+    ReservedAtAdmission,
+    /// vLLM V1 paged allocation with recompute preemption: a request holds
+    /// `ceil(kv_tokens / block_tokens)` blocks per sequence for the tokens it
+    /// has computed, admission needs blocks only for its first chunk, and a
+    /// running request that needs a block when none is free preempts the
+    /// lowest-priority (then most recently admitted) running request, which
+    /// frees all its blocks and recomputes its context as prefill when it is
+    /// readmitted.
+    PagedRecompute { block_tokens: NonZeroU32 },
+}
+
+impl KvAllocationMode {
+    /// KV a holding of `sequences` lockstep sequences of `kv_tokens` tokens
+    /// each occupies under paged allocation (tokens rounded up to blocks).
+    pub(in crate::serving) fn paged_footprint(
+        block_tokens: NonZeroU32,
+        sequences: u32,
+        kv_tokens: u64,
+    ) -> KvFootprint {
+        let block_tokens = u64::from(block_tokens.get());
+        let sequences = u64::from(sequences.max(1));
+        let blocks_per_sequence = kv_tokens.div_ceil(block_tokens);
+        KvFootprint {
+            sequences,
+            tokens: sequences * blocks_per_sequence * block_tokens,
+            blocks: sequences * blocks_per_sequence,
+        }
+    }
 }
 
 /// One request as the engine sees it. Built once from routing and traffic.
@@ -214,6 +252,18 @@ pub(in crate::serving) enum RequestFate {
     Starved { at_s: f64 },
 }
 
+/// Which pass over a request's context a prefill chunk belongs to.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::serving) enum ChunkPass {
+    /// Computing the prompt before the request's first token (including a
+    /// restart after a preemption during prefill).
+    #[default]
+    Prompt,
+    /// Recomputing the prompt and generated tokens after a preemption during
+    /// decode; the pass's last chunk samples the next output token.
+    Resume,
+}
+
 /// Prefill tokens computed for a request in one step.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(in crate::serving) struct ChunkRecord {
@@ -222,6 +272,23 @@ pub(in crate::serving) struct ChunkRecord {
     pub(in crate::serving) finish_s: f64,
     /// Tokens across the request's lockstep sequences.
     pub(in crate::serving) tokens: u64,
+    pub(in crate::serving) pass: ChunkPass,
+}
+
+/// One preemption of a running request under `KvAllocationMode::PagedRecompute`.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(in crate::serving) struct PreemptionRecord {
+    pub(in crate::serving) worker: WorkerId,
+    /// Index the step being planned when the request was preempted will have.
+    pub(in crate::serving) step: usize,
+    pub(in crate::serving) at_s: f64,
+    /// Client output tokens emitted by then.
+    pub(in crate::serving) emitted_tokens: u32,
+    /// Computed KV tokens (across lockstep sequences, excluding prefix-cache
+    /// hits) the preemption discarded; readmission recomputes them.
+    pub(in crate::serving) discarded_tokens: u64,
+    /// When the request was readmitted, if it was.
+    pub(in crate::serving) resumed_s: Option<f64>,
 }
 
 /// One emitted output token. The first token is sampled by the step that
@@ -241,6 +308,8 @@ pub(in crate::serving) struct RequestTimeline {
     pub(in crate::serving) fate: Option<RequestFate>,
     /// Set for disaggregated requests whose prefill completed.
     pub(in crate::serving) handoff: Option<HandoffRecord>,
+    /// Every preemption of this request, in time order.
+    pub(in crate::serving) preemptions: Vec<PreemptionRecord>,
 }
 
 /// One forward pass of one worker.
@@ -259,12 +328,49 @@ pub(in crate::serving) struct EngineStep {
     pub(in crate::serving) first_token_sequences: u64,
     /// Running sequences (prefilling or decoding) after admission this step.
     pub(in crate::serving) running_sequences: u64,
+    /// KV blocks the worker holds while this step runs (after its
+    /// allocations and preemptions).
+    pub(in crate::serving) kv_blocks: u64,
+    /// Requests preempted while planning this step.
+    pub(in crate::serving) preempted_requests: Vec<EngineRequestId>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(in crate::serving) struct EngineOutcome {
     pub(in crate::serving) steps: Vec<EngineStep>,
     pub(in crate::serving) timelines: Vec<RequestTimeline>,
+}
+
+impl EngineOutcome {
+    /// Preemption totals over every request.
+    pub(in crate::serving) fn preemption_stats(&self) -> PreemptionStats {
+        let mut stats = PreemptionStats::default();
+        for timeline in &self.timelines {
+            if timeline.preemptions.is_empty() {
+                continue;
+            }
+            stats.preempted_requests += 1;
+            stats.preemptions += timeline.preemptions.len() as u64;
+            stats.recompute_tokens += timeline
+                .preemptions
+                .iter()
+                .map(|record| record.discarded_tokens)
+                .sum::<u64>();
+        }
+        stats
+    }
+}
+
+/// How much work KV-exhaustion preemption cost one engine run.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::serving) struct PreemptionStats {
+    /// Preemptions (a request preempted twice counts twice).
+    pub(in crate::serving) preemptions: u64,
+    /// Distinct requests preempted at least once.
+    pub(in crate::serving) preempted_requests: u64,
+    /// Computed KV tokens discarded by preemptions, each recomputed as
+    /// prefill when its request is readmitted.
+    pub(in crate::serving) recompute_tokens: u64,
 }
 
 /// Per-step latency source; the production implementation is the solver's

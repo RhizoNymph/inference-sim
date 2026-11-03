@@ -29,10 +29,10 @@ mod types;
 
 use crate::solver::IterationCostModel;
 pub(super) use core::EngineError;
-use core::run_engine;
+use core::run_engine_jobs_with;
 pub(super) use disaggregated::{DisaggregatedRun, run_disaggregated_engine};
 use disaggregated::{WorkerLayoutError, disaggregated_workers};
-use limits::{engine_limits, engine_requests, engine_workers};
+use limits::{engine_kv_allocation, engine_limits, engine_requests, engine_workers};
 use record::{record_engine_jobs, record_engine_outcome};
 use transfer::KvPlanError;
 pub(super) use types::*;
@@ -123,6 +123,7 @@ pub(super) struct EngineTimeline {
     pub(super) operations: Vec<ScheduledOperation>,
     pub(super) decode_iterations: Vec<ServingDecodeIterationObservation>,
     pub(super) kv_bottlenecks: Vec<String>,
+    pub(super) preemption: PreemptionStats,
 }
 
 #[derive(Debug)]
@@ -182,14 +183,25 @@ pub(super) fn run_iteration_engine(
     let limits = engine_limits(traffic, &workers);
     let mut requests = engine_requests(states, traffic, &workers, &limits);
     apply_frontend_latency(&mut requests, states, calibration);
-    let outcome =
-        run_engine(&requests, &limits, &mut cost).map_err(IterationEngineError::Engine)?;
+    let jobs = requests
+        .iter()
+        .cloned()
+        .map(EngineJob::colocated)
+        .collect::<Vec<_>>();
+    let outcome = run_engine_jobs_with(
+        &jobs,
+        &limits,
+        engine_kv_allocation(traffic),
+        &mut UniformCost(&mut cost),
+    )
+    .map_err(IterationEngineError::Engine)?;
     let (operations, decode_iterations) =
         record_engine_outcome(states, &requests, &workers, &outcome);
     Ok(EngineTimeline {
         operations,
         decode_iterations,
         kv_bottlenecks: Vec::new(),
+        preemption: outcome.preemption_stats(),
     })
 }
 
@@ -226,17 +238,7 @@ pub(super) fn iteration_engine_approximations(
     calibration: SimulationCalibration,
 ) -> Vec<SimulationApproximation> {
     let mut approximations = vec![
-        SimulationApproximation::new(
-            "serving",
-            "queueing",
-            "iteration_engine",
-            "iteration_engine_kv_reserved_at_admission",
-            "The iteration engine reserves KV blocks for a request's full max_sequence_tokens when it is admitted and never preempts; vLLM allocates blocks as tokens are generated and recomputes preempted requests when blocks run out.",
-            Some(
-                "keep KV capacity comfortably above max_num_seqs * max_sequence_tokens, or treat queueing near KV exhaustion as optimistic"
-                    .to_string(),
-            ),
-        ),
+        kv_allocation_approximation(traffic),
         frontend_latency_approximation(calibration),
     ];
     if score.config.pipeline_ranks > 1 {
@@ -260,6 +262,32 @@ pub(super) fn iteration_engine_approximations(
         ));
     }
     approximations
+}
+
+fn kv_allocation_approximation(traffic: &ServingTraffic) -> SimulationApproximation {
+    match engine_kv_allocation(traffic) {
+        KvAllocationMode::ReservedAtAdmission => SimulationApproximation::new(
+            "serving",
+            "queueing",
+            "iteration_engine",
+            "iteration_engine_kv_reserved_at_admission",
+            "The iteration engine reserves KV blocks for a request's full max_sequence_tokens when it is admitted and never preempts; vLLM allocates blocks as tokens are generated and recomputes preempted requests when blocks run out.",
+            Some(
+                "keep KV capacity comfortably above max_num_seqs * max_sequence_tokens, set decode_capacity_policy = \"preempt\" for vLLM's recompute preemption, or treat queueing near KV exhaustion as optimistic"
+                    .to_string(),
+            ),
+        ),
+        KvAllocationMode::PagedRecompute { block_tokens } => SimulationApproximation::new(
+            "serving",
+            "queueing",
+            "iteration_engine",
+            "iteration_engine_recompute_preemption",
+            format!(
+                "KV is allocated in {block_tokens}-token blocks as tokens are computed and preempted in vLLM V1 recompute mode (the lowest-priority, then most recently admitted, running request frees all its blocks and recomputes prompt plus generated tokens as chunked prefill when readmitted, at the front of the queue). Not modeled: KV swapping, prefix-cache hits on the preempted request's own freed blocks (its cached prompt prefix is assumed still cached, nothing else is), and vLLM's priority policy beyond priority-then-recency victim choice. Disaggregated decode workers recompute locally without a second KV pull. Post-hoc capacity peaks and utilizations still count each request's full footprint over its residency, so they can exceed the KV limits the engine enforced; capacity rejections are skipped for these candidates."
+            ),
+            None,
+        ),
+    }
 }
 
 fn frontend_latency_approximation(calibration: SimulationCalibration) -> SimulationApproximation {

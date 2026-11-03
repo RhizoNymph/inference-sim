@@ -5,6 +5,8 @@ use crate::solver::{StepLatency, StepWork};
 mod disaggregated;
 mod disaggregated_serving;
 mod frontend;
+mod preemption;
+mod preemption_serving;
 mod serving;
 
 /// Closed-form step cost: a flat weight-read floor per step, a small cost per
