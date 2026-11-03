@@ -1,0 +1,721 @@
+{
+  "record": "lab.kv_read_fit.v1",
+  "tag": "same-day-joint",
+  "base_profile": "lab-runs/2026-10-01-qwen7b-prefill-token-sweep/calibration_profile-curve.toml",
+  "max_batch": 32,
+  "profile": "/home/nymph/Code/ai/inference-sim/lab-degraded-network-node0-sweep/lab-runs/2026-11-02-kv-read-per-node/calibration_profile-same-day-joint.toml",
+  "fit": {
+    "mode": "joint",
+    "decode_memory_bandwidth_scale": 0.867252,
+    "kv_read_bandwidth_scale": 0.325691,
+    "base_decode_memory_bandwidth_scale": 0.838309,
+    "datasets": [
+      "node0-nov",
+      "node1-nov"
+    ],
+    "sample_count": 24
+  },
+  "probes": {
+    "weight_scale": 0.838309,
+    "kv_scale": 0.838309,
+    "weight_probe": 0.4191545,
+    "kv_probe": 0.4191545
+  },
+  "max_linearity_drift_pct": 5.6e-05,
+  "datasets": [
+    {
+      "name": "node1-nov",
+      "measured": "/home/nymph/Code/ai/inference-sim/lab-degraded-network-node0-sweep/lab-runs/2026-11-02-qwen7b-decode-batch-sweep/measured.jsonl",
+      "excluded_shapes": [
+        "40x512",
+        "48x512",
+        "56x512",
+        "64x512"
+      ],
+      "held_out_fit": {
+        "mode": "joint",
+        "decode_memory_bandwidth_scale": 0.886868,
+        "kv_read_bandwidth_scale": 0.789933,
+        "base_decode_memory_bandwidth_scale": 0.838309,
+        "datasets": [
+          "node0-nov"
+        ],
+        "sample_count": 12
+      },
+      "before": {
+        "calibration": "profile-calibration_profile-curve",
+        "prefill_mean_abs_pct": 41.9495,
+        "decode_step_mean_abs_pct": 10.2488,
+        "end_to_end_mean_abs_pct": 4.1166,
+        "decode_step_trend": {
+          "slope_pct_per_10k_kv_tokens": -12.483,
+          "mean_abs_pct": 10.2488,
+          "count": 12
+        },
+        "shapes": [
+          {
+            "shape": "1x512",
+            "kv_tokens_per_step": 576.5,
+            "measured_step_ms": 18.4646,
+            "simulated_step_ms": 19.45188,
+            "decode_step_pct": 5.3469,
+            "end_to_end_pct": -6.8189
+          },
+          {
+            "shape": "2x512",
+            "kv_tokens_per_step": 1153.0,
+            "measured_step_ms": 20.5086,
+            "simulated_step_ms": 19.49401,
+            "decode_step_pct": -4.9471,
+            "end_to_end_pct": -2.2041
+          },
+          {
+            "shape": "3x512",
+            "kv_tokens_per_step": 1729.5,
+            "measured_step_ms": 20.4483,
+            "simulated_step_ms": 19.53614,
+            "decode_step_pct": -4.4608,
+            "end_to_end_pct": -4.1434
+          },
+          {
+            "shape": "4x512",
+            "kv_tokens_per_step": 2306.0,
+            "measured_step_ms": 18.767,
+            "simulated_step_ms": 19.57828,
+            "decode_step_pct": 4.3229,
+            "end_to_end_pct": -1.9414
+          },
+          {
+            "shape": "6x512",
+            "kv_tokens_per_step": 3459.0,
+            "measured_step_ms": 20.4751,
+            "simulated_step_ms": 19.66254,
+            "decode_step_pct": -3.9685,
+            "end_to_end_pct": -1.6979
+          },
+          {
+            "shape": "8x512",
+            "kv_tokens_per_step": 4612.0,
+            "measured_step_ms": 21.9063,
+            "simulated_step_ms": 19.7468,
+            "decode_step_pct": -9.8579,
+            "end_to_end_pct": 0.5052
+          },
+          {
+            "shape": "12x512",
+            "kv_tokens_per_step": 6918.0,
+            "measured_step_ms": 21.8837,
+            "simulated_step_ms": 19.91533,
+            "decode_step_pct": -8.9947,
+            "end_to_end_pct": -3.4403
+          },
+          {
+            "shape": "16x512",
+            "kv_tokens_per_step": 9224.0,
+            "measured_step_ms": 22.9203,
+            "simulated_step_ms": 20.08385,
+            "decode_step_pct": -12.3753,
+            "end_to_end_pct": 0.1538
+          },
+          {
+            "shape": "20x512",
+            "kv_tokens_per_step": 11530.0,
+            "measured_step_ms": 22.7859,
+            "simulated_step_ms": 20.25238,
+            "decode_step_pct": -11.1188,
+            "end_to_end_pct": 6.1923
+          },
+          {
+            "shape": "24x512",
+            "kv_tokens_per_step": 13836.0,
+            "measured_step_ms": 23.8331,
+            "simulated_step_ms": 20.42091,
+            "decode_step_pct": -14.317,
+            "end_to_end_pct": 8.4411
+          },
+          {
+            "shape": "28x512",
+            "kv_tokens_per_step": 16142.0,
+            "measured_step_ms": 26.3279,
+            "simulated_step_ms": 20.58943,
+            "decode_step_pct": -21.7961,
+            "end_to_end_pct": 5.8445
+          },
+          {
+            "shape": "32x512",
+            "kv_tokens_per_step": 18448.0,
+            "measured_step_ms": 26.4362,
+            "simulated_step_ms": 20.75796,
+            "decode_step_pct": -21.479,
+            "end_to_end_pct": 8.0156
+          }
+        ]
+      },
+      "fitted": {
+        "calibration": "profile-calibration_profile-curve-dmbs0.8673-kv0.3257",
+        "prefill_mean_abs_pct": 41.9495,
+        "decode_step_mean_abs_pct": 8.7229,
+        "end_to_end_mean_abs_pct": 5.9042,
+        "decode_step_trend": {
+          "slope_pct_per_10k_kv_tokens": -7.6151,
+          "mean_abs_pct": 8.7229,
+          "count": 12
+        },
+        "shapes": [
+          {
+            "shape": "1x512",
+            "kv_tokens_per_step": 576.5,
+            "measured_step_ms": 18.4646,
+            "simulated_step_ms": 18.87043,
+            "decode_step_pct": 2.1979,
+            "end_to_end_pct": -9.4819
+          },
+          {
+            "shape": "2x512",
+            "kv_tokens_per_step": 1153.0,
+            "measured_step_ms": 20.5086,
+            "simulated_step_ms": 18.97887,
+            "decode_step_pct": -7.459,
+            "end_to_end_pct": -4.5986
+          },
+          {
+            "shape": "3x512",
+            "kv_tokens_per_step": 1729.5,
+            "measured_step_ms": 20.4483,
+            "simulated_step_ms": 19.08732,
+            "decode_step_pct": -6.6557,
+            "end_to_end_pct": -6.1133
+          },
+          {
+            "shape": "4x512",
+            "kv_tokens_per_step": 2306.0,
+            "measured_step_ms": 18.767,
+            "simulated_step_ms": 19.19576,
+            "decode_step_pct": 2.2846,
+            "end_to_end_pct": -3.5983
+          },
+          {
+            "shape": "6x512",
+            "kv_tokens_per_step": 3459.0,
+            "measured_step_ms": 20.4751,
+            "simulated_step_ms": 19.41265,
+            "decode_step_pct": -5.189,
+            "end_to_end_pct": -2.7144
+          },
+          {
+            "shape": "8x512",
+            "kv_tokens_per_step": 4612.0,
+            "measured_step_ms": 21.9063,
+            "simulated_step_ms": 19.62954,
+            "decode_step_pct": -10.3932,
+            "end_to_end_pct": 0.0461
+          },
+          {
+            "shape": "12x512",
+            "kv_tokens_per_step": 6918.0,
+            "measured_step_ms": 21.8837,
+            "simulated_step_ms": 20.06331,
+            "decode_step_pct": -8.3185,
+            "end_to_end_pct": -2.9442
+          },
+          {
+            "shape": "16x512",
+            "kv_tokens_per_step": 9224.0,
+            "measured_step_ms": 22.9203,
+            "simulated_step_ms": 20.49709,
+            "decode_step_pct": -10.5723,
+            "end_to_end_pct": 1.4496
+          },
+          {
+            "shape": "20x512",
+            "kv_tokens_per_step": 11530.0,
+            "measured_step_ms": 22.7859,
+            "simulated_step_ms": 20.93086,
+            "decode_step_pct": -8.1412,
+            "end_to_end_pct": 8.2468
+          },
+          {
+            "shape": "24x512",
+            "kv_tokens_per_step": 13836.0,
+            "measured_step_ms": 23.8331,
+            "simulated_step_ms": 21.36464,
+            "decode_step_pct": -10.3573,
+            "end_to_end_pct": 11.12
+          },
+          {
+            "shape": "28x512",
+            "kv_tokens_per_step": 16142.0,
+            "measured_step_ms": 26.3279,
+            "simulated_step_ms": 21.79842,
+            "decode_step_pct": -17.2041,
+            "end_to_end_pct": 8.9404
+          },
+          {
+            "shape": "32x512",
+            "kv_tokens_per_step": 18448.0,
+            "measured_step_ms": 26.4362,
+            "simulated_step_ms": 22.23219,
+            "decode_step_pct": -15.9025,
+            "end_to_end_pct": 11.5968
+          }
+        ]
+      },
+      "held_out": {
+        "calibration": "profile-calibration_profile-curve-dmbs0.8869-kv0.7899",
+        "prefill_mean_abs_pct": 41.9495,
+        "decode_step_mean_abs_pct": 13.3718,
+        "end_to_end_mean_abs_pct": 5.9352,
+        "decode_step_trend": {
+          "slope_pct_per_10k_kv_tokens": -11.4783,
+          "mean_abs_pct": 13.3718,
+          "count": 12
+        },
+        "shapes": [
+          {
+            "shape": "1x512",
+            "kv_tokens_per_step": 576.5,
+            "measured_step_ms": 18.4646,
+            "simulated_step_ms": 18.39171,
+            "decode_step_pct": -0.3947,
+            "end_to_end_pct": -11.6744
+          },
+          {
+            "shape": "2x512",
+            "kv_tokens_per_step": 1153.0,
+            "measured_step_ms": 20.5086,
+            "simulated_step_ms": 18.43642,
+            "decode_step_pct": -10.1039,
+            "end_to_end_pct": -7.12
+          },
+          {
+            "shape": "3x512",
+            "kv_tokens_per_step": 1729.5,
+            "measured_step_ms": 20.4483,
+            "simulated_step_ms": 18.48114,
+            "decode_step_pct": -9.6202,
+            "end_to_end_pct": -8.7738
+          },
+          {
+            "shape": "4x512",
+            "kv_tokens_per_step": 2306.0,
+            "measured_step_ms": 18.767,
+            "simulated_step_ms": 18.52585,
+            "decode_step_pct": -1.285,
+            "end_to_end_pct": -6.5002
+          },
+          {
+            "shape": "6x512",
+            "kv_tokens_per_step": 3459.0,
+            "measured_step_ms": 20.4751,
+            "simulated_step_ms": 18.61527,
+            "decode_step_pct": -9.0834,
+            "end_to_end_pct": -5.958
+          },
+          {
+            "shape": "8x512",
+            "kv_tokens_per_step": 4612.0,
+            "measured_step_ms": 21.9063,
+            "simulated_step_ms": 18.70469,
+            "decode_step_pct": -14.615,
+            "end_to_end_pct": -3.5743
+          },
+          {
+            "shape": "12x512",
+            "kv_tokens_per_step": 6918.0,
+            "measured_step_ms": 21.8837,
+            "simulated_step_ms": 18.88354,
+            "decode_step_pct": -13.7096,
+            "end_to_end_pct": -6.8989
+          },
+          {
+            "shape": "16x512",
+            "kv_tokens_per_step": 9224.0,
+            "measured_step_ms": 22.9203,
+            "simulated_step_ms": 19.06239,
+            "decode_step_pct": -16.8319,
+            "end_to_end_pct": -3.0494
+          },
+          {
+            "shape": "20x512",
+            "kv_tokens_per_step": 11530.0,
+            "measured_step_ms": 22.7859,
+            "simulated_step_ms": 19.24123,
+            "decode_step_pct": -15.5564,
+            "end_to_end_pct": 3.1305
+          },
+          {
+            "shape": "24x512",
+            "kv_tokens_per_step": 13836.0,
+            "measured_step_ms": 23.8331,
+            "simulated_step_ms": 19.42008,
+            "decode_step_pct": -18.5163,
+            "end_to_end_pct": 5.6001
+          },
+          {
+            "shape": "28x512",
+            "kv_tokens_per_step": 16142.0,
+            "measured_step_ms": 26.3279,
+            "simulated_step_ms": 19.59893,
+            "decode_step_pct": -25.5583,
+            "end_to_end_pct": 3.3081
+          },
+          {
+            "shape": "32x512",
+            "kv_tokens_per_step": 18448.0,
+            "measured_step_ms": 26.4362,
+            "simulated_step_ms": 19.77777,
+            "decode_step_pct": -25.1868,
+            "end_to_end_pct": 5.6346
+          }
+        ]
+      }
+    },
+    {
+      "name": "node0-nov",
+      "measured": "/home/nymph/Code/ai/inference-sim/lab-degraded-network-node0-sweep/lab-runs/2026-11-02-qwen7b-decode-batch-sweep-node0/measured.jsonl",
+      "excluded_shapes": [
+        "40x512",
+        "48x512",
+        "56x512",
+        "64x512"
+      ],
+      "held_out_fit": {
+        "mode": "joint",
+        "decode_memory_bandwidth_scale": 0.854868,
+        "kv_read_bandwidth_scale": 0.154278,
+        "base_decode_memory_bandwidth_scale": 0.838309,
+        "datasets": [
+          "node1-nov"
+        ],
+        "sample_count": 12
+      },
+      "before": {
+        "calibration": "profile-calibration_profile-curve",
+        "prefill_mean_abs_pct": 64.9422,
+        "decode_step_mean_abs_pct": 5.4285,
+        "end_to_end_mean_abs_pct": 19.1261,
+        "decode_step_trend": {
+          "slope_pct_per_10k_kv_tokens": -0.4241,
+          "mean_abs_pct": 5.4285,
+          "count": 12
+        },
+        "shapes": [
+          {
+            "shape": "1x512",
+            "kv_tokens_per_step": 576.5,
+            "measured_step_ms": 18.2232,
+            "simulated_step_ms": 19.45188,
+            "decode_step_pct": 6.7424,
+            "end_to_end_pct": 9.2483
+          },
+          {
+            "shape": "2x512",
+            "kv_tokens_per_step": 1153.0,
+            "measured_step_ms": 18.1219,
+            "simulated_step_ms": 19.49401,
+            "decode_step_pct": 7.5716,
+            "end_to_end_pct": 10.6253
+          },
+          {
+            "shape": "3x512",
+            "kv_tokens_per_step": 1729.5,
+            "measured_step_ms": 18.4217,
+            "simulated_step_ms": 19.53614,
+            "decode_step_pct": 6.0496,
+            "end_to_end_pct": 10.8056
+          },
+          {
+            "shape": "4x512",
+            "kv_tokens_per_step": 2306.0,
+            "measured_step_ms": 18.4447,
+            "simulated_step_ms": 19.57828,
+            "decode_step_pct": 6.1458,
+            "end_to_end_pct": 11.9328
+          },
+          {
+            "shape": "6x512",
+            "kv_tokens_per_step": 3459.0,
+            "measured_step_ms": 18.7367,
+            "simulated_step_ms": 19.66254,
+            "decode_step_pct": 4.9413,
+            "end_to_end_pct": 13.0475
+          },
+          {
+            "shape": "8x512",
+            "kv_tokens_per_step": 4612.0,
+            "measured_step_ms": 18.7974,
+            "simulated_step_ms": 19.7468,
+            "decode_step_pct": 5.0507,
+            "end_to_end_pct": 15.0266
+          },
+          {
+            "shape": "12x512",
+            "kv_tokens_per_step": 6918.0,
+            "measured_step_ms": 19.3503,
+            "simulated_step_ms": 19.91533,
+            "decode_step_pct": 2.92,
+            "end_to_end_pct": 17.2653
+          },
+          {
+            "shape": "16x512",
+            "kv_tokens_per_step": 9224.0,
+            "measured_step_ms": 19.4941,
+            "simulated_step_ms": 20.08385,
+            "decode_step_pct": 3.0253,
+            "end_to_end_pct": 20.8557
+          },
+          {
+            "shape": "20x512",
+            "kv_tokens_per_step": 11530.0,
+            "measured_step_ms": 19.2727,
+            "simulated_step_ms": 20.25238,
+            "decode_step_pct": 5.0833,
+            "end_to_end_pct": 26.2494
+          },
+          {
+            "shape": "24x512",
+            "kv_tokens_per_step": 13836.0,
+            "measured_step_ms": 19.3563,
+            "simulated_step_ms": 20.42091,
+            "decode_step_pct": 5.5001,
+            "end_to_end_pct": 29.0681
+          },
+          {
+            "shape": "28x512",
+            "kv_tokens_per_step": 16142.0,
+            "measured_step_ms": 19.4263,
+            "simulated_step_ms": 20.58943,
+            "decode_step_pct": 5.9874,
+            "end_to_end_pct": 31.7866
+          },
+          {
+            "shape": "32x512",
+            "kv_tokens_per_step": 18448.0,
+            "measured_step_ms": 19.5601,
+            "simulated_step_ms": 20.75796,
+            "decode_step_pct": 6.124,
+            "end_to_end_pct": 33.6024
+          }
+        ]
+      },
+      "fitted": {
+        "calibration": "profile-calibration_profile-curve-dmbs0.8673-kv0.3257",
+        "prefill_mean_abs_pct": 64.9422,
+        "decode_step_mean_abs_pct": 6.4734,
+        "end_to_end_mean_abs_pct": 19.4918,
+        "decode_step_trend": {
+          "slope_pct_per_10k_kv_tokens": 5.5845,
+          "mean_abs_pct": 6.4734,
+          "count": 12
+        },
+        "shapes": [
+          {
+            "shape": "1x512",
+            "kv_tokens_per_step": 576.5,
+            "measured_step_ms": 18.2232,
+            "simulated_step_ms": 18.87043,
+            "decode_step_pct": 3.5517,
+            "end_to_end_pct": 6.1261
+          },
+          {
+            "shape": "2x512",
+            "kv_tokens_per_step": 1153.0,
+            "measured_step_ms": 18.1219,
+            "simulated_step_ms": 18.97887,
+            "decode_step_pct": 4.7289,
+            "end_to_end_pct": 7.9167
+          },
+          {
+            "shape": "3x512",
+            "kv_tokens_per_step": 1729.5,
+            "measured_step_ms": 18.4217,
+            "simulated_step_ms": 19.08732,
+            "decode_step_pct": 3.6132,
+            "end_to_end_pct": 8.5285
+          },
+          {
+            "shape": "4x512",
+            "kv_tokens_per_step": 2306.0,
+            "measured_step_ms": 18.4447,
+            "simulated_step_ms": 19.19576,
+            "decode_step_pct": 4.072,
+            "end_to_end_pct": 10.0414
+          },
+          {
+            "shape": "6x512",
+            "kv_tokens_per_step": 3459.0,
+            "measured_step_ms": 18.7367,
+            "simulated_step_ms": 19.41265,
+            "decode_step_pct": 3.6076,
+            "end_to_end_pct": 11.8785
+          },
+          {
+            "shape": "8x512",
+            "kv_tokens_per_step": 4612.0,
+            "measured_step_ms": 18.7974,
+            "simulated_step_ms": 19.62954,
+            "decode_step_pct": 4.4269,
+            "end_to_end_pct": 14.5012
+          },
+          {
+            "shape": "12x512",
+            "kv_tokens_per_step": 6918.0,
+            "measured_step_ms": 19.3503,
+            "simulated_step_ms": 20.06331,
+            "decode_step_pct": 3.6848,
+            "end_to_end_pct": 17.8677
+          },
+          {
+            "shape": "16x512",
+            "kv_tokens_per_step": 9224.0,
+            "measured_step_ms": 19.4941,
+            "simulated_step_ms": 20.49709,
+            "decode_step_pct": 5.1451,
+            "end_to_end_pct": 22.4194
+          },
+          {
+            "shape": "20x512",
+            "kv_tokens_per_step": 11530.0,
+            "measured_step_ms": 19.2727,
+            "simulated_step_ms": 20.93086,
+            "decode_step_pct": 8.6037,
+            "end_to_end_pct": 28.6919
+          },
+          {
+            "shape": "24x512",
+            "kv_tokens_per_step": 13836.0,
+            "measured_step_ms": 19.3563,
+            "simulated_step_ms": 21.36464,
+            "decode_step_pct": 10.3756,
+            "end_to_end_pct": 32.2565
+          },
+          {
+            "shape": "28x512",
+            "kv_tokens_per_step": 16142.0,
+            "measured_step_ms": 19.4263,
+            "simulated_step_ms": 21.79842,
+            "decode_step_pct": 12.2109,
+            "end_to_end_pct": 35.6412
+          },
+          {
+            "shape": "32x512",
+            "kv_tokens_per_step": 18448.0,
+            "measured_step_ms": 19.5601,
+            "simulated_step_ms": 22.23219,
+            "decode_step_pct": 13.6609,
+            "end_to_end_pct": 38.0319
+          }
+        ]
+      },
+      "held_out": {
+        "calibration": "profile-calibration_profile-curve-dmbs0.8549-kv0.1543",
+        "prefill_mean_abs_pct": 64.9422,
+        "decode_step_mean_abs_pct": 16.0296,
+        "end_to_end_mean_abs_pct": 26.2929,
+        "decode_step_trend": {
+          "slope_pct_per_10k_kv_tokens": 16.192,
+          "mean_abs_pct": 16.0296,
+          "count": 12
+        },
+        "shapes": [
+          {
+            "shape": "1x512",
+            "kv_tokens_per_step": 576.5,
+            "measured_step_ms": 18.2232,
+            "simulated_step_ms": 19.26271,
+            "decode_step_pct": 5.7043,
+            "end_to_end_pct": 8.2325
+          },
+          {
+            "shape": "2x512",
+            "kv_tokens_per_step": 1153.0,
+            "measured_step_ms": 18.1219,
+            "simulated_step_ms": 19.49164,
+            "decode_step_pct": 7.5585,
+            "end_to_end_pct": 10.6129
+          },
+          {
+            "shape": "3x512",
+            "kv_tokens_per_step": 1729.5,
+            "measured_step_ms": 18.4217,
+            "simulated_step_ms": 19.72058,
+            "decode_step_pct": 7.0508,
+            "end_to_end_pct": 11.7413
+          },
+          {
+            "shape": "4x512",
+            "kv_tokens_per_step": 2306.0,
+            "measured_step_ms": 18.4447,
+            "simulated_step_ms": 19.94951,
+            "decode_step_pct": 8.1585,
+            "end_to_end_pct": 13.7684
+          },
+          {
+            "shape": "6x512",
+            "kv_tokens_per_step": 3459.0,
+            "measured_step_ms": 18.7367,
+            "simulated_step_ms": 20.40737,
+            "decode_step_pct": 8.9166,
+            "end_to_end_pct": 16.5318
+          },
+          {
+            "shape": "8x512",
+            "kv_tokens_per_step": 4612.0,
+            "measured_step_ms": 18.7974,
+            "simulated_step_ms": 20.86524,
+            "decode_step_pct": 11.0007,
+            "end_to_end_pct": 20.0375
+          },
+          {
+            "shape": "12x512",
+            "kv_tokens_per_step": 6918.0,
+            "measured_step_ms": 19.3503,
+            "simulated_step_ms": 21.78097,
+            "decode_step_pct": 12.5614,
+            "end_to_end_pct": 24.8601
+          },
+          {
+            "shape": "16x512",
+            "kv_tokens_per_step": 9224.0,
+            "measured_step_ms": 19.4941,
+            "simulated_step_ms": 22.6967,
+            "decode_step_pct": 16.4285,
+            "end_to_end_pct": 30.7429
+          },
+          {
+            "shape": "20x512",
+            "kv_tokens_per_step": 11530.0,
+            "measured_step_ms": 19.2727,
+            "simulated_step_ms": 23.61243,
+            "decode_step_pct": 22.5175,
+            "end_to_end_pct": 38.3454
+          },
+          {
+            "shape": "24x512",
+            "kv_tokens_per_step": 13836.0,
+            "measured_step_ms": 19.3563,
+            "simulated_step_ms": 24.52816,
+            "decode_step_pct": 26.7192,
+            "end_to_end_pct": 42.9447
+          },
+          {
+            "shape": "28x512",
+            "kv_tokens_per_step": 16142.0,
+            "measured_step_ms": 19.4263,
+            "simulated_step_ms": 25.44389,
+            "decode_step_pct": 30.9765,
+            "end_to_end_pct": 47.2643
+          },
+          {
+            "shape": "32x512",
+            "kv_tokens_per_step": 18448.0,
+            "measured_step_ms": 19.5601,
+            "simulated_step_ms": 26.35962,
+            "decode_step_pct": 34.7622,
+            "end_to_end_pct": 50.4331
+          }
+        ]
+      }
+    }
+  ]
+}

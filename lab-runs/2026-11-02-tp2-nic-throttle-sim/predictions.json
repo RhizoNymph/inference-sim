@@ -1,0 +1,94 @@
+{
+  "predictions": {
+    "1x512": {
+      "curves": {
+        "prefill": 426.688,
+        "end_to_end": 2892.173,
+        "decode_step": 19.2616
+      },
+      "alpha-beta": {
+        "prefill": 524.848,
+        "end_to_end": 2405.726,
+        "decode_step": 14.6944
+      },
+      "throttled": {
+        "prefill": 898.301,
+        "end_to_end": 2907.197,
+        "decode_step": 15.6945
+      }
+    },
+    "1x2048": {
+      "curves": {
+        "prefill": 1819.487,
+        "end_to_end": 4292.156,
+        "decode_step": 19.3177
+      },
+      "alpha-beta": {
+        "prefill": 2058.401,
+        "end_to_end": 3946.463,
+        "decode_step": 14.7505
+      },
+      "throttled": {
+        "prefill": 3551.401,
+        "end_to_end": 5567.481,
+        "decode_step": 15.7506
+      }
+    },
+    "8x512": {
+      "curves": {
+        "prefill": 3953.948,
+        "end_to_end": 8030.806,
+        "decode_step": 31.8505
+      },
+      "alpha-beta": {
+        "prefill": 4094.397,
+        "end_to_end": 7107.354,
+        "decode_step": 23.5387
+      },
+      "throttled": {
+        "prefill": 7082.024,
+        "end_to_end": 11119.127,
+        "decode_step": 31.5399
+      }
+    },
+    "32x512": {
+      "curves": {
+        "prefill": 16500.402,
+        "end_to_end": 22722.113,
+        "decode_step": 48.6071
+      },
+      "alpha-beta": {
+        "prefill": 16366.411,
+        "end_to_end": 23260.782,
+        "decode_step": 53.8623
+      },
+      "throttled": {
+        "prefill": 28316.919,
+        "end_to_end": 39307.876,
+        "decode_step": 85.8669
+      }
+    }
+  },
+  "approximation_codes": {
+    "curves": [
+      "aggregate_inter_node_topology",
+      "capability_ordered_rank_placement",
+      "coarse_collective_model",
+      "collective_curve_absent",
+      "measured_collective_curve",
+      "static_per_gpu_memory_estimate"
+    ],
+    "alpha-beta": [
+      "aggregate_inter_node_topology",
+      "capability_ordered_rank_placement",
+      "coarse_collective_model",
+      "static_per_gpu_memory_estimate"
+    ],
+    "throttled": [
+      "aggregate_inter_node_topology",
+      "capability_ordered_rank_placement",
+      "coarse_collective_model",
+      "static_per_gpu_memory_estimate"
+    ]
+  }
+}

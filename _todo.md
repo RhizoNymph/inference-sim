@@ -93,13 +93,29 @@ constants an H100 run can fit.
         4k-16k contexts): paged KV reads run at about half the weight-read
         bandwidth. Add a KV-read bandwidth scale and fit it from the decode
         sweep.
-      - [ ] node0 vs node1 KV-read bandwidth: node0 static decode has no KV
-        trend (32x512 20.8 vs 22.2 ms on node1). Measure a node0 decode
-        batch sweep; fit the KV-read scale per node if it holds.
+      - [x] [done 2026-11-02, ledger 26: same-day decode sweeps on both
+        nodes; the fitted scale is not portable: 0.79 on node0 vs 0.15 on
+        node1 the same day, 0.43 on node1 on 10-01. Keep it opt-in, fit per
+        node and session.] node0 vs node1 KV-read bandwidth: node0 static
+        decode has no KV trend (32x512 20.8 vs 22.2 ms on node1). Measure a
+        node0 decode batch sweep; fit the KV-read scale per node if it holds.
       - [ ] node1 prefills ~3% slower than node0 (curve fitted on node0);
         batched small prefills on node1 (2-4 x 512) take per-sequence time
         and are 8-16% under. Measure 2x512/4x512 on node0 to tell node
         variance from a batching effect.
+        [answered 2026-11-02, ledger 26] Batching effect: on node0, 2x512 /
+        4x512 take 1.97x / 3.68x the 1x512 prefill, while one 1024-token
+        prompt took 1.74x (prefill sweep). Several short prompts in one step
+        cost close to per-sequence time; the token-count efficiency curve
+        over-credits them. Still open: model it (efficiency by per-sequence
+        tokens, not step tokens).
+- [ ] 6b. [found 2026-11-02, ledger 26] GPU state drift: Sep/Oct prefill
+      ran ~1.7x slower than today on both nodes (unchanged software;
+      likely a clock lock or power cap, since cleared by reboots). Re-fit
+      the compute profile (prefill token sweep + PP=1) in the current state
+      before more compute-sensitive validation; consider peak_f16_tflops
+      from the GEMM check (119-137 TFLOP/s achieved vs 88 assumed). The
+      probe now records power limit, clocks and other GPU processes.
 - [ ] 7. Degraded states: throttled NIC, lowered GPU clocks, node removed
       mid-run.
       - [x] [done 2026-10-01, ledger 17] GPU clock locked at 1200 MHz:
@@ -115,7 +131,11 @@ constants an H100 run can fit.
         decode 22.8% -> 3.0%, e2e 9.6% -> 2.6% (LOO 4.9 / 4.3 / 3.2%). Both
         clocks fitted on the one locked run: measure a second lock clock
         (900/1500 MHz) to test the knee before trusting other clocks.
-      - [ ] throttled NIC (`tc` on bond0).
+      - [x] [done 2026-11-02, ledger 25] throttled NIC (`tc` tbf, 2 Gbit/s
+        egress on node0+node1), TP=2: blind run-scenario overlay prediction
+        within 2.3% on every prefill, 3.5% e2e. Decode inherits alpha-beta's
+        error because overlays suspend curves; open: scale curves by the
+        overlay instead of suspending them.
       - [ ] node removed mid-run: not modeled (the simulator has no failure
         or re-routing events); out of scope before H100s.
 - [x] Write the H100 plan before getting hardware: fixed matrix of models x

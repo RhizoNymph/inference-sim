@@ -126,7 +126,11 @@ probe polled until it prints `complete=1`). Phases, in order:
    container, `ray stop --force` wherever a venv exists.
 3. `preflight` - run `probe_env.py` in the same environment the benchmark
    uses; the runner stores it as `probe-<node>.json` and aborts if
-   `vllm_version` differs from the pin.
+   `vllm_version` differs from the pin. The probe also records GPU state
+   that changes speed without changing software (`gpu_state`: power limit,
+   current/max SM clock, clock event reasons bitmask; `gpu_compute_apps`:
+   every process on the GPU), since runs a month apart on unchanged
+   software differed 1.7x in prefill (ledger entry 26).
 4. `cluster` (multi-node only) - `ray start --head` on the first node,
    `ray start --address` on the others, then a Python check that Ray sees
    tp*pp GPUs.
@@ -363,10 +367,13 @@ profile to match the scalar run within 0.01%.
 | `tools/lab/labharness/errors.py` | `LabError` hierarchy with exit codes | `SpecError`, `ResultParseError`, `RemoteCommandError`, `CompletionTimeoutError`, `SimulatorError`, `FitError`, `RunDirError` |
 | `tools/lab/labharness/logging_setup.py` | key=value logging | `configure_logging`, `get_logger` |
 | `tools/lab/remote/bench_latency.py` | static-batch benchmark (runs on the node) | JSON lines `lab.static_batch.v1`, `lab.done.v1` |
-| `tools/lab/remote/probe_env.py` | environment probe (runs on the node) | JSON line `lab.probe.v1` |
+| `tools/lab/remote/probe_env.py` | environment probe (runs on the node) | JSON line `lab.probe.v1` (with `gpu_state`, `gpu_compute_apps`); `parse_gpu_state`, `parse_compute_apps` |
+| `tools/lab/remote/gemm_peak.py` | achieved dense bf16/fp16 GEMM throughput and SM clock (run by hand on a node) | JSON lines `lab.gemm_peak_meta.v1`, `lab.gemm_peak.v1` |
+| `tools/lab/remote/run_with_gpu_clock.sh` | runs a spec with a node's graphics clock locked, always resetting it | |
+| `tools/lab/remote/run_with_nic_throttle.sh` | runs a spec with a `tc` tbf qdisc capping bond0 egress on listed hosts, always removing it | |
 | `tools/lab/labs/rtx3090.toml` | the 3-node RTX 3090 lab and its quirks | |
 | `tools/lab/labs/rtx3090_cluster.toml` | simulator cluster for that lab | |
-| `tools/lab/specs/*.toml` | experiment specs (static PP=1, static PP=2, serving PP=1) | |
+| `tools/lab/specs/*.toml` | experiment specs (static PP=1/PP=2/TP=2, decode batch sweeps per node, NIC-throttled TP=2, serving PP=1, collectives) | |
 | `tools/lab/tests/` | pytest suite, real `vllm bench serve` fixtures, golden dry-run output | |
 | `tools/lab/pyproject.toml`, `uv.lock` | dev tooling (pytest, ruff, ty), pinned | |
 

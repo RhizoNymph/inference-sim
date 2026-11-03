@@ -1,0 +1,11 @@
+{"record": "lab.gemm_peak_meta.v1", "device": "NVIDIA GeForce RTX 3090", "torch": "2.13.0+cu130", "allow_bf16_reduced_precision_reduction": true, "allow_fp16_reduced_precision_reduction": true}
+{"record": "lab.gemm_peak.v1", "dtype": "bfloat16", "m": 8192, "n": 8192, "k": 8192, "ms": 8.5497, "tflops": 128.6, "sm_clock_mhz": 210}
+{"record": "lab.gemm_peak.v1", "dtype": "bfloat16", "m": 4096, "n": 4608, "k": 3584, "ms": 1.1386, "tflops": 118.82, "sm_clock_mhz": 1605}
+{"record": "lab.gemm_peak.v1", "dtype": "bfloat16", "m": 4096, "n": 3584, "k": 3584, "ms": 0.8689, "tflops": 121.1, "sm_clock_mhz": 1605}
+{"record": "lab.gemm_peak.v1", "dtype": "bfloat16", "m": 4096, "n": 37888, "k": 3584, "ms": 8.1296, "tflops": 136.83, "sm_clock_mhz": 1605}
+{"record": "lab.gemm_peak.v1", "dtype": "bfloat16", "m": 4096, "n": 3584, "k": 18944, "ms": 4.4416, "tflops": 125.22, "sm_clock_mhz": 1725}
+{"record": "lab.gemm_peak.v1", "dtype": "float16", "m": 8192, "n": 8192, "k": 8192, "ms": 8.7297, "tflops": 125.95, "sm_clock_mhz": 1590}
+{"record": "lab.gemm_peak.v1", "dtype": "float16", "m": 4096, "n": 4608, "k": 3584, "ms": 1.1428, "tflops": 118.39, "sm_clock_mhz": 1575}
+{"record": "lab.gemm_peak.v1", "dtype": "float16", "m": 4096, "n": 3584, "k": 3584, "ms": 0.8935, "tflops": 117.77, "sm_clock_mhz": 1575}
+{"record": "lab.gemm_peak.v1", "dtype": "float16", "m": 4096, "n": 37888, "k": 3584, "ms": 8.2691, "tflops": 134.52, "sm_clock_mhz": 1575}
+{"record": "lab.gemm_peak.v1", "dtype": "float16", "m": 4096, "n": 3584, "k": 18944, "ms": 4.5409, "tflops": 122.49, "sm_clock_mhz": 1695}
