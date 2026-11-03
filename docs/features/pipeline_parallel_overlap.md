@@ -75,7 +75,10 @@ Read from the v0.29.0 tag (no local install):
    `FirstThenRest { first: 1, rest: B - 1 }`. Otherwise it prices each
    microbatch's prompt pass (the request with `batch_size = k`, phase
    `Prefill`) and, for `EndToEnd`, the whole batch's `Decode` pass, each
-   through `estimate_compute_latency_s`.
+   through `estimate_compute_latency_s`, together with that pass's per-stage
+   locked-GPU-clock multipliers (`Solver::stage_latency_scales` for the
+   pass's request; all 1.0 without a lock, docs/features/degraded_gpu_model.md)
+   in a `PassCompute`.
 3. `Solver::build_microbatched_trace` uses `operations::TraceBuilder`: one
    `push_pass` per microbatch (operation names prefixed `microbatch N `),
    where microbatch 1's first layer on stage s depends on microbatch 0's
@@ -95,12 +98,14 @@ Read from the v0.29.0 tag (no local install):
 - `src/calibration.rs` — `PipelineMicrobatching` (`WholeBatch`,
   `VllmBatchQueue`, `as_str`), `SimulationCalibration::pipeline_microbatching`.
 - `src/solver/microbatch.rs` — `MicrobatchPlan` (`WholeBatch`,
-  `FirstThenRest`), `for_static_batch`, `MicrobatchCompute`,
+  `FirstThenRest`), `for_static_batch`, `PassCompute`, `MicrobatchCompute`,
   `Solver::microbatch_compute`, `Solver::build_microbatched_trace`,
   `microbatch_overlap_approximation`, `PIPELINE_MICROBATCH_OVERLAP`.
-- `src/solver/operations.rs` — `TraceBuilder` (`new`, `push_pass`,
-  `finish`), `PassLinks`, `PassTrace`; `build_operation_trace` is one
-  unlinked pass.
+- `src/solver/operations.rs` — `TraceBuilder` (`new`, `push_pass` with the
+  pass's stage latency multipliers, `finish`), `PassLinks`, `PassTrace`;
+  `build_operation_trace` is one unlinked pass.
+- `src/solver/microbatch_clock_tests.rs` — a locked GPU slows only its own
+  stage's layers in every microbatch pass.
 - `src/config/sections.rs`, `src/config/calibration_config.rs`,
   `src/config/run_config.rs`, `src/config.rs` — parsing into
   `SimulationCalibration` and `RunScenarioCalibrationConfig`.

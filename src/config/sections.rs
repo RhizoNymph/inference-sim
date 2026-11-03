@@ -289,6 +289,12 @@ pub(super) struct NodeSection {
     pub(super) peak_f16_tflops: Option<f64>,
     #[serde(alias = "f8_tflops", alias = "fp8_tflops", alias = "peak_fp8_tflops")]
     pub(super) peak_f8_tflops: Option<f64>,
+    #[serde(alias = "sustained_clock_mhz")]
+    pub(super) sustained_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "bandwidth_knee_clock_mhz")]
+    pub(super) bandwidth_knee_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "locked_clock_mhz", alias = "locked_graphics_clock_mhz")]
+    pub(super) locked_sm_clock_mhz: Option<f64>,
     #[serde(alias = "gpu_label", alias = "gpu_tag")]
     pub(super) gpu_tag: Option<String>,
     #[serde(alias = "gpu_labels", alias = "gpu_tags")]
@@ -325,6 +331,12 @@ pub(super) struct NodeGpuSection {
     pub(super) peak_f16_tflops: Option<f64>,
     #[serde(alias = "f8_tflops", alias = "fp8_tflops", alias = "peak_fp8_tflops")]
     pub(super) peak_f8_tflops: Option<f64>,
+    #[serde(alias = "sustained_clock_mhz")]
+    pub(super) sustained_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "bandwidth_knee_clock_mhz")]
+    pub(super) bandwidth_knee_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "locked_clock_mhz", alias = "locked_graphics_clock_mhz")]
+    pub(super) locked_sm_clock_mhz: Option<f64>,
     #[serde(alias = "label", alias = "gpu_label", alias = "tag", alias = "gpu_tag")]
     pub(super) gpu_tag: Option<String>,
     #[serde(
@@ -361,6 +373,12 @@ pub(super) struct GpuProfileOverrideSection {
     pub(super) peak_f16_tflops: Option<f64>,
     #[serde(alias = "f8_tflops", alias = "fp8_tflops", alias = "peak_fp8_tflops")]
     pub(super) peak_f8_tflops: Option<f64>,
+    #[serde(alias = "sustained_clock_mhz")]
+    pub(super) sustained_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "bandwidth_knee_clock_mhz")]
+    pub(super) bandwidth_knee_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "locked_clock_mhz", alias = "locked_graphics_clock_mhz")]
+    pub(super) locked_sm_clock_mhz: Option<f64>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -413,6 +431,12 @@ pub(super) struct NodeGroupSection {
     pub(super) peak_f16_tflops: Option<f64>,
     #[serde(alias = "f8_tflops", alias = "fp8_tflops", alias = "peak_fp8_tflops")]
     pub(super) peak_f8_tflops: Option<f64>,
+    #[serde(alias = "sustained_clock_mhz")]
+    pub(super) sustained_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "bandwidth_knee_clock_mhz")]
+    pub(super) bandwidth_knee_sm_clock_mhz: Option<f64>,
+    #[serde(alias = "locked_clock_mhz", alias = "locked_graphics_clock_mhz")]
+    pub(super) locked_sm_clock_mhz: Option<f64>,
     #[serde(alias = "gpu_label", alias = "gpu_tag")]
     pub(super) gpu_tag: Option<String>,
     #[serde(alias = "gpu_labels", alias = "gpu_tags")]
@@ -1069,6 +1093,9 @@ pub(super) struct CalibrationSection {
     pub(super) prefill_compute_scale: Option<f64>,
     pub(super) decode_compute_scale: Option<f64>,
     pub(super) decode_memory_bandwidth_scale: Option<f64>,
+    /// Fraction of peak HBM bandwidth KV-cache reads achieve; absent means
+    /// `decode_memory_bandwidth_scale`.
+    pub(super) kv_read_bandwidth_scale: Option<f64>,
     pub(super) collective_latency_scale: Option<f64>,
     pub(super) collective_bandwidth_scale: Option<f64>,
     pub(super) kv_transfer_scale: Option<f64>,
@@ -1083,6 +1110,9 @@ pub(super) struct CalibrationSection {
     pub(super) allow_compute_comm_overlap: Option<bool>,
     pub(super) frontend_latency_us: Option<f64>,
     pub(super) frontend_latency_per_prompt_token_us: Option<f64>,
+    pub(super) disaggregation_proxy_latency_us: Option<f64>,
+    /// `fifo` or `fair_share`.
+    pub(super) kv_link_sharing: Option<String>,
     pub(super) pipeline_microbatching: Option<crate::calibration::PipelineMicrobatching>,
 }
 

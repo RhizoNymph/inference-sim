@@ -76,11 +76,20 @@ impl MicrobatchPlan {
     }
 }
 
+/// One forward pass of a split batch: its request (batch and phase), its
+/// nominal compute latency, and the per-stage latency multipliers of locked
+/// GPU clocks for that pass (`Solver::stage_latency_scales`).
+pub(super) struct PassCompute {
+    pub(super) request: InferenceRequest,
+    pub(super) latency_s: f64,
+    pub(super) stage_latency_scales: Vec<f64>,
+}
+
 /// Compute latency of each microbatch's prompt pass and, for end-to-end, the
 /// whole batch's decode.
 pub(super) struct MicrobatchCompute {
-    pub(super) prompt_passes: Vec<(InferenceRequest, f64)>,
-    pub(super) decode_pass: Option<(InferenceRequest, f64)>,
+    pub(super) prompt_passes: Vec<PassCompute>,
+    pub(super) decode_pass: Option<PassCompute>,
 }
 
 impl Solver {
@@ -98,6 +107,7 @@ impl Solver {
         placement: &RankPlacement,
         calibration: SimulationCalibration,
         calibration_fits: &[CalibrationFitApplication],
+        stage_clocks: &StageClockDegradation,
     ) -> Option<MicrobatchCompute> {
         if !calibration_fits.is_empty() || request.phase == InferencePhase::Decode {
             return None;
@@ -124,7 +134,20 @@ impl Solver {
                 calibration,
                 None,
             );
-            (pass_request, latency_s)
+            let stage_latency_scales = Self::stage_latency_scales(
+                cluster,
+                model,
+                &pass_request,
+                config,
+                placement,
+                calibration,
+                stage_clocks,
+            );
+            PassCompute {
+                request: pass_request,
+                latency_s,
+                stage_latency_scales,
+            }
         };
         let prompt_passes = vec![
             pass(first.get(), InferencePhase::Prefill),
@@ -154,7 +177,7 @@ impl Solver {
         let mut trace = TraceBuilder::new(cluster, model, config, placement, groups, calibration);
         let mut prompt_tails = Vec::new();
         let mut previous_sends: Vec<Option<usize>> = Vec::new();
-        for (index, (pass_request, latency_s)) in compute.prompt_passes.iter().enumerate() {
+        for (index, pass) in compute.prompt_passes.iter().enumerate() {
             let links = PassLinks {
                 name_prefix: format!("microbatch {index} "),
                 entry: Vec::new(),
@@ -163,17 +186,27 @@ impl Solver {
                     .map(|send| send.iter().copied().collect())
                     .collect(),
             };
-            let pass = trace.push_pass(pass_request, *latency_s, &links);
-            prompt_tails.extend(pass.tails);
-            previous_sends = pass.stage_sends;
+            let pushed = trace.push_pass(
+                &pass.request,
+                pass.latency_s,
+                &pass.stage_latency_scales,
+                &links,
+            );
+            prompt_tails.extend(pushed.tails);
+            previous_sends = pushed.stage_sends;
         }
-        if let Some((decode_request, latency_s)) = &compute.decode_pass {
+        if let Some(pass) = &compute.decode_pass {
             let links = PassLinks {
                 name_prefix: "decode ".to_string(),
                 entry: prompt_tails,
                 stage_entry: Vec::new(),
             };
-            trace.push_pass(decode_request, *latency_s, &links);
+            trace.push_pass(
+                &pass.request,
+                pass.latency_s,
+                &pass.stage_latency_scales,
+                &links,
+            );
         }
         trace.finish()
     }
@@ -186,7 +219,7 @@ pub(super) fn microbatch_overlap_approximation(
     let sizes: Vec<String> = compute
         .prompt_passes
         .iter()
-        .map(|(pass, _)| pass.batch_size.to_string())
+        .map(|pass| pass.request.batch_size.to_string())
         .collect();
     SimulationApproximation::new(
         phase_label(request.phase),

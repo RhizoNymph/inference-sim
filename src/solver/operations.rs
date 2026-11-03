@@ -82,10 +82,16 @@ impl Solver {
         placement: &RankPlacement,
         groups: &ParallelGroups,
         compute_latency_s: f64,
+        stage_latency_scales: &[f64],
         calibration: SimulationCalibration,
     ) -> (Vec<SimOperation>, Vec<PricedCollective>) {
         let mut trace = TraceBuilder::new(cluster, model, config, placement, groups, calibration);
-        trace.push_pass(request, compute_latency_s, &PassLinks::default());
+        trace.push_pass(
+            request,
+            compute_latency_s,
+            stage_latency_scales,
+            &PassLinks::default(),
+        );
         trace.finish()
     }
 }
@@ -152,11 +158,14 @@ impl<'a> TraceBuilder<'a> {
     }
 
     /// Pushes one forward pass of `request` (its batch, phase, and crossings)
-    /// whose compute totals `compute_latency_s`, split evenly across layers.
+    /// whose compute totals `compute_latency_s`, split evenly across layers;
+    /// each layer's compute is then multiplied by its stage's entry in
+    /// `stage_latency_scales` (locked GPU clocks, `clock_degradation.rs`).
     pub(super) fn push_pass(
         &mut self,
         request: &InferenceRequest,
         compute_latency_s: f64,
+        stage_latency_scales: &[f64],
         links: &PassLinks,
     ) -> PassTrace {
         let cluster = self.cluster;
@@ -274,7 +283,12 @@ impl<'a> TraceBuilder<'a> {
             operations.push(SimOperation {
                 name: format!("{prefix}layer {layer_idx} compute"),
                 kind: SimOperationKind::Compute,
-                duration_s: compute_per_layer_s,
+                // Locked GPU clocks slow only their own stage (clock_degradation.rs).
+                duration_s: compute_per_layer_s
+                    * stage_latency_scales
+                        .get(layer_stage as usize)
+                        .copied()
+                        .unwrap_or(1.0),
                 resources: stage_plan.compute_resources.clone(),
                 dependencies: compute_dependencies,
             });

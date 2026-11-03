@@ -44,9 +44,17 @@ constants an H100 run can fit.
       Disaggregated prefill/decode across nodes (1 prefill + 1-2 decode)
       with a vLLM KV connector, to validate the KV-transfer model for the
       first time.
-      - [ ] fair-share link bandwidth across concurrent KV pulls (burst:
-        per-transfer 0.1 s -> 2.8 s at ~300 MB/s aggregate).
-      - [ ] proxy hops (~60 ms remaining low-load TTFT gap).
+      - [x] [done 2026-10-20, ledger 21: `calibration.kv_link_sharing =
+        "fair_share"`, max-min fair rates per directed resource; pull time
+        under load now tracks NIXL (rate 8: 242 vs 263 ms); burst still
+        -46% because vLLM keeps far more pulls in flight and NIXL aggregate
+        degrades, not a sharing problem] fair-share link bandwidth across
+        concurrent KV pulls (burst: per-transfer 0.1 s -> 2.8 s at ~300 MB/s
+        aggregate).
+      - [x] [done 2026-10-20, ledger 21: `calibration.
+        disaggregation_proxy_latency_us`, 44 ms fitted on rates 1-4 after
+        removing the ~20 ms KV-pull underpricing; TTFT p50 -6..-9% at rates
+        1-4] proxy hops (~60 ms remaining low-load TTFT gap).
 - [x] 4. [done 2026-09-30, uncommitted in staging: tools/lab, first real
       runs succeeded] Turn-key measurement pipeline: unattended benchmark harness, a fitter
       that emits a complete calibration TOML with holdout stats and feature
@@ -72,14 +80,22 @@ constants an H100 run can fit.
         (`pipeline_microbatching = "vllm_batch_queue"`). 7B PP=2 prefill
         10.4% -> 8.3%, 14B 8.7% -> 6.5%, no refit; residual overlap
         depends on request arrival timing (unmeasured).
-      - [ ] engine never preempts; vLLM preempts and recomputes under KV
-        exhaustion (2.4x step time measured at batch 48-64,
-        lab-runs/2026-10-01-qwen7b-decode-batch-sweep-tail). Do after the
-        engine-core disaggregation work lands.
-      - [ ] decode step error trends with total KV (-0.7% at batch 1 to -6.5%
-        at batch 32; -0.9% to -4.4% over 4k-16k contexts): paged KV reads run
-        at about half the weight-read bandwidth. Add a KV-read bandwidth
-        scale and fit it from the decode sweep.
+      - [x] [done 2026-10-01, ledger 19] engine never preempts; vLLM preempts
+        and recomputes under KV exhaustion (2.4x step time measured at batch
+        48-64). `decode_capacity_policy = "preempt"` adds paged allocation
+        with recompute preemption: decode step at batch 40-64 within 3.8-7.7%
+        (mean 6.3%, was 50.9% uncapped), batches <= 32 unchanged.
+      - [x] [done 2026-10-01, ledger 20: `kv_read_bandwidth_scale = 0.469`,
+        fitted by `lab.py fit-kv-read` on node1; decode step 2.7% / 2.5% ->
+        1.3% / 1.6% held out, batch-32 -6.5% -> -1.7%; does not transfer to
+        node0, which shows no KV trend] decode step error trends with total
+        KV (-0.7% at batch 1 to -6.5% at batch 32; -0.9% to -4.4% over
+        4k-16k contexts): paged KV reads run at about half the weight-read
+        bandwidth. Add a KV-read bandwidth scale and fit it from the decode
+        sweep.
+      - [ ] node0 vs node1 KV-read bandwidth: node0 static decode has no KV
+        trend (32x512 20.8 vs 22.2 ms on node1). Measure a node0 decode
+        batch sweep; fit the KV-read scale per node if it holds.
       - [ ] node1 prefills ~3% slower than node0 (curve fitted on node0);
         batched small prefills on node1 (2-4 x 512) take per-sequence time
         and are 8-16% under. Measure 2x512/4x512 on node0 to tell node
@@ -91,6 +107,14 @@ constants an H100 run can fit.
         1.26x slower with memory clocks untouched. Peak-only scaling: prefill
         13.8%, decode 22.8% error. Needs a degraded-GPU compute factor
         relative to the sustained clock plus a bandwidth factor.
+      - [x] [done 2026-10-01, ledger 22] degraded-GPU clock model: per-GPU
+        `sustained_sm_clock_mhz` / `bandwidth_knee_sm_clock_mhz` /
+        `locked_sm_clock_mhz`, compute factor locked/sustained, bandwidth
+        factor min(1, locked/knee), applied per pipeline stage and serving
+        worker. Clock 1200 re-predicted: prefill 13.8% -> 4.8% (curve 1.1%),
+        decode 22.8% -> 3.0%, e2e 9.6% -> 2.6% (LOO 4.9 / 4.3 / 3.2%). Both
+        clocks fitted on the one locked run: measure a second lock clock
+        (900/1500 MHz) to test the knee before trusting other clocks.
       - [ ] throttled NIC (`tc` on bond0).
       - [ ] node removed mid-run: not modeled (the simulator has no failure
         or re-routing events); out of scope before H100s.

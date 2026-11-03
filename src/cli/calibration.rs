@@ -63,6 +63,14 @@ pub(super) fn write_calibration<W: Write>(
         "{indent}  \"decode_memory_bandwidth_scale\": {},",
         json_f64(calibration.decode_memory_bandwidth_scale)
     )?;
+    match calibration.kv_read_bandwidth_scale {
+        Some(scale) => writeln!(
+            writer,
+            "{indent}  \"kv_read_bandwidth_scale\": {},",
+            json_f64(scale)
+        )?,
+        None => writeln!(writer, "{indent}  \"kv_read_bandwidth_scale\": null,")?,
+    }
     writeln!(
         writer,
         "{indent}  \"collective_latency_scale\": {},",
@@ -132,6 +140,16 @@ pub(super) fn write_calibration<W: Write>(
         writer,
         "{indent}  \"frontend_latency_per_prompt_token_us\": {},",
         json_f64(calibration.frontend_latency_per_prompt_token_us)
+    )?;
+    writeln!(
+        writer,
+        "{indent}  \"disaggregation_proxy_latency_us\": {},",
+        json_f64(calibration.disaggregation_proxy_latency_us)
+    )?;
+    writeln!(
+        writer,
+        "{indent}  \"kv_link_sharing\": \"{}\",",
+        calibration.kv_link_sharing.as_str()
     )?;
     writeln!(
         writer,

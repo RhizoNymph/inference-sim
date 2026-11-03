@@ -1,7 +1,8 @@
 //! KV and sequence capacity ledger shared by every worker of one engine run.
 //!
-//! Admission reserves a request's whole footprint; completion and
-//! cancellation return it. Releases are timestamped and applied lazily, so a
+//! Admission allocates a request's footprint (its whole reservation, or
+//! under paged allocation its first chunk's blocks, grown step by step);
+//! completion, cancellation, and preemption return it. Releases are timestamped and applied lazily, so a
 //! worker planning a step at time `t` never sees capacity another worker frees
 //! after `t`.
 //!
@@ -141,11 +142,6 @@ impl CapacityLedger {
             })
     }
 
-    /// Whether the request fits next to everything admitted so far.
-    pub(in crate::serving) fn fits(&self, request: &EngineRequest) -> bool {
-        self.fits_on(request.worker, request.class, request.footprint)
-    }
-
     /// Whether `footprint` fits on `worker` next to everything admitted so far.
     pub(in crate::serving) fn fits_on(
         &self,
@@ -177,15 +173,6 @@ impl CapacityLedger {
             return false;
         }
         true
-    }
-
-    pub(in crate::serving) fn allocate(&mut self, id: EngineRequestId, request: &EngineRequest) {
-        self.allocate_on(
-            HoldingKey::Primary(id),
-            request.worker,
-            request.class,
-            request.footprint,
-        );
     }
 
     pub(in crate::serving) fn allocate_on(
@@ -244,6 +231,52 @@ impl CapacityLedger {
 
     pub(in crate::serving) fn worker_sequences(&self, worker: WorkerId) -> u64 {
         self.workers.get(worker).map_or(0, |usage| usage.sequences)
+    }
+
+    pub(in crate::serving) fn worker_blocks(&self, worker: WorkerId) -> u64 {
+        self.workers.get(worker).map_or(0, |usage| usage.blocks)
+    }
+
+    /// What the holding currently has, if anything.
+    pub(in crate::serving) fn held(&self, key: HoldingKey) -> Option<KvFootprint> {
+        self.held
+            .get(key.slot(self.request_count))
+            .copied()
+            .flatten()
+            .map(|(_, _, footprint)| footprint)
+    }
+
+    /// Adds `extra` to an existing holding when it fits on the holding's
+    /// worker and class next to everything allocated; returns whether it did.
+    pub(in crate::serving) fn try_grow(&mut self, key: HoldingKey, extra: KvFootprint) -> bool {
+        let slot = key.slot(self.request_count);
+        let Some((worker, class, _)) = self.held.get(slot).copied().flatten() else {
+            return false;
+        };
+        if !self.fits_on(worker, class, extra) {
+            return false;
+        }
+        self.global.add(extra);
+        if let Some(usage) = self.workers.get_mut(worker) {
+            usage.add(extra);
+        }
+        if let Some(class) = class
+            && let Some(usage) = self.classes.get_mut(class)
+        {
+            usage.add(extra);
+        }
+        if let Some(Some((_, _, held))) = self.held.get_mut(slot) {
+            held.sequences += extra.sequences;
+            held.tokens += extra.tokens;
+            held.blocks += extra.blocks;
+        }
+        true
+    }
+
+    /// Returns the holding's whole footprint immediately (a preemption at the
+    /// planning instant).
+    pub(in crate::serving) fn release_now_all(&mut self, key: HoldingKey) {
+        self.release_now(key, ReleaseKind::All);
     }
 
     fn release_now(&mut self, key: HoldingKey, kind: ReleaseKind) {
