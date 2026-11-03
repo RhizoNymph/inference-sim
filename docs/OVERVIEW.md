@@ -84,14 +84,16 @@ Overview:
         iteration-level engine (vLLM V1-style steps priced from their
         composition): colocated pools on one worker per GPU set,
         disaggregated and partially disaggregated pools as prefill and
-        decode workers joined by decode-initiated KV pulls over FIFO
-        directed link queues. Independent batching and data-parallel
+        decode workers joined by decode-initiated KV pulls over directed
+        link resources, FIFO or max-min fair-shared
+        (calibration.kv_link_sharing), with an optional calibrated proxy
+        hop between prefill and decode. Independent batching and data-parallel
         replicas stay on the phase-pipeline scheduler.
       key_files:
         - src/serving.rs (module root, ServingSolver)
         - src/serving/scheduling.rs (request states, scheduler dispatch)
         - src/serving/engine/ (iteration-level serving engine)
-        - src/serving/engine/disaggregated.rs, engine/transfer/ (disaggregated workers, KV transfer plans and link queues)
+        - src/serving/engine/disaggregated.rs, engine/transfer/ (disaggregated workers, KV transfer plans, FIFO and fair-share transfer network)
         - src/serving/scheduling/pipeline.rs (phase-pipeline scheduler)
         - src/serving/scheduling/summary.rs (shared metric summary)
         - src/serving/scheduling/ (prefill/decode batching for the pipeline)
@@ -111,7 +113,7 @@ Overview:
     calibration:
       role: >
         SimulationCalibration scalar knobs (compute efficiency, phase scales,
-        collective scales, scheduler overhead, serving memory fractions) with
+        weight-read and optional KV-read bandwidth scales, collective scales, scheduler overhead, serving memory fractions) with
         sanitizing defaults, consumed by solver and serving.
       key_files:
         - src/calibration.rs
@@ -136,11 +138,12 @@ Overview:
         on real lab GPUs from TOML experiment specs (generating and running
         every ssh/docker/venv/Ray command), runs the simulator over the same
         spec, fits compute_efficiency and decode_memory_bandwidth_scale from
-        static-batch runs, emits and verifies a calibration profile, and
+        static-batch runs (plus the efficiency curve, frontend latency, and a
+        separate KV-read bandwidth scale with dataset holdout), emits and verifies a calibration profile, and
         writes measured-vs-simulated reports into lab-runs/.
       key_files:
         - tools/lab/lab.py (uv script entry point)
-        - tools/lab/labharness/ (spec, commands, collective_plan, runner, results, curves, curves_toml, simulate, fitting, evaluate, profile, report)
+        - tools/lab/labharness/ (spec, commands, collective_plan, runner, results, curves, curves_toml, simulate, fitting, evaluate, profile, report, kv_read_fit, kv_read_eval, kv_read_profile)
         - tools/lab/remote/ (bench_latency.py, collective_bench.py, probe_env.py, run on the nodes)
         - tools/lab/labs/, tools/lab/specs/ (lab inventories and experiment matrices)
         - lab-runs/ (raw measurements and derived reports)
@@ -172,7 +175,9 @@ Overview:
     disaggregated pools it also builds per-request KV transfer plans from
     the topology graph and measured send_recv curves
     (src/serving/engine/transfer/) and moves each request from its prefill
-    worker to its decode worker through FIFO link queues. The engine writes
+    worker to its decode worker through the KV transfer network (FIFO link
+    queues or max-min fair-shared links, advanced event by event with the
+    loop), after an optional calibrated proxy hop. The engine writes
     request lifecycles back into the same request states the phase-pipeline
     scheduler fills; both feed one shared metric summary. cli then ranks, gates (calibration and
     approximation policies), and renders text/JSON/CSV, carrying every fit
@@ -182,8 +187,8 @@ Overview:
     solver::calibration_fits already evaluates, and writes a profile TOML that a
     later cli run loads through config. lab_harness also runs outside the loop:
     it drives vLLM on lab nodes, invokes the release binary as a subprocess
-    (--json) for every measured shape or request rate, fits the two roofline
-    scalars from static-batch results, and writes a profile TOML that config
+    (--json) for every measured shape or request rate, fits the roofline
+    scalars (and the KV-read bandwidth scale) from static-batch results, and writes a profile TOML that config
     loads; its reports feed docs/validation_ledger.md.
 
 Features Index:
@@ -235,7 +240,8 @@ Features Index:
     description: >
       Analytical per-phase latency model: dense parameter FLOPs plus causal
       attention FLOPs for prefill/decode, and weight-read plus KV-cache-read
-      HBM bandwidth terms for decode, sharded across tensor/pipeline ranks
+      HBM bandwidth terms for decode (KV reads at an optional separate
+      kv_read_bandwidth_scale, also in the serving step cost), sharded across tensor/pipeline ranks
       only for the attention and KV terms. Prefill is bounded below by one
       weight read; compute efficiency is the scalar compute_efficiency or an
       optional compute_efficiency_curve over tokens per forward pass; a
@@ -247,6 +253,8 @@ Features Index:
       - src/solver.rs::prefill_baseline_s
       - src/calibration/efficiency_curve.rs::ComputeEfficiencyCurve
       - src/workload.rs::ModelSpec::parameter_count_mismatch
+      - src/solver.rs::effective_kv_read_bandwidth
+      - src/calibration.rs::SimulationCalibration::effective_kv_read_bandwidth_scale
     depends_on: [types, workload]
     doc: docs/features/compute_roofline.md
   degraded_gpu_model:
@@ -276,10 +284,15 @@ Features Index:
       the step's actual composition (with TP all-reduces and PP stages,
       compute efficiency at the step's token count), plus a calibrated
       per-request frontend (API-server) latency added to TTFT and E2EL.
+      KV is reserved at admission by default; decode_capacity_policy =
+      "preempt" switches to vLLM V1 paged allocation with recompute
+      preemption (including disaggregated decode workers, which recompute
+      locally), reported as preemption counts and recomputed tokens.
     entry_points:
       - src/serving/engine.rs::select_scheduler_model
       - src/serving/engine.rs::run_iteration_engine
-      - src/serving/engine/core.rs::run_engine
+      - src/serving/engine/core.rs::run_engine_jobs_configured
+      - src/serving/engine/core/paged.rs::Engine::grant_kv
       - src/solver/step_cost.rs::IterationCostModel
     depends_on: [compute_roofline]
     doc: docs/features/serving_iteration_engine.md
@@ -290,14 +303,18 @@ Features Index:
       chunked-prefill steps, finished prompts queue on their decode worker,
       decode admission reserves KV and starts a pull of the request's
       TP/PP-sharded prompt KV priced from directed send_recv curves or routed
-      alpha-beta, FIFO per directed link, and the decode worker recomputes
-      the last prompt token to emit the client's first token (vLLM proxy
-      TTFT convention, configurable).
+      alpha-beta, FIFO or max-min fair-shared per directed link
+      (calibration.kv_link_sharing), an optional calibrated proxy hop
+      (calibration.disaggregation_proxy_latency_us), and the decode worker
+      recomputes the last prompt token to emit the client's first token
+      (vLLM proxy TTFT convention, configurable).
     entry_points:
       - src/serving/engine.rs::select_scheduler_model
       - src/serving/engine/disaggregated.rs::run_disaggregated_engine
-      - src/serving/engine/core.rs::run_engine_jobs
+      - src/serving/engine/core.rs::run_engine_jobs_configured
       - src/serving/engine/transfer/plan.rs::KvTransferPlanner
+      - src/serving/engine/transfer/network.rs::KvNetwork
+      - src/serving/engine/transfer/fair_share.rs::FairShareLinks
       - examples/rtx3090_qwen7b_disaggregated_workload.toml
     depends_on: [serving_iteration_engine, collective_curves]
     doc: docs/features/disaggregated_serving_engine.md
@@ -321,6 +338,9 @@ Features Index:
     depends_on: [compute_roofline, calibration_fits]
     doc: docs/features/lab_harness.md
     notes: >
+      fit-kv-read fits kv_read_bandwidth_scale (after or jointly with
+      decode_memory_bandwidth_scale) from decode batch-sweep and long-context
+      runs with leave-one-dataset-out holdout (ledger entry 20).
       fit-curve fits compute_efficiency_curve from a prefill token sweep and
       frontend latency from isolated-request benchmarks; kv_estimate.py sizes
       vLLM's KV cache like vLLM's memory profiler when server.log is absent.

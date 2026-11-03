@@ -22,6 +22,8 @@ covers:
 - Two multipliers derived from the lock:
   - compute factor `min(1, locked / sustained)`;
   - bandwidth factor `min(1, locked / knee)`, or 1 without a knee.
+    It scales weight reads and, when `kv_read_bandwidth_scale` prices them
+    separately, KV-cache reads alike (static solver and serving step cost).
 - Per-stage application: a pipeline stage runs as fast as its slowest GPU at
   each term (tensor/expert ranks are in lock-step), and a locked GPU slows
   only the stage it serves. Disaggregated prefill and decode workers have
@@ -151,7 +153,8 @@ leave-one-shape-out (clocks fitted on four shapes): 4.9% / 4.3% / 3.2%.
 - `src/solver/placement.rs`: clock-aware `compare_gpu_addrs`.
 - `src/cli/topology.rs`: `gpu_clock_json`.
 - Tests: `src/types/gpu_clock.rs` (unit), `src/config/gpu_clock_config_tests.rs`,
-  `src/solver/clock_degradation_tests.rs`.
+  `src/solver/clock_degradation_tests.rs`, `src/solver/clock_kv_read_tests.rs`
+  (the bandwidth factor with a separate KV-read scale).
 - Validation: `lab-runs/2026-10-01-degraded-gpu-sim/` (`predict.py`,
   `results.json`, `summary.md`), docs/validation_ledger.md entry 22.
 

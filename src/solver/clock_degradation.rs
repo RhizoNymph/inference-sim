@@ -183,13 +183,16 @@ impl Solver {
             return vec![1.0; degradation.stages().len()];
         }
         let peak_flops = Self::peak_flops(cluster, model, placement);
-        let hbm_bandwidth = Self::effective_hbm_bandwidth(cluster, placement, calibration);
+        let bandwidth = DecodeBandwidth {
+            weight_read: Self::effective_hbm_bandwidth(cluster, placement, calibration),
+            kv_read: Self::effective_kv_read_bandwidth(cluster, placement, calibration),
+        };
         let nominal = Self::analytical_phase_latency_s(
             model,
             request,
             config,
             peak_flops,
-            hbm_bandwidth,
+            bandwidth,
             calibration,
         );
         degradation
@@ -204,7 +207,12 @@ impl Solver {
                     request,
                     config,
                     peak_flops * stage.degradation.compute(),
-                    hbm_bandwidth * stage.degradation.bandwidth(),
+                    // The SM-clock bandwidth knee limits weight and KV reads
+                    // alike.
+                    DecodeBandwidth {
+                        weight_read: bandwidth.weight_read * stage.degradation.bandwidth(),
+                        kv_read: bandwidth.kv_read * stage.degradation.bandwidth(),
+                    },
                     calibration,
                 ) / nominal
             })
@@ -212,13 +220,14 @@ impl Solver {
     }
 
     /// The roofline phase latency without calibration fits, for given
-    /// effective peak FLOP/s (before the efficiency factor) and bandwidth.
+    /// effective peak FLOP/s (before the efficiency factor) and weight- and
+    /// KV-read bandwidths.
     fn analytical_phase_latency_s(
         model: &ModelSpec,
         request: &InferenceRequest,
         config: ParallelismConfig,
         peak_flops: f64,
-        hbm_bandwidth: f64,
+        bandwidth: DecodeBandwidth,
         calibration: SimulationCalibration,
     ) -> f64 {
         let shard_factor = Self::latency_shard_factor(config);
@@ -230,7 +239,7 @@ impl Solver {
                 shard_factor,
                 peak_flops
                     * calibration.compute_efficiency_at(Self::prefill_tokens_per_pass(request)),
-                hbm_bandwidth,
+                bandwidth.weight_read,
                 calibration,
             )
         };
@@ -243,7 +252,7 @@ impl Solver {
                 shard_factor,
                 peak_flops
                     * calibration.compute_efficiency_at(Self::decode_tokens_per_pass(request)),
-                hbm_bandwidth,
+                bandwidth,
                 calibration,
                 None,
             )
