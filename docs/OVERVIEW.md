@@ -109,6 +109,21 @@ Overview:
         - tools/aisimulate_calibration/convert.py (uv script entry point)
         - tools/aisimulate_calibration/converter/ (tables, op walk, fitting, emission)
         - tools/aisimulate_calibration/fixtures/ (self-test CSVs and golden profile)
+    lab_harness:
+      role: >
+        Offline Python tool, outside the simulation loop, that measures vLLM
+        on real lab GPUs from TOML experiment specs (generating and running
+        every ssh/docker/venv/Ray command), runs the simulator over the same
+        spec, fits compute_efficiency and decode_memory_bandwidth_scale from
+        static-batch runs, emits and verifies a calibration profile, and
+        writes measured-vs-simulated reports into lab-runs/.
+      key_files:
+        - tools/lab/lab.py (uv script entry point)
+        - tools/lab/labharness/ (spec, commands, runner, results, simulate, fitting, evaluate, profile, report)
+        - tools/lab/remote/ (bench_latency.py and probe_env.py, run on the nodes)
+        - tools/lab/labs/, tools/lab/specs/ (lab inventories and experiment matrices)
+        - lab-runs/ (raw measurements and derived reports)
+        - docs/validation_ledger.md (measured accuracy per regime)
   data_flow: >
     cli parses arguments and loads TOML through config, producing a Cluster
     (types::topology), a ModelSpec/InferenceRequest (workload), a
@@ -132,7 +147,11 @@ Overview:
     aisimulate_calibration runs entirely outside that loop: it reads AISimulate
     Parquet op tables, composes phase latencies, fits the basis features
     solver::calibration_fits already evaluates, and writes a profile TOML that a
-    later cli run loads through config.
+    later cli run loads through config. lab_harness also runs outside the loop:
+    it drives vLLM on lab nodes, invokes the release binary as a subprocess
+    (--json) for every measured shape or request rate, fits the two roofline
+    scalars from static-batch results, and writes a profile TOML that config
+    loads; its reports feed docs/validation_ledger.md.
 
 Features Index:
   aisimulate_calibration:
@@ -174,4 +193,20 @@ Features Index:
       - src/solver.rs::prefill_baseline_s
     depends_on: [types, workload]
     doc: docs/features/compute_roofline.md
+  lab_harness:
+    description: >
+      Turn-key measurement-to-calibration pipeline: TOML experiment specs
+      (static-batch shapes or vllm bench serve rate sweeps) with lab quirks as
+      config, a dry-runnable remote runner with JSON-record completion
+      detection and manifests, simulator sweeps mirroring each benchmark, a
+      two-scalar median-ratio fit with leave-one-shape-out validation,
+      calibration-profile emission verified by the simulator, and per-regime
+      markdown comparisons.
+    entry_points:
+      - tools/lab/lab.py
+      - tools/lab/specs/rtx3090_qwen7b_static_pp1.toml
+      - tools/lab/specs/rtx3090_qwen7b_serving_pp1.toml
+      - docs/validation_ledger.md
+    depends_on: [compute_roofline, calibration_fits]
+    doc: docs/features/lab_harness.md
 ```

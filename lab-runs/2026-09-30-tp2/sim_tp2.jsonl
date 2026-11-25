@@ -1,0 +1,15 @@
+{"batch": 1, "prompt": 512, "decode": 1, "tp": 2, "pp": 1, "phase": "prefill", "sim_ms": 50.238, "bottlenecks": ["gpu compute node 0", "gpu compute node 1", "fat-tree fabric node 0 <-> node 1 rail 0"]}
+{"batch": 1, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "decode", "sim_ms": 1245.389, "bottlenecks": ["gpu HBM node 0", "gpu HBM node 1", "gpu compute node 0", "gpu compute node 1"]}
+{"batch": 1, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "end_to_end", "sim_ms": 1295.562, "bottlenecks": ["gpu HBM node 0", "gpu HBM node 1", "gpu compute node 0", "gpu compute node 1"]}
+{"batch": 1, "prompt": 2048, "decode": 1, "tp": 2, "pp": 1, "phase": "prefill", "sim_ms": 205.984, "bottlenecks": ["gpu compute node 0", "gpu compute node 1", "fat-tree fabric node 0 <-> node 1 rail 0"]}
+{"batch": 1, "prompt": 2048, "decode": 128, "tp": 2, "pp": 1, "phase": "decode", "sim_ms": 1252.573, "bottlenecks": ["gpu HBM node 0", "gpu HBM node 1", "gpu compute node 0", "gpu compute node 1"]}
+{"batch": 1, "prompt": 2048, "decode": 128, "tp": 2, "pp": 1, "phase": "end_to_end", "sim_ms": 1458.492, "bottlenecks": ["gpu HBM node 0", "gpu HBM node 1", "gpu compute node 0", "gpu compute node 1"]}
+{"batch": 8, "prompt": 512, "decode": 1, "tp": 2, "pp": 1, "phase": "prefill", "sim_ms": 401.45, "bottlenecks": ["gpu compute node 0", "gpu compute node 1", "fat-tree fabric node 0 <-> node 1 rail 0"]}
+{"batch": 8, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "decode", "sim_ms": 1266.994, "bottlenecks": ["gpu HBM node 0", "gpu HBM node 1", "gpu compute node 0", "gpu compute node 1"]}
+{"batch": 8, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "end_to_end", "sim_ms": 1668.379, "bottlenecks": ["gpu HBM node 0", "gpu HBM node 1", "gpu compute node 0", "gpu compute node 1"]}
+{"batch": 8, "prompt": 2048, "decode": 1, "tp": 2, "pp": 1, "phase": "prefill", "sim_ms": 1647.42, "bottlenecks": ["gpu compute node 0", "gpu compute node 1", "fat-tree fabric node 0 <-> node 1 rail 0"]}
+{"batch": 8, "prompt": 2048, "decode": 128, "tp": 2, "pp": 1, "phase": "decode", "sim_ms": 1324.468, "bottlenecks": ["gpu HBM node 0", "gpu HBM node 1", "gpu compute node 0", "gpu compute node 1"]}
+{"batch": 8, "prompt": 2048, "decode": 128, "tp": 2, "pp": 1, "phase": "end_to_end", "sim_ms": 2971.823, "bottlenecks": ["gpu HBM node 0", "gpu HBM node 1", "gpu compute node 0", "gpu compute node 1"]}
+{"batch": 32, "prompt": 512, "decode": 1, "tp": 2, "pp": 1, "phase": "prefill", "sim_ms": 1605.607, "bottlenecks": ["gpu compute node 0", "gpu compute node 1", "fat-tree fabric node 0 <-> node 1 rail 0"]}
+{"batch": 32, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "decode", "sim_ms": 1341.069, "bottlenecks": ["gpu HBM node 0", "gpu HBM node 1", "gpu compute node 0", "gpu compute node 1"]}
+{"batch": 32, "prompt": 512, "decode": 128, "tp": 2, "pp": 1, "phase": "end_to_end", "sim_ms": 2946.611, "bottlenecks": ["gpu HBM node 0", "gpu HBM node 1", "gpu compute node 0", "gpu compute node 1"]}

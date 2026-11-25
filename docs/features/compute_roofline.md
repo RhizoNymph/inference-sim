@@ -15,10 +15,13 @@ and decode operations before scheduling. It covers:
   reads (`2 * layers * kv_heads * head_dim * kv_bytes * avg_context *
   decode_tokens * batch`, sharded, over bandwidth). Decode latency is
   `max(flop_term, memory_term) * decode_compute_scale`.
-- Sharding: dense FLOPs and weight bytes divide by
-  `tensor * pipeline * expert` ranks; attention FLOPs and KV reads divide by
-  `tensor * pipeline` only, because expert ranks partition MLP expert
-  weights, not attention heads or KV cache.
+- Sharding: phase latency is the time for one batch to pass through every
+  pipeline stage, so latency divides dense FLOPs and weight bytes by
+  `tensor * expert` ranks and attention FLOPs and KV reads by `tensor` ranks
+  only. Pipeline ranks split a batch's layers across stages that run one
+  after another, so they shard weight and KV memory but not one batch's
+  latency. Expert ranks partition MLP expert weights, not attention heads
+  or KV cache.
 - Effective peaks: minimum per-placement GPU peak TFLOPs (dtype-selected)
   times `calibration.compute_efficiency`; minimum HBM bandwidth times
   `calibration.decode_memory_bandwidth_scale`.
@@ -28,7 +31,8 @@ and decode operations before scheduling. It covers:
 Layer-aware kernel decomposition (attention vs MLP vs logits), tensor-core
 utilization curves, batch-roofline nonlinearity beyond the two-term max,
 paged-attention block effects, speculative decoding, prefix-cache-aware
-decode reads, pipeline bubbles, and any backend-specific behavior. Fitted
+decode reads, backend microbatch scheduling inside one pipelined batch,
+and any backend-specific behavior. Fitted
 calibration models override these baselines when a profile matches.
 
 ## Data/control flow
@@ -49,7 +53,14 @@ calibration models override these baselines when a profile matches.
    fitted value replaces the baseline and the application is recorded.
 4. The scalar phase latency is split evenly across layers into scheduled
    operations (src/solver/operations.rs) and interleaved with collective
-   costs (src/solver/network_cost.rs).
+   costs (src/solver/network_cost.rs). Layers map to contiguous pipeline
+   stages (`layer_stage`); each layer occupies only its stage's GPU
+   resources, tensor/expert collectives run only for groups inside that
+   stage, and a `pipeline sendrecv edge N` operation sits between the last
+   layer of stage N and the first layer of stage N+1. The boundary is
+   crossed once for the prompt and once per generated token, so its latency
+   term repeats per crossing. Because stages hold separate resources,
+   concurrent serving batches can overlap across stages.
 5. Serving derives per-token decode cost from a `decode_tokens = 1` score
    and a whole-decode score (`decode_tail_scale`, src/serving/scheduling.rs),
    so the context-dependent KV-read term makes later decode iterations
@@ -58,7 +69,8 @@ calibration models override these baselines when a profile matches.
 ## Related files
 
 - `src/solver.rs` — `estimate_compute_latency_s`, `prefill_baseline_s`,
-  `decode_compute_latency_s`, `flop_latency_s`, `attention_shard_factor`,
+  `decode_compute_latency_s`, `flop_latency_s`, `latency_shard_factor`,
+  `attention_shard_factor`, `kv_cache_bytes`,
   `prefill_attention_flops`, `decode_attention_flops`,
   `decode_kv_read_bytes`, `average_decode_context_tokens`,
   `effective_peak_flops`, `effective_hbm_bandwidth`.
@@ -68,13 +80,21 @@ calibration models override these baselines when a profile matches.
   roofline.
 - `src/solver/calibration_fits.rs` — fitted-model override path.
 - `src/solver/operations.rs` — per-layer operation trace built from the
-  scalar phase latency.
+  scalar phase latency: `build_operation_trace`, `layer_stage`,
+  `PipelineStagePlan` (per-stage ranks and compute resources), and
+  `push_pipeline_boundary_operation` (per-crossing stage sends).
+- `src/serving/memory.rs` — serving memory components; `kv_cache_gb`
+  divides KV by tensor and pipeline ranks.
 
 ## Invariants and constraints
 
 - Attention terms use the mean decode context so total decode work stays
   closed-form; they never depend on scheduler state.
 - Expert ranks must never shard attention FLOPs or KV reads.
+- Pipeline ranks must never shorten one batch's latency; they divide weight
+  and KV memory per GPU (`kv_cache_bytes`, serving `kv_cache_gb`) only.
+- Calibration fits are whole-model per-batch latencies, so they apply
+  unchanged at any pipeline degree.
 - KV-read bytes use `kv_dtype()` (falls back to model dtype) and `kv_heads`,
   so GQA/MQA and quantized KV reduce the memory term.
 - Calibration fits, when applicable, fully replace the baseline for that
