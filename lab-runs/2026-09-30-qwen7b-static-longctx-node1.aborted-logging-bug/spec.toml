@@ -1,0 +1,52 @@
+# Static-batch latency at long contexts, Qwen2.5-7B-Instruct bf16 on one
+# RTX 3090 (node1, native venv). Tests whether the 3090 constants fitted at
+# 512-2048 token prompts transfer to 4k-16k prompts. Every shape keeps
+# batch x prompt <= 16384 so each prefill runs as a single engine step.
+
+[experiment]
+name = "qwen7b-static-longctx-node1"
+description = "Static-batch medians at 4k-16k prompts, single GPU on node1."
+mode = "static-batch"
+lab = "../labs/rtx3090.toml"
+nodes = ["node1"]
+launch = "auto"            # node1 default: venv
+vllm_version = "0.29.0"
+
+[model]
+hf_id = "Qwen/Qwen2.5-7B-Instruct"
+name = "qwen2.5-7b-instruct"
+dtype = "bfloat16"
+max_model_len = 16640
+
+# The simulator's [model] section. No ffn_hidden_size: the 2026-09-28 fit
+# used the simulator's default FFN sizing, and adding it changes prefill.
+[model.sim]
+layers = 28
+hidden_size = 3584
+attention_heads = 28
+kv_heads = 4
+vocab_size = 152064
+parameters_gb = 15.23
+dtype = "bf16"
+
+[parallelism]
+tp = 1
+pp = 1
+
+[engine]
+gpu_memory_utilization = 0.90
+max_num_batched_tokens = 16384
+max_num_seqs = 64
+enable_prefix_caching = false
+enforce_eager = false
+seed = 0
+
+[static_batch]
+shapes = ["1x4096", "1x8192", "1x16384", "2x8192", "4x4096"]
+decode_tokens = 128
+warmup = 2
+iters = 5
+
+[runner]
+poll_interval_s = 15
+run_timeout_s = 3600
