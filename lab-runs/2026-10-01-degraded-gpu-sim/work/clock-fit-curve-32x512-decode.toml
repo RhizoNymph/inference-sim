@@ -1,0 +1,28 @@
+schema_version = 1
+
+[model]
+id = "qwen2.5-7b-instruct"
+layers = 28
+hidden_size = 3584
+attention_heads = 28
+kv_heads = 4
+vocab_size = 152064
+ffn_hidden_size = 18944
+parameters_gb = 15.23
+dtype = "bf16"
+
+[request]
+batch_size = 32
+prompt_tokens = 512
+decode_tokens = 128
+max_sequence_tokens = 640
+phase = "decode"
+
+[calibration_profile]
+path = "/home/nymph/Code/ai/inference-sim/degraded-gpu-model/lab-runs/2026-10-01-qwen7b-prefill-token-sweep/calibration_profile-curve-only.toml"
+
+[search]
+tensor_ranks = [1]
+pipeline_ranks = [1]
+expert_ranks = [1]
+data_ranks = [1]
