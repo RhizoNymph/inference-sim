@@ -36,7 +36,7 @@ impl Default for SimulationCalibration {
             serving_memory_fragmentation_fraction: 0.03,
             serving_pipeline_depth: 4,
             request_arrival_gap_s: 0.0,
-            allow_compute_comm_overlap: true,
+            allow_compute_comm_overlap: false,
         }
     }
 }

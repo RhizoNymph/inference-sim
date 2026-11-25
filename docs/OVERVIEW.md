@@ -57,6 +57,7 @@ Overview:
         - src/solver/network_cost.rs (collective/transfer cost, fit lookup)
         - src/solver/operations.rs (operation trace construction)
         - src/solver/calibration_fits.rs (fit feature dictionary and evaluation)
+        - src/solver/step_cost.rs (per-engine-step roofline for the serving engine)
     scheduler:
       role: >
         Resource-constrained scheduling of simulated operations. Turns an
@@ -70,10 +71,16 @@ Overview:
         disaggregated, and fully disaggregated prefill/decode pools, arrivals
         and traffic classes, batching, queueing, KV transfer routing, SLOs,
         capacity and memory pressure, rejections, objective scoring, and
-        calibrated serving metrics.
+        calibrated serving metrics. Colocated continuous-batching candidates
+        run on an iteration-level engine (vLLM V1-style steps priced from
+        their composition); all others on the phase-pipeline scheduler.
       key_files:
         - src/serving.rs (module root, ServingSolver)
-        - src/serving/scheduling/ (queueing and batching)
+        - src/serving/scheduling.rs (request states, scheduler dispatch)
+        - src/serving/engine/ (iteration-level serving engine)
+        - src/serving/scheduling/pipeline.rs (phase-pipeline scheduler)
+        - src/serving/scheduling/summary.rs (shared metric summary)
+        - src/serving/scheduling/ (prefill/decode batching for the pipeline)
         - src/serving/metric_fits.rs (serving-metric calibration fits)
         - src/serving/calibration.rs, measurement.rs, observations.rs
         - src/serving/capacity.rs, memory.rs, routing.rs, ranking.rs
@@ -109,6 +116,21 @@ Overview:
         - tools/aisimulate_calibration/convert.py (uv script entry point)
         - tools/aisimulate_calibration/converter/ (tables, op walk, fitting, emission)
         - tools/aisimulate_calibration/fixtures/ (self-test CSVs and golden profile)
+    lab_harness:
+      role: >
+        Offline Python tool, outside the simulation loop, that measures vLLM
+        on real lab GPUs from TOML experiment specs (generating and running
+        every ssh/docker/venv/Ray command), runs the simulator over the same
+        spec, fits compute_efficiency and decode_memory_bandwidth_scale from
+        static-batch runs, emits and verifies a calibration profile, and
+        writes measured-vs-simulated reports into lab-runs/.
+      key_files:
+        - tools/lab/lab.py (uv script entry point)
+        - tools/lab/labharness/ (spec, commands, runner, results, simulate, fitting, evaluate, profile, report)
+        - tools/lab/remote/ (bench_latency.py and probe_env.py, run on the nodes)
+        - tools/lab/labs/, tools/lab/specs/ (lab inventories and experiment matrices)
+        - lab-runs/ (raw measurements and derived reports)
+        - docs/validation_ledger.md (measured accuracy per regime)
   data_flow: >
     cli parses arguments and loads TOML through config, producing a Cluster
     (types::topology), a ModelSpec/InferenceRequest (workload), a
@@ -126,13 +148,22 @@ Overview:
     makespan becomes estimated_latency_s. serving reuses the solver per pool and
     layers arrivals, batching, queueing, KV transfer, and SLO accounting on top,
     applying its own serving-scope fits through
-    Solver::fitted_latency_from_features. cli then ranks, gates (calibration and
+    Solver::fitted_latency_from_features. For colocated continuous-batching
+    candidates, serving builds a solver IterationCostModel from the placed
+    config and runs the discrete-event engine (src/serving/engine/), which
+    prices every engine step from its prefill/decode composition and writes
+    request lifecycles back into the same request states the phase-pipeline
+    scheduler fills; both feed one shared metric summary. cli then ranks, gates (calibration and
     approximation policies), and renders text/JSON/CSV, carrying every fit
     application and its applicability status into the output.
     aisimulate_calibration runs entirely outside that loop: it reads AISimulate
     Parquet op tables, composes phase latencies, fits the basis features
     solver::calibration_fits already evaluates, and writes a profile TOML that a
-    later cli run loads through config.
+    later cli run loads through config. lab_harness also runs outside the loop:
+    it drives vLLM on lab nodes, invokes the release binary as a subprocess
+    (--json) for every measured shape or request rate, fits the two roofline
+    scalars from static-batch results, and writes a profile TOML that config
+    loads; its reports feed docs/validation_ledger.md.
 
 Features Index:
   aisimulate_calibration:
@@ -174,4 +205,34 @@ Features Index:
       - src/solver.rs::prefill_baseline_s
     depends_on: [types, workload]
     doc: docs/features/compute_roofline.md
+  serving_iteration_engine:
+    description: >
+      Deterministic discrete-event serving loop modeled on vLLM V1 for
+      colocated continuous-batching candidates: per-step decode tokens plus
+      budget-filling prefill chunks, KV-gated admission with a waiting queue
+      instead of rejection, and per-step latency from the solver roofline for
+      the step's actual composition (with TP all-reduces and PP stages).
+    entry_points:
+      - src/serving/engine.rs::select_scheduler_model
+      - src/serving/engine.rs::run_iteration_engine
+      - src/serving/engine/core.rs::run_engine
+      - src/solver/step_cost.rs::IterationCostModel
+    depends_on: [compute_roofline]
+    doc: docs/features/serving_iteration_engine.md
+  lab_harness:
+    description: >
+      Turn-key measurement-to-calibration pipeline: TOML experiment specs
+      (static-batch shapes or vllm bench serve rate sweeps) with lab quirks as
+      config, a dry-runnable remote runner with JSON-record completion
+      detection and manifests, simulator sweeps mirroring each benchmark, a
+      two-scalar median-ratio fit with leave-one-shape-out validation,
+      calibration-profile emission verified by the simulator, and per-regime
+      markdown comparisons.
+    entry_points:
+      - tools/lab/lab.py
+      - tools/lab/specs/rtx3090_qwen7b_static_pp1.toml
+      - tools/lab/specs/rtx3090_qwen7b_serving_pp1.toml
+      - docs/validation_ledger.md
+    depends_on: [compute_roofline, calibration_fits]
+    doc: docs/features/lab_harness.md
 ```

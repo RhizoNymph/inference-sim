@@ -8560,11 +8560,12 @@ fn continuous_decode_batches_by_routed_replica_node() {
         vec![(vec![1], vec![1]), (vec![2], vec![2])]
     );
     assert_eq!(results[0].metrics.kv_transfer_s, 0.0);
+    // One engine step per replica node: requests routed to different nodes
+    // never share a step.
     let decode_iteration_count = results[0]
         .scheduled_operations
         .iter()
-        .filter(|operation| operation.name.contains("decode iteration"))
-        .filter(|operation| operation.name.contains("layer 0 compute"))
+        .filter(|operation| operation.name.starts_with("engine step"))
         .count();
     assert_eq!(decode_iteration_count, 2);
     assert_eq!(results[0].decode_iterations.len(), 2);
