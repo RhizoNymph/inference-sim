@@ -56,6 +56,7 @@ use crate::{
     },
     topology_graph::TopologyGraph,
     types::{
+        collective_curves::CurveSuspension,
         common::{
             Bytes, FabricKind, GpuAddr, Latency, OperationalState, ReductionAccelerator,
             UnorderedPair,
@@ -903,5 +904,7 @@ fn comma(trailing_comma: bool) -> &'static str {
     if trailing_comma { "," } else { "" }
 }
 
+#[cfg(test)]
+mod curve_scenario_tests;
 #[cfg(test)]
 mod tests;

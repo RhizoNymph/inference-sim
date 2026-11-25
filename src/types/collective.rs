@@ -1,5 +1,8 @@
 use crate::{
-    types::common::{Bytes, RankId},
+    types::{
+        collective_curves::CurveExtrapolation,
+        common::{Bytes, RankId},
+    },
     workload::{DType, InferencePhase},
 };
 
@@ -45,4 +48,41 @@ pub struct CollectiveCost {
     pub bandwidth_s: f64,
     pub total_s: f64,
     pub bottlenecks: Vec<String>,
+    pub pricing: CollectivePricing,
+}
+
+/// How a collective's or transfer's time was obtained, so evidence records
+/// can say whether a number came from a measured curve or the analytical
+/// alpha-beta model.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CollectivePricing {
+    /// Nothing crosses a link (single participant or zero bytes).
+    NoTraffic,
+    /// Analytical alpha-beta model; the coverage says why no curve applied.
+    AlphaBeta(CurveCoverage),
+    /// A measured curve priced the call.
+    MeasuredCurve(CurveApplication),
+}
+
+/// Why the alpha-beta model priced a call instead of a measured curve.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CurveCoverage {
+    /// The cluster lists no curves.
+    NotConfigured,
+    /// Curves exist but are suspended (the reason is rendered text).
+    Suspended { reason: String },
+    /// Curves exist but none matches the call's op, placement, and ranks.
+    NoMatch,
+    /// This kind of transfer is never priced from curves (KV transfers).
+    NotConsulted,
+}
+
+/// A measured curve applied to one call.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CurveApplication {
+    pub curve_label: String,
+    pub source: Option<String>,
+    pub bytes: u64,
+    pub extrapolation: CurveExtrapolation,
+    pub derived_region: bool,
 }

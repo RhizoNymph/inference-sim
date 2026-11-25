@@ -868,6 +868,7 @@ impl ServingSolver {
                 inter_node_topology: crate::types::fabric::inter_node::InterNodeTopology::Custom(
                     Default::default(),
                 ),
+                collective_curves: Default::default(),
             },
             &ModelSpec {
                 layers: 0,

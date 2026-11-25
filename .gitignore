@@ -1,3 +1,7 @@
 /target
 output/
 __pycache__/
+# tools/lab: local dev environment and regenerated simulator workloads
+tools/lab/.venv/
+lab-runs/**/sim-work/
+.uv-cache/

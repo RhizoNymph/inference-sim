@@ -300,12 +300,34 @@ V1 intentionally keeps these approximate:
   residency.
 - No full physical rail, switch, copy-engine, or shared-resource contention
   model.
-- No production benchmark fitting pipeline.
+- Measured calibration covers only a two-scalar static-batch fit on one lab
+  (see `docs/validation_ledger.md` for what has and has not been validated).
 
 The simulator emits approximation, calibration, bottleneck, rejection, and
 rank-sensitivity evidence so comparisons can be audited. For production
 recommendations, prefer calibrated workloads with policy gates that reject the
 approximations or coverage gaps you cannot tolerate.
+
+## Lab Measurements And Calibration
+
+`tools/lab/` measures vLLM on real GPUs and calibrates the simulator against
+it. An experiment is a TOML spec (`tools/lab/specs/`) naming a lab
+(`tools/lab/labs/`, where node quirks live), a model, parallelism, and either
+static-batch shapes or a `vllm bench serve` request-rate sweep:
+
+```sh
+cargo build --release
+python3 tools/lab/lab.py run tools/lab/specs/rtx3090_qwen7b_static_pp1.toml --dry-run
+python3 tools/lab/lab.py run tools/lab/specs/rtx3090_qwen7b_static_pp1.toml
+python3 tools/lab/lab.py calibrate tools/lab/specs/rtx3090_qwen7b_static_pp1.toml \
+  --run-dir lab-runs/<date>-qwen7b-static-pp1
+python3 tools/lab/lab.py report --run-dir lab-runs/<date>-qwen7b-static-pp1
+```
+
+Results go to `lab-runs/<date>-<name>/` with a manifest, the fitted
+calibration profile (which the simulator verifiably loads), and a
+measured-vs-simulated report. Measured accuracy per regime is tracked in
+`docs/validation_ledger.md`; the design is in `docs/features/lab_harness.md`.
 
 ## Development
 

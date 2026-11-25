@@ -5,6 +5,7 @@ use crate::types::common::{
     Bandwidth, GpuId, Latency, LinkBandwidth, NicId, OperationalState, ReductionAccelerator,
     UnorderedPair,
 };
+use crate::types::fabric::direction::NicDirectionCaps;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NvLinkProfile {
@@ -80,9 +81,37 @@ pub struct NodeNetworkProfile {
     pub gpu_nic_path_overrides: BTreeMap<(GpuId, NicId), GpuNicPathOverride>,
     pub disabled_nics: BTreeSet<NicId>,
     pub nic_operational_states: BTreeMap<NicId, OperationalState>,
+    /// One-way caps per NIC; NICs not listed are symmetric.
+    pub nic_direction_caps: BTreeMap<NicId, NicDirectionCaps>,
 }
 
 impl NodeNetworkProfile {
+    /// Rate at which `nic_id` transmits: its line rate, capped by any egress cap.
+    pub fn nic_egress_bandwidth(&self, nic_id: NicId) -> Bandwidth {
+        let line = self.nic_bandwidth(nic_id);
+        match self
+            .nic_direction_caps
+            .get(&nic_id)
+            .and_then(|caps| caps.egress())
+        {
+            Some(cap) if cap.as_bytes_per_sec() < line.as_bytes_per_sec() => cap,
+            _ => line,
+        }
+    }
+
+    /// Rate at which `nic_id` receives: its line rate, capped by any ingress cap.
+    pub fn nic_ingress_bandwidth(&self, nic_id: NicId) -> Bandwidth {
+        let line = self.nic_bandwidth(nic_id);
+        match self
+            .nic_direction_caps
+            .get(&nic_id)
+            .and_then(|caps| caps.ingress())
+        {
+            Some(cap) if cap.as_bytes_per_sec() < line.as_bytes_per_sec() => cap,
+            _ => line,
+        }
+    }
+
     pub fn nic_candidates_for_gpu(&self, gpu_id: GpuId) -> Vec<NicId> {
         let nics = if let Some(nics) = self.gpu_nic_map.get(&gpu_id) {
             nics.clone()

@@ -291,6 +291,7 @@ impl Solver {
         config: ParallelismConfig,
         placement: &RankPlacement,
         operations: &[SimOperation],
+        priced_collectives: &[PricedCollective],
         calibration_fits: &[CalibrationFitApplication],
     ) -> Vec<SimulationApproximation> {
         let mut approximations = Vec::new();
@@ -328,6 +329,7 @@ impl Solver {
             && operations
                 .iter()
                 .any(|op| op.kind == SimOperationKind::Collective)
+            && !all_traffic_priced_by_curves(priced_collectives)
         {
             push_approximation(
                 &mut approximations,
@@ -343,6 +345,10 @@ impl Solver {
                     ),
                 ),
             );
+        }
+
+        for approximation in collective_pricing_approximations(phase, priced_collectives) {
+            push_approximation(&mut approximations, approximation);
         }
 
         if placement_spans_nodes(placement) {

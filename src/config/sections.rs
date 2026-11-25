@@ -11,6 +11,7 @@ pub(super) struct ClusterFile {
     pub(super) nics: Option<NicsSection>,
     pub(super) nodes: Option<Vec<NodeSection>>,
     pub(super) node_groups: Option<Vec<NodeGroupSection>>,
+    pub(super) collective_curves: Option<Vec<CollectiveCurveSection>>,
 }
 
 #[derive(Deserialize)]
@@ -112,12 +113,22 @@ pub(super) struct InterconnectLinkSection {
     pub(super) oversubscription: Option<f64>,
     pub(super) rail: Option<u32>,
     pub(super) rails: Option<Vec<u32>>,
+    /// Bandwidth of the `from -> to` direction, overriding the variant's.
+    pub(super) from_to_bandwidth_gbps: Option<f64>,
+    /// Bandwidth of the `to -> from` direction, overriding the variant's.
+    pub(super) to_from_bandwidth_gbps: Option<f64>,
+    pub(super) from_to_latency_us: Option<f64>,
+    pub(super) to_from_latency_us: Option<f64>,
 }
 
 #[derive(Clone, Deserialize)]
 pub(super) struct NicsSection {
     pub(super) count: Option<u8>,
     pub(super) bandwidth_gbps: Option<f64>,
+    /// Cap on every NIC's transmit rate (one-way-slow uplinks).
+    pub(super) egress_bandwidth_gbps: Option<f64>,
+    /// Cap on every NIC's receive rate.
+    pub(super) ingress_bandwidth_gbps: Option<f64>,
     pub(super) affinity: Option<String>,
     pub(super) gpus_per_nic: Option<u8>,
     pub(super) rail_count: Option<u8>,

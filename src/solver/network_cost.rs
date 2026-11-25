@@ -27,6 +27,7 @@ impl Solver {
                 bandwidth_s: 0.0,
                 total_s: 0.0,
                 bottlenecks: Vec::new(),
+                pricing: CollectivePricing::NoTraffic,
             };
         }
 
@@ -85,14 +86,36 @@ impl Solver {
             }
         }
 
-        latency_s *= calibration.collective_latency_scale;
-        bandwidth_s /= calibration.collective_bandwidth_scale;
-
-        CollectiveCost {
-            latency_s,
-            bandwidth_s,
-            total_s: latency_s + bandwidth_s,
-            bottlenecks,
+        let participant_nodes: Vec<NodeId> =
+            participant_addrs.iter().map(|addr| addr.node_id).collect();
+        match Self::curve_pricing(
+            cluster,
+            collective.kind,
+            &participant_nodes,
+            collective.bytes_per_rank.as_bytes(),
+        ) {
+            CurvePricing::Measured {
+                latency_s,
+                bandwidth_s,
+                application,
+            } => CollectiveCost {
+                latency_s,
+                bandwidth_s,
+                total_s: latency_s + bandwidth_s,
+                bottlenecks,
+                pricing: CollectivePricing::MeasuredCurve(application),
+            },
+            CurvePricing::Uncovered(coverage) => {
+                latency_s *= calibration.collective_latency_scale;
+                bandwidth_s /= calibration.collective_bandwidth_scale;
+                CollectiveCost {
+                    latency_s,
+                    bandwidth_s,
+                    total_s: latency_s + bandwidth_s,
+                    bottlenecks,
+                    pricing: CollectivePricing::AlphaBeta(coverage),
+                }
+            }
         }
     }
 
@@ -223,6 +246,7 @@ impl Solver {
                 bandwidth_s: 0.0,
                 total_s: 0.0,
                 bottlenecks: Vec::new(),
+                pricing: CollectivePricing::NoTraffic,
             };
         }
 
@@ -242,6 +266,7 @@ impl Solver {
                 bandwidth_s: f64::INFINITY,
                 total_s: f64::INFINITY,
                 bottlenecks: vec!["KV transfer route unavailable".to_string()],
+                pricing: CollectivePricing::AlphaBeta(CurveCoverage::NotConsulted),
             };
         }
 
@@ -266,6 +291,7 @@ impl Solver {
             bandwidth_s,
             total_s: latency_s + bandwidth_s,
             bottlenecks: vec!["KV transfer fabric/NIC path".to_string()],
+            pricing: CollectivePricing::AlphaBeta(CurveCoverage::NotConsulted),
         }
     }
 
@@ -283,6 +309,7 @@ impl Solver {
                 bandwidth_s: 0.0,
                 total_s: 0.0,
                 bottlenecks: Vec::new(),
+                pricing: CollectivePricing::NoTraffic,
             };
         }
 
@@ -294,6 +321,7 @@ impl Solver {
                 bandwidth_s: f64::INFINITY,
                 total_s: f64::INFINITY,
                 bottlenecks: vec!["KV transfer route unavailable".to_string()],
+                pricing: CollectivePricing::AlphaBeta(CurveCoverage::NotConsulted),
             };
         };
         cost.latency_s *= calibration.collective_latency_scale;
@@ -456,7 +484,11 @@ impl Solver {
                 if src.node_id == dst.node_id {
                     continue;
                 }
-                paths.push(graph.route_between_gpus(src, dst, route_bytes)?);
+                // Ring and pairwise exchanges send both ways at once, so a
+                // pair is bounded by its slower direction.
+                let forward = graph.route_between_gpus(src, dst, route_bytes)?;
+                let reverse = graph.route_between_gpus(dst, src, route_bytes)?;
+                paths.push(slower_path(forward, reverse, route_bytes));
             }
         }
 
@@ -474,6 +506,7 @@ impl Solver {
             bandwidth_s,
             total_s: latency_steps * latency_s + bandwidth_s,
             bottlenecks,
+            pricing: CollectivePricing::AlphaBeta(CurveCoverage::NotConsulted),
         })
     }
 
@@ -501,6 +534,7 @@ impl Solver {
                 bandwidth_s: 0.0,
                 total_s: 0.0,
                 bottlenecks: Vec::new(),
+                pricing: CollectivePricing::NoTraffic,
             });
         }
 
@@ -519,6 +553,7 @@ impl Solver {
             bandwidth_s,
             total_s: latency_s + bandwidth_s,
             bottlenecks,
+            pricing: CollectivePricing::AlphaBeta(CurveCoverage::NotConsulted),
         })
     }
 
@@ -570,6 +605,7 @@ impl Solver {
                 bandwidth_s: 0.0,
                 total_s: 0.0,
                 bottlenecks: Vec::new(),
+                pricing: CollectivePricing::NoTraffic,
             });
         }
 
@@ -589,6 +625,7 @@ impl Solver {
             bandwidth_s,
             total_s: latency_s + bandwidth_s,
             bottlenecks,
+            pricing: CollectivePricing::AlphaBeta(CurveCoverage::NotConsulted),
         })
     }
 
@@ -703,12 +740,17 @@ impl Solver {
         }
     }
 
+    // Bytes each rank sends, as a multiple of `bytes_per_rank`. For
+    // all-reduce `bytes_per_rank` is the full buffer; for all-gather and
+    // reduce-scatter it is the per-rank shard (the tensor each rank
+    // contributes, matching measured-curve keys), so a ring moves
+    // `rank_count - 1` shards per rank.
     fn traffic_multiplier(kind: CollectiveKind, rank_count: f64) -> f64 {
         match kind {
             CollectiveKind::SendRecv | CollectiveKind::Broadcast => 1.0,
             CollectiveKind::AllReduce => 2.0 * (rank_count - 1.0) / rank_count,
             CollectiveKind::AllGather | CollectiveKind::ReduceScatter => {
-                (rank_count - 1.0) / rank_count
+                (rank_count - 1.0).max(1.0)
             }
             CollectiveKind::AllToAll => (rank_count - 1.0) / rank_count,
         }
@@ -770,8 +812,12 @@ impl Solver {
             InterNodeTopology::Custom(edges) => {
                 let mut min_bw = None;
                 let mut max_latency = 0.0_f64;
-                for profile in edges.values().flatten().map(|link| &link.profile) {
-                    min_bw = Some(min_bandwidth(min_bw, profile.bw.unidirectional));
+                for profile in edges
+                    .values()
+                    .flatten()
+                    .map(|link| link.slowest_direction())
+                {
+                    min_bw = Some(min_bandwidth(min_bw, profile.bandwidth));
                     max_latency = max_latency.max(profile.latency.to_us() / 1e6);
                 }
                 (
@@ -797,8 +843,8 @@ impl Solver {
                         if let Some(links) =
                             edges.get(&UnorderedPair::new(node_ids[i], node_ids[j]))
                         {
-                            for profile in links.iter().map(|link| &link.profile) {
-                                min_bw = Some(min_bandwidth(min_bw, profile.bw.unidirectional));
+                            for profile in links.iter().map(|link| link.slowest_direction()) {
+                                min_bw = Some(min_bandwidth(min_bw, profile.bandwidth));
                                 max_latency = max_latency.max(profile.latency.to_us() / 1e6);
                             }
                         }
@@ -831,5 +877,19 @@ impl Solver {
         }
 
         Bandwidth::from_bytes_per_sec(total.max(1.0))
+    }
+}
+
+/// The path with the larger `latency + bytes / bottleneck` cost; ties keep
+/// `forward`, so symmetric topologies route exactly as before.
+fn slower_path(forward: RoutedPath, reverse: RoutedPath, bytes: Bytes) -> RoutedPath {
+    let cost = |path: &RoutedPath| {
+        path.latency_s
+            + bytes.as_bytes() as f64 / path.bottleneck_bandwidth.as_bytes_per_sec().max(1.0)
+    };
+    if cost(&reverse) > cost(&forward) {
+        reverse
+    } else {
+        forward
     }
 }

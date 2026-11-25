@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use crate::types::{
     common::{Bandwidth, Bytes, GpuAddr, NicId, NodeId, UnorderedPair},
     fabric::{
+        direction::LinkDirectionality,
         inter_node::{CustomInterNodeLinkEndpoints, FabricProfile, InterNodeTopology},
         intra_node::{GpuNicPathOverride, NodeNetworkProfile},
     },
@@ -14,7 +15,25 @@ struct GraphInterNodeLink {
     profile: FabricProfile,
     rail: Option<u32>,
     endpoints: Option<CustomInterNodeLinkEndpoints>,
+    direction: LinkDirectionality,
     label: String,
+}
+
+impl GraphInterNodeLink {
+    /// Fabric bandwidth and latency (seconds) for traffic `src -> dst`.
+    fn directed(&self, src: NodeId, dst: NodeId) -> (Bandwidth, f64) {
+        let profile = match self.direction {
+            LinkDirectionality::Asymmetric(link) => link.direction(src, dst),
+            LinkDirectionality::Symmetric => None,
+        };
+        match profile {
+            Some(profile) => (profile.bandwidth, profile.latency.to_us() / 1e6),
+            None => (
+                self.profile.bw.unidirectional,
+                self.profile.latency.to_us() / 1e6,
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -298,42 +317,52 @@ impl TopologyGraph {
                         if link.rail.is_some_and(|link_rail| link_rail != *rail_id) {
                             continue;
                         }
-                        self.add_bidirectional(
-                            GraphResource::Nic {
-                                node_id: src,
-                                nic_id: *src_nic,
-                                rail_id: *rail_id,
-                            },
-                            GraphResource::Nic {
-                                node_id: dst,
-                                nic_id: *dst_nic,
-                                rail_id: *rail_id,
-                            },
-                            ResourceLinkProfile {
-                                kind: RoutedResourceKind::InterNodeFabric,
-                                bandwidth: effective_inter_node_bandwidth(
-                                    cluster,
-                                    src,
-                                    *src_nic,
-                                    dst,
-                                    *dst_nic,
-                                    link.profile.bw.unidirectional,
-                                ),
-                                latency_s: effective_inter_node_latency_s(
-                                    cluster,
-                                    src,
-                                    *src_nic,
-                                    dst,
-                                    *dst_nic,
-                                    link.profile.latency.to_us() / 1e6,
-                                ),
-                                rail_id: Some(*rail_id),
-                                label: format!(
-                                    "{} node {src} <-> node {dst} rail {rail_id}",
-                                    link.label
-                                ),
-                            },
-                        );
+                        let src_resource = GraphResource::Nic {
+                            node_id: src,
+                            nic_id: *src_nic,
+                            rail_id: *rail_id,
+                        };
+                        let dst_resource = GraphResource::Nic {
+                            node_id: dst,
+                            nic_id: *dst_nic,
+                            rail_id: *rail_id,
+                        };
+                        // One resource label for both directions: they share
+                        // the physical link for contention accounting, but
+                        // each direction carries its own bandwidth/latency.
+                        let label =
+                            format!("{} node {src} <-> node {dst} rail {rail_id}", link.label);
+                        for (from, from_nic, to, to_nic, from_resource, to_resource) in [
+                            (src, *src_nic, dst, *dst_nic, &src_resource, &dst_resource),
+                            (dst, *dst_nic, src, *src_nic, &dst_resource, &src_resource),
+                        ] {
+                            let (fabric_bandwidth, fabric_latency_s) = link.directed(from, to);
+                            self.add_directed(
+                                from_resource.clone(),
+                                to_resource.clone(),
+                                ResourceLinkProfile {
+                                    kind: RoutedResourceKind::InterNodeFabric,
+                                    bandwidth: effective_inter_node_bandwidth(
+                                        cluster,
+                                        from,
+                                        from_nic,
+                                        to,
+                                        to_nic,
+                                        fabric_bandwidth,
+                                    ),
+                                    latency_s: effective_inter_node_latency_s(
+                                        cluster,
+                                        from,
+                                        from_nic,
+                                        to,
+                                        to_nic,
+                                        fabric_latency_s,
+                                    ),
+                                    rail_id: Some(*rail_id),
+                                    label: label.clone(),
+                                },
+                            );
+                        }
                     }
                 }
             }
@@ -357,6 +386,10 @@ impl TopologyGraph {
                 ) else {
                     continue;
                 };
+                let reverse_bandwidth = effective_gpu_scoped_link_bandwidth(
+                    cluster, dst, *dst_gpu, src, *src_gpu, link,
+                )
+                .map_or(bandwidth, |(reverse, _)| reverse);
                 let rail_label = rail_id
                     .map(|rail_id| format!("rail {rail_id}"))
                     .unwrap_or_else(|| "rail unknown".to_string());
@@ -364,37 +397,73 @@ impl TopologyGraph {
                     crate::solver::Solver::intra_node_link_profile(cluster, src);
                 let (dst_latency_s, dst_bandwidth) =
                     crate::solver::Solver::intra_node_link_profile(cluster, dst);
-                let bandwidth = Bandwidth::from_bytes_per_sec(
-                    bandwidth
-                        .as_bytes_per_sec()
-                        .min(src_bandwidth.as_bytes_per_sec())
-                        .min(dst_bandwidth.as_bytes_per_sec())
-                        .max(1.0),
+                let endpoint_cap = |bandwidth: Bandwidth| {
+                    Bandwidth::from_bytes_per_sec(
+                        bandwidth
+                            .as_bytes_per_sec()
+                            .min(src_bandwidth.as_bytes_per_sec())
+                            .min(dst_bandwidth.as_bytes_per_sec())
+                            .max(1.0),
+                    )
+                };
+                let src_resource = GraphResource::Gpu(GpuAddr {
+                    node_id: src,
+                    local_gpu_id: *src_gpu,
+                });
+                let dst_resource = GraphResource::Gpu(GpuAddr {
+                    node_id: dst,
+                    local_gpu_id: *dst_gpu,
+                });
+                let label = format!(
+                    "{} node {src} gpu {src_gpu} <-> node {dst} gpu {dst_gpu} {rail_label}",
+                    link.label
                 );
-                self.add_bidirectional(
-                    GraphResource::Gpu(GpuAddr {
-                        node_id: src,
-                        local_gpu_id: *src_gpu,
-                    }),
-                    GraphResource::Gpu(GpuAddr {
-                        node_id: dst,
-                        local_gpu_id: *dst_gpu,
-                    }),
-                    ResourceLinkProfile {
-                        kind: RoutedResourceKind::GpuScopedInterNodeFabric,
-                        bandwidth,
-                        latency_s: src_latency_s
-                            + link.profile.latency.to_us() / 1e6
-                            + dst_latency_s,
-                        rail_id,
-                        label: format!(
-                            "{} node {src} gpu {src_gpu} <-> node {dst} gpu {dst_gpu} {rail_label}",
-                            link.label
-                        ),
-                    },
-                );
+                for (from_resource, to_resource, direction_bandwidth, (from, to)) in [
+                    (&src_resource, &dst_resource, bandwidth, (src, dst)),
+                    (&dst_resource, &src_resource, reverse_bandwidth, (dst, src)),
+                ] {
+                    let (_, fabric_latency_s) = link.directed(from, to);
+                    self.add_directed(
+                        from_resource.clone(),
+                        to_resource.clone(),
+                        ResourceLinkProfile {
+                            kind: RoutedResourceKind::GpuScopedInterNodeFabric,
+                            bandwidth: endpoint_cap(direction_bandwidth),
+                            latency_s: src_latency_s + fabric_latency_s + dst_latency_s,
+                            rail_id,
+                            label: label.clone(),
+                        },
+                    );
+                }
             }
         }
+    }
+
+    fn add_directed(
+        &mut self,
+        from: GraphResource,
+        to: GraphResource,
+        profile: ResourceLinkProfile,
+    ) {
+        let ResourceLinkProfile {
+            kind,
+            bandwidth,
+            latency_s,
+            rail_id,
+            label,
+        } = profile;
+        self.edges
+            .entry(from.clone())
+            .or_default()
+            .push(ResourceLink {
+                from,
+                to,
+                kind,
+                bandwidth,
+                latency_s,
+                rail_id,
+                label,
+            });
     }
 
     fn add_bidirectional(
@@ -470,6 +539,7 @@ fn inter_node_link_profiles(
                 profile,
                 rail: None,
                 endpoints: None,
+                direction: LinkDirectionality::Symmetric,
                 label: "fat-tree fabric".to_string(),
             }]
         }
@@ -477,6 +547,7 @@ fn inter_node_link_profiles(
             profile: link.clone(),
             rail: None,
             endpoints: None,
+            direction: LinkDirectionality::Symmetric,
             label: "flat fabric".to_string(),
         }],
         InterNodeTopology::Custom(edges) => edges
@@ -487,6 +558,7 @@ fn inter_node_link_profiles(
                 profile: link.profile.clone(),
                 rail: link.rail,
                 endpoints: link.endpoints.clone(),
+                direction: link.direction,
                 label: format!("custom {}", link.profile.label),
             })
             .collect(),
@@ -570,7 +642,7 @@ fn effective_gpu_scoped_link_bandwidth(
                 *src_nic,
                 dst,
                 *dst_nic,
-                link.profile.bw.unidirectional,
+                link.directed(src, dst).0,
             );
             let rail_id = link.rail.or(Some(rail));
             if best
@@ -593,7 +665,7 @@ fn effective_gpu_scoped_link_bandwidth(
                     *src_nic,
                     dst,
                     *dst_nic,
-                    link.profile.bw.unidirectional,
+                    link.directed(src, dst).0,
                 );
                 let rail = src_node.network.rail_id(*src_nic);
                 if best
@@ -780,14 +852,24 @@ fn effective_inter_node_bandwidth(
     dst_nic: NicId,
     fabric_bandwidth: Bandwidth,
 ) -> Bandwidth {
+    // Traffic leaves through the source NIC's egress and arrives through
+    // the destination NIC's ingress (both the line rate unless capped).
     let mut bytes_per_sec = fabric_bandwidth.as_bytes_per_sec();
     if let Some(src_node) = cluster.node(src) {
-        bytes_per_sec =
-            bytes_per_sec.min(src_node.network.nic_bandwidth(src_nic).as_bytes_per_sec());
+        bytes_per_sec = bytes_per_sec.min(
+            src_node
+                .network
+                .nic_egress_bandwidth(src_nic)
+                .as_bytes_per_sec(),
+        );
     }
     if let Some(dst_node) = cluster.node(dst) {
-        bytes_per_sec =
-            bytes_per_sec.min(dst_node.network.nic_bandwidth(dst_nic).as_bytes_per_sec());
+        bytes_per_sec = bytes_per_sec.min(
+            dst_node
+                .network
+                .nic_ingress_bandwidth(dst_nic)
+                .as_bytes_per_sec(),
+        );
     }
     Bandwidth::from_bytes_per_sec(bytes_per_sec.max(1.0))
 }

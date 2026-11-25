@@ -120,11 +120,14 @@ pub(super) fn parse_custom_cluster(file: ClusterFile) -> Result<Cluster, ConfigE
         &node_groups,
     )?;
 
-    Ok(Cluster {
+    let mut cluster = Cluster {
         nodes,
         node_groups,
         inter_node_topology,
-    })
+        collective_curves: Default::default(),
+    };
+    cluster.collective_curves = parse_collective_curves(file.collective_curves, &cluster)?;
+    Ok(cluster)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -192,6 +195,7 @@ pub(super) fn build_node(
             gpu_nic_path_overrides: Default::default(),
             disabled_nics: Default::default(),
             nic_operational_states: Default::default(),
+            nic_direction_caps: Default::default(),
         }),
     };
     validate_network_profile(&format!("{name}.nics"), &gpus, &disabled_gpus, &network)?;
@@ -796,7 +800,9 @@ pub(super) fn custom_interconnect_topology(
                 profile.bw.unidirectional = profile.bw.unidirectional / oversubscription;
             }
             let rails = interconnect_link_rails(&link)?;
+            let overrides = interconnect_link_direction_overrides(&link)?;
             for pair in interconnect_link_pairs(&link, nodes, node_groups)? {
+                let direction = overrides.resolve(pair.from, pair.to, &profile)?;
                 let links = edges
                     .entry(UnorderedPair::new(pair.from, pair.to))
                     .or_insert_with(Vec::new);
@@ -805,6 +811,7 @@ pub(super) fn custom_interconnect_topology(
                         profile: profile.clone(),
                         rail: *rail,
                         endpoints: pair.endpoint_scope(),
+                        direction,
                     });
                 }
             }
@@ -819,6 +826,73 @@ pub(super) fn custom_interconnect_topology(
             leaf_size: 0,
         },
         None => InterNodeTopology::Custom(HashMap::new()),
+    })
+}
+
+/// Per-direction overrides declared on an `[[interconnect.links]]` entry.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct LinkDirectionOverrides {
+    from_to_bandwidth: Option<Bandwidth>,
+    to_from_bandwidth: Option<Bandwidth>,
+    from_to_latency: Option<Latency>,
+    to_from_latency: Option<Latency>,
+}
+
+impl LinkDirectionOverrides {
+    fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Symmetric when nothing is overridden; otherwise both directions,
+    /// falling back to the variant's profile for anything not overridden.
+    fn resolve(
+        &self,
+        from: u32,
+        to: u32,
+        profile: &FabricProfile,
+    ) -> Result<LinkDirectionality, ConfigError> {
+        if self.is_empty() {
+            return Ok(LinkDirectionality::Symmetric);
+        }
+        let direction = |bandwidth: Option<Bandwidth>, latency: Option<Latency>| DirectionProfile {
+            bandwidth: bandwidth.unwrap_or(profile.bw.unidirectional),
+            latency: latency.unwrap_or(profile.latency),
+        };
+        AsymmetricLink::new(
+            from,
+            to,
+            direction(self.from_to_bandwidth, self.from_to_latency),
+            direction(self.to_from_bandwidth, self.to_from_latency),
+        )
+        .map(LinkDirectionality::Asymmetric)
+        .map_err(|err| ConfigError::new(format!("interconnect.links[]: {err}")))
+    }
+}
+
+pub(super) fn interconnect_link_direction_overrides(
+    link: &InterconnectLinkSection,
+) -> Result<LinkDirectionOverrides, ConfigError> {
+    let bandwidth = |field: &str, value: Option<f64>| match value {
+        None => Ok(None),
+        Some(gbps) if gbps.is_finite() && gbps > 0.0 => {
+            Ok(Some(Bandwidth::from_gigabits_per_sec(gbps)))
+        }
+        Some(_) => Err(ConfigError::new(format!(
+            "interconnect.links[].{field} must be finite and positive"
+        ))),
+    };
+    let latency = |field: &str, value: Option<f64>| match value {
+        None => Ok(None),
+        Some(us) if us.is_finite() && us >= 0.0 => Ok(Some(Latency::from_us(us))),
+        Some(_) => Err(ConfigError::new(format!(
+            "interconnect.links[].{field} must be finite and non-negative"
+        ))),
+    };
+    Ok(LinkDirectionOverrides {
+        from_to_bandwidth: bandwidth("from_to_bandwidth_gbps", link.from_to_bandwidth_gbps)?,
+        to_from_bandwidth: bandwidth("to_from_bandwidth_gbps", link.to_from_bandwidth_gbps)?,
+        from_to_latency: latency("from_to_latency_us", link.from_to_latency_us)?,
+        to_from_latency: latency("to_from_latency_us", link.to_from_latency_us)?,
     })
 }
 
@@ -1436,6 +1510,7 @@ pub(super) fn nics_profile(
         }
         None => interconnect.bw.unidirectional,
     };
+    let nic_direction_caps = parse_nic_direction_caps(name, section, nic_count)?;
     let gpu_nic_map = parse_gpu_nic_map(name, section.gpu_nic_map.as_deref())?;
     let gpu_numa_map = parse_gpu_numa_map(name, section.gpu_numa_map.as_deref())?;
     let nic_numa_map = parse_nic_numa_map(name, section.nic_numa_map.as_deref(), nic_count)?;
@@ -1485,6 +1560,33 @@ pub(super) fn nics_profile(
         gpu_nic_path_overrides,
         disabled_nics,
         nic_operational_states,
+        nic_direction_caps,
+    })
+}
+
+/// Node-wide one-way caps (`egress_bandwidth_gbps` / `ingress_bandwidth_gbps`)
+/// applied to every NIC of the node.
+pub(super) fn parse_nic_direction_caps(
+    name: &str,
+    section: &NicsSection,
+    nic_count: u8,
+) -> Result<BTreeMap<NicId, NicDirectionCaps>, ConfigError> {
+    let cap = |field: &str, value: Option<f64>| -> Result<Option<Bandwidth>, ConfigError> {
+        match value {
+            None => Ok(None),
+            Some(gbps) if gbps.is_finite() && gbps > 0.0 => {
+                Ok(Some(Bandwidth::from_gigabits_per_sec(gbps)))
+            }
+            Some(_) => Err(ConfigError::new(format!(
+                "{name}.{field} must be finite and positive"
+            ))),
+        }
+    };
+    let egress = cap("egress_bandwidth_gbps", section.egress_bandwidth_gbps)?;
+    let ingress = cap("ingress_bandwidth_gbps", section.ingress_bandwidth_gbps)?;
+    Ok(match NicDirectionCaps::new(egress, ingress) {
+        Some(caps) => (0..u32::from(nic_count)).map(|nic| (nic, caps)).collect(),
+        None => BTreeMap::new(),
     })
 }
 
