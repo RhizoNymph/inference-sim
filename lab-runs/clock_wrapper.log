@@ -1,0 +1,3 @@
+clock locked on 10.1.1.67 at 1200 MHz
+run finished: info  step host=10.1.1.67 phase=teardown step_name="stop stale processes on node2"
+clock reset on 10.1.1.67: 2115 MHz
